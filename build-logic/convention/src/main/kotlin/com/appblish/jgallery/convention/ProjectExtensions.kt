@@ -47,6 +47,9 @@ internal fun Project.configureAndroidCommon(extension: CommonExtension<*, *, *, 
             abortOnError = true
             checkDependencies = true
             sarifReport = true
+            // Navigation 2.8.x lint jars are compiled against an older lint API — suppress the
+            // ObsoleteLintCustomCheck warning they emit so CI stays clean without a baseline file.
+            disable += "ObsoleteLintCustomCheck"
             // No baseline: the scaffold ships with zero violations, and the RawStorageAccess
             // boundary check must fail the build the moment a violation is introduced.
         }

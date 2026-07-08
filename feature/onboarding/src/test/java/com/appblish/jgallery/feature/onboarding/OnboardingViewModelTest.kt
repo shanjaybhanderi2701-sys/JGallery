@@ -78,7 +78,8 @@ class OnboardingViewModelTest {
         advanceUntilIdle()
 
         val effects = mutableListOf<OnboardingEffect>()
-        backgroundScope.launch { vm.effects.toList(effects) }
+        backgroundScope.launch { vm.effects.collect { effects += it } }
+        runCurrent() // start the collector so it's subscribed before the effect is sent
 
         vm.onAllowClicked()
         advanceUntilIdle()
