@@ -6,13 +6,13 @@ import com.appblish.jgallery.core.storage.StoragePermissionController
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
-import kotlinx.coroutines.test.runCurrent
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
 import org.junit.After
@@ -33,21 +33,21 @@ class OnboardingViewModelTest {
     @After fun tearDown() = Dispatchers.resetMain()
 
     @Test
-    fun `already-granted access skips onboarding straight to Complete`() = runTest {
+    fun `already-granted access skips onboarding straight to Complete`() = runTest(dispatcher) {
         val vm = OnboardingViewModel(FakeController(granted = true), FakePreferences())
         advanceUntilIdle()
         assertThat(vm.state.value.step).isEqualTo(OnboardingStep.Complete)
     }
 
     @Test
-    fun `first run with no access starts at the language screen`() = runTest {
+    fun `first run with no access starts at the language screen`() = runTest(dispatcher) {
         val vm = OnboardingViewModel(FakeController(granted = false), FakePreferences())
         advanceUntilIdle()
         assertThat(vm.state.value.step).isEqualTo(OnboardingStep.Language)
     }
 
     @Test
-    fun `revoked re-entry after language pick lands on the primer, not the language screen`() = runTest {
+    fun `revoked re-entry after language pick lands on the primer, not the language screen`() = runTest(dispatcher) {
         val prefs = FakePreferences(picked = true, language = OnboardingLanguage.Hindi)
         val vm = OnboardingViewModel(FakeController(granted = false), prefs)
         advanceUntilIdle()
@@ -56,7 +56,7 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `confirming language persists it and advances to the primer`() = runTest {
+    fun `confirming language persists it and advances to the primer`() = runTest(dispatcher) {
         val prefs = FakePreferences()
         val vm = OnboardingViewModel(FakeController(granted = false), prefs)
         advanceUntilIdle()
@@ -71,29 +71,30 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `Allow emits the request effect and awaits access`() = runTest {
+    fun `Allow emits the request effect and awaits access`() = runTest(dispatcher) {
         // Unit-tests exercise the RuntimePermissions arm (no android Intent to mock — the same reason
         // StorageBoundarySwapTest leaves the SystemSettings/startActivity arm to instrumented tests).
         val vm = OnboardingViewModel(FakeController(granted = false), FakePreferences())
         advanceUntilIdle()
 
-        val effects = mutableListOf<OnboardingEffect>()
-        backgroundScope.launch { vm.effects.collect { effects += it } }
-        runCurrent() // start the collector so it's subscribed before the effect is sent
+        // Start collector BEFORE the event so the channel is subscribed when trySend fires.
+        // vm.effects is receiveAsFlow() on a BUFFERED Channel — ChannelFlow's inner producer
+        // coroutine needs to be scheduled by advanceUntilIdle before it subscribes.
+        val effectDeferred = async { vm.effects.first() }
+        advanceUntilIdle() // let the async collector subscribe to the channel
 
         vm.onAllowClicked()
         advanceUntilIdle()
 
         assertThat(vm.state.value.step).isEqualTo(OnboardingStep.AwaitingAccess)
-        assertThat(effects).hasSize(1)
-        val effect = effects.first()
+        val effect = effectDeferred.await()
         assertThat(effect).isInstanceOf(OnboardingEffect.RequestRuntimePermissions::class.java)
         assertThat((effect as OnboardingEffect.RequestRuntimePermissions).permissions)
             .containsExactly("android.permission.READ_EXTERNAL_STORAGE")
     }
 
     @Test
-    fun `refreshAccess after a grant advances into the app`() = runTest {
+    fun `refreshAccess after a grant advances into the app`() = runTest(dispatcher) {
         val controller = FakeController(granted = false)
         val vm = OnboardingViewModel(controller, FakePreferences())
         advanceUntilIdle()
@@ -108,7 +109,7 @@ class OnboardingViewModelTest {
     }
 
     @Test
-    fun `refreshAccess while still denied falls back to the primer`() = runTest {
+    fun `refreshAccess while still denied falls back to the primer`() = runTest(dispatcher) {
         val vm = OnboardingViewModel(FakeController(granted = false), FakePreferences())
         advanceUntilIdle()
         vm.onAllowClicked() // -> AwaitingAccess

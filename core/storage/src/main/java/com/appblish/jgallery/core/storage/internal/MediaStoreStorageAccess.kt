@@ -1,5 +1,6 @@
 package com.appblish.jgallery.core.storage.internal
 
+import android.annotation.SuppressLint
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.database.ContentObserver
@@ -84,6 +85,9 @@ internal class MediaStoreStorageAccess(
             .sortedByDescending { it.newestItemMillis }
     }
 
+    // Ownership of the stream transfers to the caller (see StorageAccess.openStream — "Caller closes
+    // the stream"); closing it here would defeat the purpose, so the Recycle check is a false positive.
+    @SuppressLint("Recycle")
     override suspend fun openStream(id: MediaId, target: DecodeTarget): InputStream =
         withContext(io) {
             val uri = idToUri(id)
