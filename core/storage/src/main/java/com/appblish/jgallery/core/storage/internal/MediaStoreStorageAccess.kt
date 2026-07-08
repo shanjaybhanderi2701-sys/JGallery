@@ -5,10 +5,12 @@ import android.content.ContentResolver
 import android.content.ContentUris
 import android.database.ContentObserver
 import android.database.Cursor
+import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import android.util.Size
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
@@ -30,6 +32,8 @@ import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
+import java.io.ByteArrayInputStream
+import java.io.ByteArrayOutputStream
 import java.io.InputStream
 
 /**
@@ -91,10 +95,37 @@ internal class MediaStoreStorageAccess(
     override suspend fun openStream(id: MediaId, target: DecodeTarget): InputStream =
         withContext(io) {
             val uri = idToUri(id)
-            // Callers request a Thumbnail target for grid tiles; the size-aware source selection
-            // (loadThumbnail / downsampled decode) lands with the thumbnail pipeline (APP-273).
-            resolver.openInputStream(uri)
-                ?: error("Unable to open stream for $id")
+            when (target) {
+                is DecodeTarget.Full -> fullStream(uri, id)
+                // Grid tiles: hand back the smallest source MediaStore can produce (pre-generated /
+                // EXIF thumbnails where available — no full-size decode). If the provider cannot
+                // thumbnail this item, fall back to the original bytes; Coil's subsampled decode
+                // still bounds the resulting bitmap to the tile size (spec §1 rule 2).
+                is DecodeTarget.Thumbnail ->
+                    thumbnailStream(uri, target.maxEdgePx) ?: fullStream(uri, id)
+            }
+        }
+
+    private fun fullStream(uri: Uri, id: MediaId): InputStream =
+        resolver.openInputStream(uri) ?: error("Unable to open stream for $id")
+
+    /**
+     * Downsized JPEG bytes via [ContentResolver.loadThumbnail] (API 29+, min for this app), which
+     * serves MediaStore's own thumbnail for both images and video frames. The tile-sized re-encode
+     * is a one-time cost per (item, size) — `:core:thumbs` persists the result in its disk cache.
+     * Null when the provider cannot produce a thumbnail (corrupt/unsupported source).
+     */
+    private fun thumbnailStream(uri: Uri, maxEdgePx: Int): InputStream? =
+        try {
+            val bitmap = resolver.loadThumbnail(uri, Size(maxEdgePx, maxEdgePx), null)
+            val bytes = ByteArrayOutputStream().use { out ->
+                bitmap.compress(Bitmap.CompressFormat.JPEG, THUMBNAIL_JPEG_QUALITY, out)
+                out.toByteArray()
+            }
+            bitmap.recycle()
+            ByteArrayInputStream(bytes)
+        } catch (_: Exception) {
+            null // IOException for un-thumbnailable rows; caller streams the original instead
         }
 
     override suspend fun queryMediaSignatures(query: MediaQuery): List<MediaSignature> =
@@ -256,6 +287,9 @@ internal class MediaStoreStorageAccess(
         // Literal value of MediaStore.VOLUME_EXTERNAL (API 29 constant) — using the string keeps
         // the call available without a NewApi guard below minSdk 29's floor.
         const val EXTERNAL_VOLUME = "external"
+
+        // Tile-sized re-encode quality: visually lossless at grid scale, ~½ the bytes of q95.
+        const val THUMBNAIL_JPEG_QUALITY = 85
 
         val PROJECTION = arrayOf(
             MediaStore.Files.FileColumns._ID,
