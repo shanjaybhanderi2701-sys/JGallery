@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GRADLE_VERSION: "8.10.2"
+
+jobs:
+  # --- Static analysis: Android Lint incl. the RawStorageAccess boundary check (spec §1.6). ---
+  static-analysis:
+    name: Lint + boundary check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bootstrap Gradle wrapper (first-run only)
+        run: if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then gradle wrapper --gradle-version "$GRADLE_VERSION" --distribution-type bin; fi
+      - uses: gradle/actions/wrapper-validation@v4
+      - name: Verify the storage-boundary lint rule itself (unit test)
+        run: ./gradlew :lint:storage-boundary:test
+      # Egress guard (APP-289, required): the §9.3 "never uploaded" trust claim stays true BY
+      # CONSTRUCTION. Fails on network permissions in the merged manifest, denylisted
+      # network/analytics deps in the resolved runtime classpath, or trust-claim copy outside
+      # the registered files. If this goes red, either remove the egress or pull the claim
+      # (TrustCopy + registered files) in the same change — see APP-285 security-signoff doc.
+      - name: Egress guard (no INTERNET / network deps / stray trust claims)
+        run: ./gradlew :app:verifyNoEgress
+      - name: Android Lint (warningsAsErrors, all modules)
+        run: ./gradlew lint
+
+  # --- Egress-guard self-test (manual): proves the APP-289 DoD — guard RED on injected
+  # INTERNET permission / okhttp dep / stray trust claim, GREEN on the clean tree. The
+  # injections are throwaway working-tree edits inside the runner; nothing is committed. ---
+  egress-guard-selftest:
+    name: Egress guard red/green proof
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bootstrap Gradle wrapper (first-run only)
+        run: if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then gradle wrapper --gradle-version "$GRADLE_VERSION" --distribution-type bin; fi
+      - name: Prove guard red on egress, green on clean tree
+        run: ./scripts/prove_egress_guard.sh
+
+  # --- JVM/unit tests across all modules. ---
+  unit-test:
+    name: Unit tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bootstrap Gradle wrapper (first-run only)
+        run: if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then gradle wrapper --gradle-version "$GRADLE_VERSION" --distribution-type bin; fi
+      - name: Assemble debug (compile everything)
+        run: ./gradlew assembleDebug
+      - name: Run unit tests
+        run: ./gradlew testDebugUnitTest
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: unit-test-reports
+          path: "**/build/reports/tests/**"
+          if-no-files-found: ignore
+
+  # --- Instrumented tests on an emulator: the Wave-1 DoD is verified here, not by screenshots. ---
+  instrumented-test:
+    name: Instrumented tests (API ${{ matrix.api-level }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        api-level: [30]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Bootstrap Gradle wrapper (first-run only)
+        run: if [ ! -f gradle/wrapper/gradle-wrapper.jar ]; then gradle wrapper --gradle-version "$GRADLE_VERSION" --distribution-type bin; fi
+
+      - name: Enable KVM (hardware acceleration)
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run connected Android tests
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          profile: pixel_5
+          ram-size: 4096M
+          disable-animations: true
+          script: ./gradlew connectedDebugAndroidTest
+
+      - name: Upload instrumented-test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: instrumented-test-reports
+          path: "**/build/reports/androidTests/**"
+          if-no-files-found: ignore

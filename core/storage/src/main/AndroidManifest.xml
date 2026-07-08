@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!--
+      The permission model lives HERE, at the boundary — not scattered across features (spec §1.6, §9).
+      All Files Access is the locked Phase-G1 decision; swapping to media permissions means editing
+      only this module + the StorageAccess implementation, never feature code.
+    -->
+    <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE" />
+
+    <!-- Legacy read for pre-R devices (minSdk 26); scoped appropriately by maxSdkVersion. -->
+    <uses-permission
+        android:name="android.permission.READ_EXTERNAL_STORAGE"
+        android:maxSdkVersion="32" />
+
+</manifest>
