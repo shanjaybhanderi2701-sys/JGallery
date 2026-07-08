@@ -84,6 +84,7 @@ class RawStorageAccessDetector : Detector(), SourceCodeScanner {
         )
     }
 
+    @Suppress("LintImplTrimIndent") // false-positive: no .trimIndent() call; lint-api 31.x flags multiline explanation strings
     companion object {
         private const val MEDIA_STORE = "android.provider.MediaStore"
         private const val PERMISSION_CLASS = "android.Manifest.permission"
@@ -127,7 +128,7 @@ class RawStorageAccessDetector : Detector(), SourceCodeScanner {
                 `ContentResolver` file IO, or `MANAGE_EXTERNAL_STORAGE` anywhere else scatters the \
                 permission model into feature code and breaks the escape hatch. Inject and use a \
                 `StorageAccess` / repository from `:core:storage` instead.
-            """.trimIndent(),
+            """,
             category = Category.CORRECTNESS,
             priority = 9,
             severity = Severity.ERROR,
