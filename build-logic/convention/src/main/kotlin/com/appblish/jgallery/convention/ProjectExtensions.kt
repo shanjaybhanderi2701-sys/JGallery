@@ -15,7 +15,7 @@ import org.jetbrains.kotlin.gradle.dsl.KotlinJvmProjectExtension
 
 /** JGallery-wide compile targets — keep every module identical. */
 object BuildConfig {
-    const val COMPILE_SDK = 34
+    const val COMPILE_SDK = 35 // Compose 1.8 (via Coil3 3.2) + AGP 8.7 AAR metadata require API 35 to compile against
     const val TARGET_SDK = 34
     const val MIN_SDK = 29 // modern MediaStore columns (BUCKET_*, DURATION); All-Files R-era model, guarded at runtime
     val JAVA_VERSION = JavaVersion.VERSION_17
