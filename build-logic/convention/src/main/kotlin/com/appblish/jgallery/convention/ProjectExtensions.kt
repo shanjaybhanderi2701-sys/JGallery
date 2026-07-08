@@ -50,6 +50,11 @@ internal fun Project.configureAndroidCommon(extension: CommonExtension<*, *, *, 
             // Navigation 2.8.x lint jars are compiled against an older lint API — suppress the
             // ObsoleteLintCustomCheck warning they emit so CI stays clean without a baseline file.
             disable += "ObsoleteLintCustomCheck"
+            // This gallery app legitimately uses MANAGE_EXTERNAL_STORAGE for All Files Access
+            // (spec §1.6, §9.3). The ScopedStorage lint check warns about Play policy; the policy
+            // allows gallery/file-manager apps with a justified use case — suppress the check here
+            // and note it in the release checklist instead.
+            disable += "ScopedStorage"
             // No baseline: the scaffold ships with zero violations, and the RawStorageAccess
             // boundary check must fail the build the moment a violation is introduced.
         }

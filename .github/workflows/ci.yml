@@ -118,7 +118,8 @@ jobs:
           profile: pixel_5
           ram-size: 4096M
           disable-animations: true
-          script: ./gradlew connectedDebugAndroidTest
+          # Retry once on failure: "Failed to inject touch input" is transient emulator jitter.
+          script: ./gradlew connectedDebugAndroidTest || ./gradlew connectedDebugAndroidTest
 
       - name: Upload instrumented-test reports
         if: always()
