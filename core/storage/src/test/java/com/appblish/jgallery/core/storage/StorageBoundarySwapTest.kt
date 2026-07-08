@@ -8,6 +8,7 @@ import com.appblish.jgallery.core.model.OperationProgress
 import com.appblish.jgallery.core.model.OperationResult
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.test.runTest
 import org.junit.Test
@@ -124,6 +125,9 @@ class StorageBoundarySwapTest {
                 .sortedByDescending { it.newestItemMillis }
         override suspend fun openStream(id: MediaId, target: DecodeTarget): InputStream =
             ByteArrayInputStream(SAMPLE_BYTES)
+        override suspend fun queryMediaSignatures(query: MediaQuery): List<MediaSignature> =
+            items.map { MediaSignature(it.id, it.dateModifiedMillis, it.sizeBytes, generation = 0L) }
+        override fun observeMediaChanges(): Flow<Unit> = emptyFlow()
 
         override suspend fun rename(id: MediaId, newDisplayName: String) = ok()
         override suspend fun createAlbum(name: String) = ok()
