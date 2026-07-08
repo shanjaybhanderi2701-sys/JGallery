@@ -55,8 +55,17 @@ internal fun Project.configureAndroidCommon(extension: CommonExtension<*, *, *, 
             // allows gallery/file-manager apps with a justified use case — suppress the check here
             // and note it in the release checklist instead.
             disable += "ScopedStorage"
-            // No baseline: the scaffold ships with zero violations, and the RawStorageAccess
-            // boundary check must fail the build the moment a violation is introduced.
+            // "Newer version available" nags fail the build whenever an upstream release is
+            // published — a time-dependent, non-deterministic signal that has no place gating CI.
+            // Dependency bumps are a deliberate, reviewed action, not a lint error.
+            disable += "GradleDependency"
+            disable += "AndroidGradlePluginVersion"
+            // The launcher adaptive-icon must live in mipmap-anydpi-v26 (aapt2 rejects <adaptive-icon>
+            // in an unqualified folder), which lint flags as an "obsolete" v26 qualifier at minSdk 29.
+            // That advice is inapplicable to adaptive icons; no real SDK_INT guard trips this check.
+            disable += "ObsoleteSdkInt"
+            // No baseline: with the above nags disabled the scaffold ships with zero violations, and
+            // the RawStorageAccess boundary check must fail the build the moment one is introduced.
         }
     }
 

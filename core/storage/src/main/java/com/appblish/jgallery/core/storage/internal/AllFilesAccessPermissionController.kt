@@ -1,6 +1,7 @@
 package com.appblish.jgallery.core.storage.internal
 
 import android.Manifest
+import android.annotation.SuppressLint
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -56,6 +57,9 @@ internal class AllFilesAccessPermissionController(
         return AccessRequest.SystemSettings(intent)
     }
 
+    // These are all system Settings activities, which are always visible to package-visibility
+    // queries — no <queries> manifest entry is needed, so QueryPermissionsNeeded is a false positive.
+    @SuppressLint("QueryPermissionsNeeded")
     private fun firstResolvable(vararg candidates: Intent): Intent =
         candidates.firstOrNull { it.resolveActivity(appContext.packageManager) != null }
             ?: candidates.last()
