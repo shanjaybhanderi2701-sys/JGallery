@@ -45,7 +45,7 @@ interface StorageAccess {
     // --- Incremental indexing support (spec §1 rule 4). Read-only; used by :core:index only. ---
 
     /**
-     * Cheap fingerprint of every media row matching [query] (id + date-modified + size + generation),
+     * Cheap fingerprint of every media row matching [query] (id + date-modified + size),
      * read with a minimal projection. `:core:index` diffs this against its persisted signatures to
      * find adds/updates/deletes without re-reading full-column data for unchanged rows — the "update
      * incrementally, don't re-scan on every open" mandate.

@@ -30,8 +30,8 @@ internal data class IndexDelta(
  * Diff the persisted index signatures against a fresh scan of the current library. This is what makes
  * the index *incremental*: unchanged rows appear in neither set, so they are never re-read from the
  * provider nor re-written to the cache — opening the app does not trigger a full re-index (spec §1
- * rule 4). Deletions are caught by "was persisted, no longer present", which a generation-only
- * changed-since query cannot see — hence the full (but minimal-projection) signature comparison.
+ * rule 4). Deletions are caught by "was persisted, no longer present", which a changed-since-token
+ * query cannot see — hence the full (but minimal-projection) signature comparison.
  *
  * [changedIds] preserves the encounter order of [current] so downstream re-reads stay stable/testable.
  */

@@ -168,14 +168,6 @@ internal class MediaStoreStorageAccess(
             clauses += "${MediaStore.Files.FileColumns._ID} IN ($placeholders)"
             args += ids.map { it.value }
         }
-        // Changed-since is an API-30+ capability (GENERATION_MODIFIED); below R the caller diffs
-        // signatures instead, so the token is simply ignored here.
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-            query.changedSinceGeneration?.let {
-                clauses += "$GENERATION_MODIFIED > ?"
-                args += it.toString()
-            }
-        }
         return (clauses.takeIf { it.isNotEmpty() }?.joinToString(" AND ")) to
             (args.takeIf { it.isNotEmpty() }?.toTypedArray())
     }
@@ -227,22 +219,16 @@ internal class MediaStoreStorageAccess(
         return out
     }
 
-    private fun signatureProjection(): Array<String> {
-        val base = arrayOf(
-            MediaStore.Files.FileColumns._ID,
-            MediaStore.Files.FileColumns.DATE_MODIFIED,
-            MediaStore.Files.FileColumns.SIZE,
-        )
-        // GENERATION_MODIFIED is API 30+. Requesting a non-existent column throws on API 29, so it is
-        // only added when the platform has it; readSignatures falls back to generation = 0.
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) base + GENERATION_MODIFIED else base
-    }
+    private fun signatureProjection(): Array<String> = arrayOf(
+        MediaStore.Files.FileColumns._ID,
+        MediaStore.Files.FileColumns.DATE_MODIFIED,
+        MediaStore.Files.FileColumns.SIZE,
+    )
 
     private fun Cursor.readSignatures(limit: Int?): List<MediaSignature> {
         val idCol = getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
         val dateModCol = getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
         val sizeCol = getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
-        val genCol = getColumnIndex(GENERATION_MODIFIED) // -1 when absent (pre-R projection)
 
         val out = ArrayList<MediaSignature>(if (limit != null) minOf(limit, count) else count)
         while (moveToNext()) {
@@ -251,7 +237,6 @@ internal class MediaStoreStorageAccess(
                 id = MediaId(getLong(idCol).toString()),
                 dateModifiedMillis = getLong(dateModCol) * 1000L, // MediaStore stores seconds
                 sizeBytes = getLong(sizeCol),
-                generation = if (genCol >= 0) getLong(genCol) else 0L,
             )
         }
         return out
@@ -271,11 +256,6 @@ internal class MediaStoreStorageAccess(
         // Literal value of MediaStore.VOLUME_EXTERNAL (API 29 constant) — using the string keeps
         // the call available without a NewApi guard below minSdk 29's floor.
         const val EXTERNAL_VOLUME = "external"
-
-        // Literal value of MediaStore.MediaColumns.GENERATION_MODIFIED (API 30 constant). Using the
-        // string keeps this file free of a NewApi reference below minSdk 29; the column is only ever
-        // requested/read behind an SDK_INT >= R guard.
-        const val GENERATION_MODIFIED = "generation_modified"
 
         val PROJECTION = arrayOf(
             MediaStore.Files.FileColumns._ID,

@@ -10,8 +10,8 @@ import kotlinx.coroutines.flow.Flow
  * query MediaStore or the storage layer directly. The index enumerates ONCE via `:core:storage`,
  * caches (path, date, size, type), and updates incrementally rather than re-scanning on every open.
  *
- * The full incremental sync (MediaStore ContentObserver + generation tracking) is delivered in
- * APP-272; this interface is the contract feature modules build against now.
+ * The full incremental sync (change observation + signature diff) is delivered in APP-272; this
+ * interface is the contract feature modules build against now.
  */
 interface MediaIndexRepository {
 

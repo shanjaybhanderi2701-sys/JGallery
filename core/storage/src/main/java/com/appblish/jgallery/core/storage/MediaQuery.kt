@@ -17,11 +17,4 @@ data class MediaQuery(
      * = no id restriction; an empty set matches nothing.
      */
     val ids: Set<MediaId>? = null,
-    /**
-     * Changed-since token: when set (and the platform supports it, API 30+), the boundary limits the
-     * result to rows whose MediaStore `GENERATION_MODIFIED` exceeds this value — a cheap incremental
-     * "what changed since last sync" query. Ignored below API 30, where callers fall back to a
-     * signature diff.
-     */
-    val changedSinceGeneration: Long? = null,
 )

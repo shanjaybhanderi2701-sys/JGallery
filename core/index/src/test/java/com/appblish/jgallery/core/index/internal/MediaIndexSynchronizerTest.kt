@@ -112,7 +112,7 @@ private class FakeStorageAccess(val device: MutableList<MediaItem>) : StorageAcc
     }
 
     override suspend fun queryMediaSignatures(query: MediaQuery): List<MediaSignature> =
-        device.map { MediaSignature(it.id, it.dateModifiedMillis, it.sizeBytes, generation = 0L) }
+        device.map { MediaSignature(it.id, it.dateModifiedMillis, it.sizeBytes) }
 
     override fun observeMediaChanges(): Flow<Unit> = emptyFlow()
 

@@ -126,7 +126,7 @@ class StorageBoundarySwapTest {
         override suspend fun openStream(id: MediaId, target: DecodeTarget): InputStream =
             ByteArrayInputStream(SAMPLE_BYTES)
         override suspend fun queryMediaSignatures(query: MediaQuery): List<MediaSignature> =
-            items.map { MediaSignature(it.id, it.dateModifiedMillis, it.sizeBytes, generation = 0L) }
+            items.map { MediaSignature(it.id, it.dateModifiedMillis, it.sizeBytes) }
         override fun observeMediaChanges(): Flow<Unit> = emptyFlow()
 
         override suspend fun rename(id: MediaId, newDisplayName: String) = ok()
