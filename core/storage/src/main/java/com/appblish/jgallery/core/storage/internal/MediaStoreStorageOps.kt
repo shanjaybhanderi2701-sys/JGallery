@@ -52,6 +52,9 @@ internal class MediaStoreStorageOps(
         }.orEmpty()
     }
 
+    // Ownership of the returned stream transfers to the caller, who closes it (see FileOperationEngine's
+    // `.use {}`). Closing it here would defeat the API, so Recycle is a false positive.
+    @Suppress("Recycle")
     override suspend fun openInput(id: MediaId) = withContext(io) {
         resolver.openInputStream(idToUri(id)) ?: error("Unable to open source stream for $id")
     }

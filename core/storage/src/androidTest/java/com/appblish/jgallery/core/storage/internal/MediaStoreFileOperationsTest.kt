@@ -1,5 +1,6 @@
 package com.appblish.jgallery.core.storage.internal
 
+import android.annotation.SuppressLint
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
@@ -9,9 +10,9 @@ import android.os.Build
 import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
-import androidx.annotation.RequiresApi
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
+import androidx.test.filters.SdkSuppress
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.OperationResult
@@ -113,7 +114,7 @@ class MediaStoreFileOperationsTest {
      * MediaStore row. This mirrors `FileOperationEngine.copyOne`'s try/catch structure directly (a
      * JVM fake `Sink` cannot reproduce it) and is deterministic — no stream-timing race.
      */
-    @RequiresApi(Build.VERSION_CODES.R)
+    @SdkSuppress(minSdkVersion = Build.VERSION_CODES.R) // MATCH_PENDING query lane (via displayNameByName) is R+
     @Test
     fun abortAfterCancellationStillDeletesThePendingEntry() = runBlocking {
         val ops = MediaStoreStorageOps(context.contentResolver, Dispatchers.IO)
@@ -170,7 +171,9 @@ class MediaStoreFileOperationsTest {
      * A default query excludes `IS_PENDING=1` entries, which would hide exactly the leak this test
      * hunts for, so it opts in via `QUERY_ARG_MATCH_PENDING` (API 30+; this test targets that lane).
      */
-    @RequiresApi(Build.VERSION_CODES.R)
+    // Only reached from abortAfterCancellationStillDeletesThePendingEntry, which is @SdkSuppress-gated to
+    // R+, so the MATCH_PENDING query args below are safe. @RequiresApi would trip UseSdkSuppress in tests.
+    @SuppressLint("NewApi")
     private fun displayNameByName(name: String): String? {
         val queryArgs = Bundle().apply {
             putString(
