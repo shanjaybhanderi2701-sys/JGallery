@@ -33,6 +33,9 @@ import com.appblish.jgallery.feature.albums.AlbumsScreen
 import com.appblish.jgallery.feature.collections.CollectionsScreen
 import com.appblish.jgallery.feature.photos.PhotosScreen
 import com.appblish.jgallery.feature.search.SearchScreen
+import com.appblish.jgallery.feature.viewer.VIEWER_ROUTE
+import com.appblish.jgallery.feature.viewer.navigateToViewer
+import com.appblish.jgallery.feature.viewer.viewerScreen
 
 /**
  * The 4-tab navigation shell (spec §2): Albums | Photos | Collections | Search, Albums default.
@@ -40,15 +43,36 @@ import com.appblish.jgallery.feature.search.SearchScreen
  * Wave 1 design (`w1-design-spec` §1): 86dp tall, white container, the active tab a filled accent
  * glyph in an accent-soft pill with an accent label. Feature screens are supplied by their modules;
  * this shell only knows the tab set and routing — it has no data or storage dependencies.
+ *
+ * [tabContent] (null = the real Hilt-backed feature screens, with grid taps wired to the viewer).
+ * Shell tests pass tagged stubs so tab routing stays verifiable without DI (the grid screens have
+ * their own tests against their stateless overloads).
  */
 @Composable
-fun JGalleryApp() {
+fun JGalleryApp(
+    tabContent: (@Composable (GalleryTab) -> Unit)? = null,
+) {
     val navController = rememberNavController()
+
+    val resolvedTabContent: @Composable (GalleryTab) -> Unit = tabContent ?: { tab ->
+        when (tab) {
+            GalleryTab.ALBUMS -> AlbumsScreen()
+            // Tapping a tile opens the E7 full-screen viewer, paged across the whole Photos stream.
+            GalleryTab.PHOTOS -> PhotosScreen(
+                onMediaClick = { item -> navController.navigateToViewer(item.id) },
+            )
+            GalleryTab.COLLECTIONS -> CollectionsScreen()
+            GalleryTab.SEARCH -> SearchScreen()
+        }
+    }
 
     Scaffold(
         bottomBar = {
             val currentRoute = navController.currentBackStackEntryAsState()
                 .value?.destination?.hierarchy?.firstOrNull()?.route
+            // The full-screen viewer owns the whole canvas (viewer-only dark chrome, spec §5) —
+            // the tab bar disappears for it and returns on pop.
+            if (currentRoute == VIEWER_ROUTE) return@Scaffold
             NavigationBar(
                 modifier = Modifier.height(JGalleryDimens.NavHeight),
                 containerColor = JGalleryColors.Background,
@@ -89,10 +113,11 @@ fun JGalleryApp() {
             startDestination = GalleryTab.Default.route,
             modifier = Modifier.padding(innerPadding),
         ) {
-            composable(GalleryTab.ALBUMS.route) { AlbumsScreen() }
-            composable(GalleryTab.PHOTOS.route) { PhotosScreen() }
-            composable(GalleryTab.COLLECTIONS.route) { CollectionsScreen() }
-            composable(GalleryTab.SEARCH.route) { SearchScreen() }
+            GalleryTab.entries.forEach { tab ->
+                composable(tab.route) { resolvedTabContent(tab) }
+            }
+            // Full-screen viewer (E7). Grids open it via NavController.navigateToViewer(id, bucketId).
+            viewerScreen(onBack = { navController.popBackStack() })
         }
     }
 }

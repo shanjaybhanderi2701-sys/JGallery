@@ -1,0 +1,30 @@
+package com.appblish.jgallery.feature.albums.di
+
+import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStore
+import com.appblish.jgallery.feature.albums.AlbumsPreferences
+import com.appblish.jgallery.feature.albums.DataStoreAlbumsPreferences
+import dagger.Module
+import dagger.Provides
+import dagger.hilt.InstallIn
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dagger.hilt.components.SingletonComponent
+import javax.inject.Singleton
+
+/** Single DataStore instance for Albums-tab view settings (column count). */
+private val Context.albumsDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "jgallery_albums_ui",
+)
+
+@Module
+@InstallIn(SingletonComponent::class)
+object AlbumsModule {
+
+    @Provides
+    @Singleton
+    fun provideAlbumsPreferences(
+        @ApplicationContext context: Context,
+    ): AlbumsPreferences = DataStoreAlbumsPreferences(context.albumsDataStore)
+}
