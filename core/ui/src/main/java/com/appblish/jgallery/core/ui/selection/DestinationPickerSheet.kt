@@ -36,8 +36,8 @@ fun DestinationPickerSheet(
     albums: List<Album>,
     onPick: (bucketId: String) -> Unit,
     onDismiss: () -> Unit,
-    excludeBucketId: String? = null,
     modifier: Modifier = Modifier,
+    excludeBucketId: String? = null,
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss, modifier = modifier.testTag("destination_picker")) {
         Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
