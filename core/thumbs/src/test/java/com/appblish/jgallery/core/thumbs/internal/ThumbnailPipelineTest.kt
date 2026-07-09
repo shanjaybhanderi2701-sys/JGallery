@@ -3,7 +3,7 @@ package com.appblish.jgallery.core.thumbs.internal
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
-import com.appblish.jgallery.core.model.OperationProgress
+import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.storage.DecodeTarget
 import com.appblish.jgallery.core.model.MediaQuery
@@ -132,12 +132,12 @@ private class FakeStorage(private val payload: ByteArray?) : StorageAccess {
     override fun observeMediaChanges(): Flow<Unit> = emptyFlow()
     override suspend fun rename(id: MediaId, newDisplayName: String): OperationResult = error("unused")
     override suspend fun createAlbum(name: String): OperationResult = error("unused")
-    override fun copy(ids: List<MediaId>, destinationBucketId: String) = error("unused")
-    override fun move(ids: List<MediaId>, destinationBucketId: String) = error("unused")
-    override fun moveToTrash(ids: List<MediaId>) = error("unused")
+    override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = error("unused")
+    override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = error("unused")
+    override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> = error("unused")
     override fun observeTrash() = error("unused")
     override fun restoreFromTrash(ids: List<MediaId>) = error("unused")
-    override fun deletePermanently(ids: List<MediaId>) = error("unused")
+    override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> = error("unused")
     override fun emptyTrash() = error("unused")
     override suspend fun purgeExpiredTrash() = error("unused")
 }
