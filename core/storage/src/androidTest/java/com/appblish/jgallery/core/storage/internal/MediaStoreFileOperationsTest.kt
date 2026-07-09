@@ -1,18 +1,26 @@
 package com.appblish.jgallery.core.storage.internal
 
+import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
 import android.net.Uri
+import android.os.Build
+import android.os.Bundle
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.annotation.RequiresApi
 import androidx.test.core.app.ApplicationProvider
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.OperationResult
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.cancelAndJoin
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.toList
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import org.junit.Assert.assertEquals
@@ -98,6 +106,38 @@ class MediaStoreFileOperationsTest {
         assertEquals("row must be gone", null, currentDisplayName(id))
     }
 
+    /**
+     * Regression for the cancellation-cleanup path (APP-316): `Sink.abort()` runs *after* the
+     * coroutine is already cancelled, so its body must be `NonCancellable` — otherwise `withContext`
+     * fails its up-front `ensureActive()` and silently skips the delete, orphaning a still-`IS_PENDING`
+     * MediaStore row. This mirrors `FileOperationEngine.copyOne`'s try/catch structure directly (a
+     * JVM fake `Sink` cannot reproduce it) and is deterministic — no stream-timing race.
+     */
+    @RequiresApi(Build.VERSION_CODES.R)
+    @Test
+    fun abortAfterCancellationStillDeletesThePendingEntry() = runBlocking {
+        val ops = MediaStoreStorageOps(context.contentResolver, Dispatchers.IO)
+        val name = uniqueName("cancelabort")
+        val ready = arrayOfNulls<Sink>(1)
+
+        val job = launch(Dispatchers.IO) {
+            val sink = ops.createSink(destinationBucketId = "unknown-bucket", name = name, mimeType = "image/jpeg")
+            ready[0] = sink
+            sink.output.write(ByteArray(16)) // a real partial, still-pending row now exists
+            sink.output.flush()
+            try {
+                awaitCancellation() // suspend until the collector cancels, exactly like a mid-stream copy
+            } catch (t: Throwable) {
+                sink.abort() // cleanup under cancellation — must still remove the pending row
+                throw t
+            }
+        }
+        while (ready[0] == null) delay(5)
+        job.cancelAndJoin()
+
+        assertEquals("cancelled copy must leave no orphaned pending row", null, displayNameByName(name))
+    }
+
     // --- helpers ---
 
     private fun summaryOf(events: List<FileOperationEvent>): OperationResult =
@@ -124,6 +164,29 @@ class MediaStoreFileOperationsTest {
             arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
             null, null, null,
         )?.use { if (it.moveToFirst()) it.getString(0) else null }
+
+    /**
+     * Display name of the row named [name], or null if none exists — *including still-pending rows*.
+     * A default query excludes `IS_PENDING=1` entries, which would hide exactly the leak this test
+     * hunts for, so it opts in via `QUERY_ARG_MATCH_PENDING` (API 30+; this test targets that lane).
+     */
+    @RequiresApi(Build.VERSION_CODES.R)
+    private fun displayNameByName(name: String): String? {
+        val queryArgs = Bundle().apply {
+            putString(
+                ContentResolver.QUERY_ARG_SQL_SELECTION,
+                "${MediaStore.Files.FileColumns.DISPLAY_NAME} = ?",
+            )
+            putStringArray(ContentResolver.QUERY_ARG_SQL_SELECTION_ARGS, arrayOf(name))
+            putInt(MediaStore.QUERY_ARG_MATCH_PENDING, MediaStore.MATCH_INCLUDE)
+        }
+        return context.contentResolver.query(
+            MediaStore.Files.getContentUri(VOLUME),
+            arrayOf(MediaStore.Files.FileColumns.DISPLAY_NAME),
+            queryArgs,
+            null,
+        )?.use { if (it.moveToFirst()) it.getString(0) else null }
+    }
 
     private fun copyBytesInFallback(name: String): ByteArray {
         val resolver = context.contentResolver

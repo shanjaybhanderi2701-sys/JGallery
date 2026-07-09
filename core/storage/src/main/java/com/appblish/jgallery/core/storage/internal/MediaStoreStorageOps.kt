@@ -9,6 +9,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import com.appblish.jgallery.core.model.MediaId
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import java.io.OutputStream
 
@@ -105,9 +106,12 @@ internal class MediaStoreStorageOps(
             Unit
         }
 
-        override suspend fun abort() = withContext(io) {
-            // Discard the still-pending entry and its partial bytes. Best-effort: a failed delete
-            // here must not mask the original failure that triggered the abort.
+        override suspend fun abort() = withContext(NonCancellable + io) {
+            // Discard the still-pending entry and its partial bytes. NonCancellable is required: abort
+            // is the cancellation-cleanup path, so the coroutine's Job is already cancelled here — a
+            // plain withContext(io) would fail its up-front ensureActive() and skip the delete,
+            // orphaning the IS_PENDING row. Best-effort: a failed delete must not mask the original
+            // failure that triggered the abort.
             runCatching { resolver.delete(uri, null, null) }
             Unit
         }
