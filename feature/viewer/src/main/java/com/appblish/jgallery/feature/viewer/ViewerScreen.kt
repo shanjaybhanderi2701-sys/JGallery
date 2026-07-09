@@ -109,6 +109,7 @@ private fun ViewerPager(
         initialPage = state.initialIndex.coerceIn(0, state.items.lastIndex),
     ) { items.size }
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
+    var infoItem by remember { mutableStateOf<MediaItem?>(null) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val onStubAction: (String) -> Unit = { action ->
@@ -154,7 +155,10 @@ private fun ViewerPager(
             enter = fadeIn() + slideInVertically { it },
             exit = fadeOut() + slideOutVertically { it },
         ) {
-            ViewerActionBar(onStubAction = onStubAction)
+            ViewerActionBar(
+                onStubAction = onStubAction,
+                onInfo = { currentItem?.let { infoItem = it } },
+            )
         }
         SnackbarHost(
             hostState = snackbarHostState,
@@ -167,6 +171,10 @@ private fun ViewerPager(
                 containerColor = JGalleryColors.ViewerSheet,
                 contentColor = Color.White,
             )
+        }
+
+        infoItem?.let { item ->
+            MediaInfoDialog(item = item, onDismiss = { infoItem = null })
         }
     }
 }
@@ -214,7 +222,7 @@ private fun ViewerHeader(
  * with their slots reserved (design deviation #2). More opens the exact Phase-G1 overflow subset.
  */
 @Composable
-private fun ViewerActionBar(onStubAction: (String) -> Unit) {
+private fun ViewerActionBar(onStubAction: (String) -> Unit, onInfo: () -> Unit) {
     var menuOpen by remember { mutableStateOf(false) }
 
     Row(
@@ -244,9 +252,12 @@ private fun ViewerActionBar(onStubAction: (String) -> Unit) {
                 listOf("Copy to", "Move to", "Rename", "Set as", "Info").forEach { action ->
                     DropdownMenuItem(
                         text = { Text(action, color = Color.White) },
+                        modifier = Modifier.testTag("viewer_overflow_$action"),
                         onClick = {
                             menuOpen = false
-                            onStubAction(action)
+                            // Info is fully wired (spec §5.1); the rest land with the E8-backed
+                            // file-operation actions (APP-312 copy/move/rename/set-as).
+                            if (action == "Info") onInfo() else onStubAction(action)
                         },
                     )
                 }
