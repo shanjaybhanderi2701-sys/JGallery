@@ -1,6 +1,6 @@
 package com.appblish.jgallery.core.index.internal
 
-import com.appblish.jgallery.core.storage.MediaQuery
+import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.storage.StorageAccess
 import com.appblish.jgallery.core.storage.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher

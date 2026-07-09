@@ -7,7 +7,7 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
-import com.appblish.jgallery.core.storage.MediaQuery
+import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.storage.StorageAccess
 import com.appblish.jgallery.core.storage.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher

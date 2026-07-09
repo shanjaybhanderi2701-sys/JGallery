@@ -18,6 +18,7 @@ dependencies {
     implementation(project(":core:storage"))
     implementation(project(":core:index"))
     implementation(project(":core:thumbs"))
+    implementation(project(":core:playback"))
     implementation(project(":core:ui"))
 
     // Features.

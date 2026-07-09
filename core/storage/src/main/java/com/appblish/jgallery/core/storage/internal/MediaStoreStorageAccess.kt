@@ -20,7 +20,7 @@ import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.storage.DecodeTarget
-import com.appblish.jgallery.core.storage.MediaQuery
+import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.storage.MediaSignature
 import com.appblish.jgallery.core.storage.StorageAccess
 import com.appblish.jgallery.core.storage.StorageBackend

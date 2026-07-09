@@ -2,7 +2,7 @@ package com.appblish.jgallery.core.index
 
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.MediaItem
-import com.appblish.jgallery.core.storage.MediaQuery
+import com.appblish.jgallery.core.model.MediaQuery
 import kotlinx.coroutines.flow.Flow
 
 /**

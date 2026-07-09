@@ -1,8 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <!-- MANAGE_EXTERNAL_STORAGE is declared by :core:storage and merged in — the app module
          itself declares no storage permissions (the boundary owns the permission model). -->
+
+    <!-- Media3/ExoPlayer's library manifest merges this in for bandwidth metering. JGallery only
+         ever plays local files, and the §9.3 "never uploaded" claim requires zero network-capable
+         permissions (APP-289 egress guard enforces it) — so strip it at merge. ExoPlayer degrades
+         gracefully (network type reads as unknown). -->
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE"
+        tools:node="remove" />
 
     <application
         android:name=".JGalleryApplication"

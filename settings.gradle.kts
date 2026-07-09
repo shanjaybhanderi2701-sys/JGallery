@@ -39,6 +39,7 @@ include(":core:model")   // pure-Kotlin domain types (no Android)
 include(":core:storage") // §1.6 storage-access abstraction — the ONLY file/media boundary
 include(":core:index")   // MediaStore-backed cached, incremental index
 include(":core:thumbs")  // cached thumbnail pipeline (in-memory LRU + on-disk)
+include(":core:playback") // Media3 playback sources routed through the §1.6 boundary (viewer video)
 include(":core:ui")      // theme scaffolding + shared Compose components
 
 // --- Features ---

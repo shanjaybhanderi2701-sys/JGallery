@@ -23,6 +23,7 @@ class AndroidFeatureConventionPlugin : Plugin<Project> {
 
             add("implementation", libs.library("androidx-core-ktx"))
             add("implementation", libs.library("androidx-lifecycle-runtime-ktx"))
+            add("implementation", libs.library("androidx-lifecycle-runtime-compose"))
             add("implementation", libs.library("androidx-lifecycle-viewmodel-compose"))
             add("implementation", libs.library("androidx-navigation-compose"))
             add("implementation", libs.library("hilt-navigation-compose"))
