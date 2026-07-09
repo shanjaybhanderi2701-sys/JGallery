@@ -5,6 +5,8 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaId
@@ -85,6 +87,22 @@ class PhotosGridTest {
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("photos_grid").performScrollToIndex(0)
         composeRule.onNodeWithText("Today").assertIsDisplayed()
+    }
+
+    @Test
+    fun fastScrollThumb_appearsOnScroll_withDeepEnoughContent() {
+        // 10k items → deepEnough is satisfied; swipe triggers isScrollInProgress → thumb visible.
+        // Don't waitForIdle after swipe: that would advance past the 1.5s linger, hiding the thumb.
+        setTenThousandItemGrid()
+        composeRule.mainClock.autoAdvance = false
+
+        composeRule.onNodeWithTag("photos_grid").performTouchInput { swipeUp() }
+        composeRule.mainClock.advanceTimeBy(300) // past fade-in, inside 1.5s linger window
+        composeRule.onNodeWithTag("fast_scroll_thumb").assertIsDisplayed()
+
+        // Fling may take ~1s to settle; then AUTO_HIDE_MS=1500ms; then fade-out ~300ms. 5s covers all.
+        composeRule.mainClock.advanceTimeBy(5000)
+        composeRule.onNodeWithTag("fast_scroll_thumb").assertDoesNotExist()
     }
 
     @Test

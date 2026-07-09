@@ -29,10 +29,16 @@ import androidx.navigation.compose.rememberNavController
 import com.appblish.jgallery.core.ui.nav.GalleryTab
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
+import com.appblish.jgallery.feature.albums.ALBUM_DETAIL_ROUTE
 import com.appblish.jgallery.feature.albums.AlbumsScreen
+import com.appblish.jgallery.feature.albums.albumDetailScreen
+import com.appblish.jgallery.feature.albums.navigateToAlbumDetail
 import com.appblish.jgallery.feature.collections.CollectionsScreen
 import com.appblish.jgallery.feature.photos.PhotosScreen
 import com.appblish.jgallery.feature.search.SearchScreen
+import com.appblish.jgallery.feature.trash.TRASH_ROUTE
+import com.appblish.jgallery.feature.trash.navigateToTrash
+import com.appblish.jgallery.feature.trash.trashScreen
 import com.appblish.jgallery.feature.viewer.VIEWER_ROUTE
 import com.appblish.jgallery.feature.viewer.navigateToViewer
 import com.appblish.jgallery.feature.viewer.viewerScreen
@@ -56,12 +62,17 @@ fun JGalleryApp(
 
     val resolvedTabContent: @Composable (GalleryTab) -> Unit = tabContent ?: { tab ->
         when (tab) {
-            GalleryTab.ALBUMS -> AlbumsScreen()
+            GalleryTab.ALBUMS -> AlbumsScreen(
+                // Tapping an album opens its media grid (album detail), where E11 multi-select works.
+                onAlbumClick = { album -> navController.navigateToAlbumDetail(album.bucketId, album.name) },
+            )
             // Tapping a tile opens the E7 full-screen viewer, paged across the whole Photos stream.
             GalleryTab.PHOTOS -> PhotosScreen(
                 onMediaClick = { item -> navController.navigateToViewer(item.id) },
             )
-            GalleryTab.COLLECTIONS -> CollectionsScreen()
+            GalleryTab.COLLECTIONS -> CollectionsScreen(
+                onOpenTrash = { navController.navigateToTrash() },
+            )
             GalleryTab.SEARCH -> SearchScreen()
         }
     }
@@ -70,9 +81,11 @@ fun JGalleryApp(
         bottomBar = {
             val currentRoute = navController.currentBackStackEntryAsState()
                 .value?.destination?.hierarchy?.firstOrNull()?.route
-            // The full-screen viewer owns the whole canvas (viewer-only dark chrome, spec §5) —
-            // the tab bar disappears for it and returns on pop.
-            if (currentRoute == VIEWER_ROUTE) return@Scaffold
+            // The full-screen viewer and the Recycle Bin own the whole canvas (their own chrome) —
+            // the tab bar disappears for them and returns on pop.
+            if (currentRoute == VIEWER_ROUTE || currentRoute == TRASH_ROUTE ||
+                currentRoute == ALBUM_DETAIL_ROUTE
+            ) return@Scaffold
             NavigationBar(
                 modifier = Modifier.height(JGalleryDimens.NavHeight),
                 containerColor = JGalleryColors.Background,
@@ -116,8 +129,15 @@ fun JGalleryApp(
             GalleryTab.entries.forEach { tab ->
                 composable(tab.route) { resolvedTabContent(tab) }
             }
+            // Album detail (spec §3): a bucket's media grid — the Albums surface for E11 multi-select.
+            albumDetailScreen(
+                onBack = { navController.popBackStack() },
+                onMediaClick = { item -> navController.navigateToViewer(item.id, item.bucketId) },
+            )
             // Full-screen viewer (E7). Grids open it via NavController.navigateToViewer(id, bucketId).
             viewerScreen(onBack = { navController.popBackStack() })
+            // Recycle Bin (E9, spec §7.5). Opened from Collections → Utilities "Recover".
+            trashScreen(onBack = { navController.popBackStack() })
         }
     }
 }

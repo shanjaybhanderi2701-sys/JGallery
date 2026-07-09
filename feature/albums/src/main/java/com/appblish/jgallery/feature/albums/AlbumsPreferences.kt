@@ -4,14 +4,18 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.SortDirection
+import com.appblish.jgallery.core.model.SortKey
+import com.appblish.jgallery.core.model.SortSpec
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
 /**
- * Albums-tab view settings, persisted per tab (design §3: density survives tab switches AND process
- * death). Interface so the ViewModel unit-tests with an in-memory fake; the DataStore binding lives
- * in [di.AlbumsModule].
+ * Albums-tab view settings, persisted per tab (design §3: density AND sort survive tab switches and
+ * process death). Interface so the ViewModel unit-tests with an in-memory fake; the DataStore binding
+ * lives in [di.AlbumsModule].
  */
 interface AlbumsPreferences {
 
@@ -19,9 +23,14 @@ interface AlbumsPreferences {
     val columns: Flow<ColumnCount>
 
     suspend fun setColumns(columns: ColumnCount)
+
+    /** Active sort for the Albums tab (spec §6). Default: Last Modified, Descending. */
+    val sort: Flow<SortSpec>
+
+    suspend fun setSort(sort: SortSpec)
 }
 
-/** DataStore-backed [AlbumsPreferences]. Stored values outside 2–6 are clamped on read. */
+/** DataStore-backed [AlbumsPreferences]. Unknown/legacy stored values fall back to the defaults. */
 internal class DataStoreAlbumsPreferences(
     private val dataStore: DataStore<Preferences>,
 ) : AlbumsPreferences {
@@ -35,7 +44,31 @@ internal class DataStoreAlbumsPreferences(
         dataStore.edit { it[KEY_COLUMNS] = columns.value }
     }
 
+    override val sort: Flow<SortSpec> =
+        dataStore.data.map { prefs ->
+            SortSpec(
+                key = prefs[KEY_SORT_KEY].toSortKey(),
+                direction = prefs[KEY_SORT_DIR].toSortDirection(),
+            )
+        }
+
+    override suspend fun setSort(sort: SortSpec) {
+        dataStore.edit {
+            it[KEY_SORT_KEY] = sort.key.name
+            it[KEY_SORT_DIR] = sort.direction.name
+        }
+    }
+
+    private fun String?.toSortKey(): SortKey =
+        this?.let { name -> SortKey.entries.firstOrNull { it.name == name } } ?: DEFAULT.key
+
+    private fun String?.toSortDirection(): SortDirection =
+        this?.let { name -> SortDirection.entries.firstOrNull { it.name == name } } ?: DEFAULT.direction
+
     private companion object {
         val KEY_COLUMNS = intPreferencesKey("albums_columns")
+        val KEY_SORT_KEY = stringPreferencesKey("albums_sort_key")
+        val KEY_SORT_DIR = stringPreferencesKey("albums_sort_dir")
+        val DEFAULT = SortSpec()
     }
 }

@@ -135,7 +135,11 @@ class StorageBoundarySwapTest {
         override fun copy(ids: List<MediaId>, destinationBucketId: String) = done(ids.size)
         override fun move(ids: List<MediaId>, destinationBucketId: String) = done(ids.size)
         override fun moveToTrash(ids: List<MediaId>) = done(ids.size)
+        override fun observeTrash() = flowOf(emptyList<com.appblish.jgallery.core.model.TrashEntry>())
+        override fun restoreFromTrash(ids: List<MediaId>) = done(ids.size)
         override fun deletePermanently(ids: List<MediaId>) = done(ids.size)
+        override fun emptyTrash() = done(0)
+        override suspend fun purgeExpiredTrash() = 0
 
         private fun ok() = OperationResult(succeeded = 1, failed = 0)
         private fun done(n: Int): Flow<FileOperationEvent> =

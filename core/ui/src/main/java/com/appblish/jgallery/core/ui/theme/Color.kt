@@ -15,6 +15,12 @@ object JGalleryColors {
     val Surface = Color(0xFFF2F3F6)     // search bar, secondary buttons, utility pills
     val TilePlaceholder = Color(0xFFEDEFF3) // grid tile before its thumbnail lands — never blank white (design §6)
 
+    // Warning amber (`color.warn`, W2 design spec §token): Trash ≤5-days-left badge, partial-success
+    // summary glyph. Reserved for "heads-up before something irreversible", not a generic accent.
+    val Warn = Color(0xFFE68A17)
+    // Destructive red: permanent-delete actions (W2-08 step 2, Empty bin). Guarded paths only.
+    val Destructive = Color(0xFFD5342B)
+
     // Viewer-only dark chrome.
     val ViewerCanvas = Color(0xFF000000)
     val ViewerSheet = Color(0xFF232428)

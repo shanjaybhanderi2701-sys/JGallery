@@ -5,6 +5,7 @@ import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.OperationResult
+import com.appblish.jgallery.core.model.TrashEntry
 import kotlinx.coroutines.flow.Flow
 import java.io.InputStream
 
@@ -78,10 +79,28 @@ interface StorageAccess {
     /** Move [ids] into [destinationBucketId]; removed from source, collisions handled (spec §7.2). */
     fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent>
 
-    /** Move to app-managed Trash (restorable) — permanent delete is a separate, 2-step call. */
+    /**
+     * Move to the app-managed Trash (restorable — spec §7.5). Each item's origin path + a trashed-at
+     * timestamp are recorded as retention metadata so [restoreFromTrash] returns it to where it was
+     * and the 30-day auto-purge is enforced from the app's own clock. Permanent delete is a separate,
+     * 2-step call ([deletePermanently]).
+     */
     fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent>
 
+    /** The current Recycle Bin contents (newest-first), for the Trash screen (spec §7.5). */
+    fun observeTrash(): Flow<List<TrashEntry>>
+
+    /** Restore [ids] from Trash to their original location, recreating the folder if needed (§7.5). */
+    fun restoreFromTrash(ids: List<MediaId>): Flow<FileOperationEvent>
+
+    /** Permanently remove [ids] from device storage AND from the bin's metadata (§7.5, 2-step confirm). */
     fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent>
+
+    /** Permanently delete every item in the bin (design W2-09 "Empty bin"). */
+    fun emptyTrash(): Flow<FileOperationEvent>
+
+    /** Purge items past the 30-day retention window; returns how many were removed (best-effort). */
+    suspend fun purgeExpiredTrash(): Int
 }
 
 /** The swappable permission strategy. All Files Access is the locked G1 choice. */

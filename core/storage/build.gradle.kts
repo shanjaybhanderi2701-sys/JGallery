@@ -9,4 +9,7 @@ android {
 
 dependencies {
     api(project(":core:model"))
+
+    // Persistent Recycle-Bin retention metadata (spec §7.5) — the app-managed bin manifest.
+    implementation(libs.androidx.datastore.preferences)
 }

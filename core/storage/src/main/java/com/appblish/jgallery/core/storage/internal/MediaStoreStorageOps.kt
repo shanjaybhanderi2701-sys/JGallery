@@ -8,6 +8,7 @@ import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import com.appblish.jgallery.core.model.MediaId
+import com.appblish.jgallery.core.model.MediaType
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -28,7 +29,7 @@ import java.io.OutputStream
 internal class MediaStoreStorageOps(
     private val resolver: ContentResolver,
     private val io: CoroutineDispatcher,
-) : StorageOps {
+) : StorageOps, TrashOps {
 
     override suspend fun displayName(id: MediaId): String? =
         readString(id, MediaStore.Files.FileColumns.DISPLAY_NAME)
@@ -92,6 +93,40 @@ internal class MediaStoreStorageOps(
 
     override suspend fun delete(id: MediaId): Boolean = withContext(io) {
         resolver.delete(idToUri(id), null, null) > 0
+    }
+
+    override suspend fun restore(id: MediaId): Boolean = withContext(io) {
+        // Un-trash: clearing IS_TRASHED returns the row to its original RELATIVE_PATH automatically,
+        // so restore is inherently "to the original location" (spec §7.5). App-managed retention
+        // metadata (origin path + trashed-at) is tracked above this primitive by the TrashEngine.
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) {
+            error("Trash requires Android 11+")
+        }
+        val values = ContentValues().apply { put(MediaStore.MediaColumns.IS_TRASHED, 0) }
+        resolver.update(idToUri(id), values, null, null) > 0
+    }
+
+    override suspend fun describe(id: MediaId): TrashItemSnapshot? = withContext(io) {
+        // Read the row's origin + display fields BEFORE it is trashed, so the bin can list and restore
+        // it without re-querying a row that trashing makes invisible to the index.
+        resolver.query(idToUri(id), DESCRIBE_PROJECTION, null, null, null)?.use { cursor ->
+            if (!cursor.moveToFirst()) return@use null
+            val isVideo = cursor.getInt(cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.MEDIA_TYPE)) ==
+                MediaStore.Files.FileColumns.MEDIA_TYPE_VIDEO
+            fun col(name: String) = cursor.getColumnIndexOrThrow(name)
+            TrashItemSnapshot(
+                displayName = cursor.getString(col(MediaStore.Files.FileColumns.DISPLAY_NAME)) ?: "",
+                type = if (isVideo) MediaType.VIDEO else MediaType.IMAGE,
+                mimeType = cursor.getString(col(MediaStore.Files.FileColumns.MIME_TYPE)) ?: DEFAULT_MIME,
+                bucketId = cursor.getString(col(MediaStore.Files.FileColumns.BUCKET_ID)) ?: "",
+                bucketName = cursor.getString(col(MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME)) ?: "",
+                relativePath = cursor.getString(col(MediaStore.Files.FileColumns.RELATIVE_PATH)) ?: "",
+                sizeBytes = cursor.getLong(col(MediaStore.Files.FileColumns.SIZE)),
+                width = cursor.getInt(col(MediaStore.Files.FileColumns.WIDTH)),
+                height = cursor.getInt(col(MediaStore.Files.FileColumns.HEIGHT)),
+                durationMillis = cursor.getLong(col(MediaStore.Files.FileColumns.DURATION)),
+            )
+        }
     }
 
     // --- internals ---
@@ -169,5 +204,18 @@ internal class MediaStoreStorageOps(
         const val EXTERNAL_VOLUME = "external"
         const val DEFAULT_MIME = "application/octet-stream"
         const val FALLBACK_FOLDER = "JGallery"
+
+        val DESCRIBE_PROJECTION = arrayOf(
+            MediaStore.Files.FileColumns.DISPLAY_NAME,
+            MediaStore.Files.FileColumns.MEDIA_TYPE,
+            MediaStore.Files.FileColumns.MIME_TYPE,
+            MediaStore.Files.FileColumns.BUCKET_ID,
+            MediaStore.Files.FileColumns.BUCKET_DISPLAY_NAME,
+            MediaStore.Files.FileColumns.RELATIVE_PATH,
+            MediaStore.Files.FileColumns.SIZE,
+            MediaStore.Files.FileColumns.WIDTH,
+            MediaStore.Files.FileColumns.HEIGHT,
+            MediaStore.Files.FileColumns.DURATION,
+        )
     }
 }

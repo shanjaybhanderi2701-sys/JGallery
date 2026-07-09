@@ -2,10 +2,15 @@ package com.appblish.jgallery.core.storage.di
 
 import android.content.ContentResolver
 import android.content.Context
+import androidx.datastore.core.DataStore
+import androidx.datastore.preferences.core.Preferences
+import androidx.datastore.preferences.preferencesDataStore
 import com.appblish.jgallery.core.storage.StorageAccess
 import com.appblish.jgallery.core.storage.StoragePermissionController
 import com.appblish.jgallery.core.storage.internal.AllFilesAccessPermissionController
+import com.appblish.jgallery.core.storage.internal.DataStoreTrashMetadataStore
 import com.appblish.jgallery.core.storage.internal.MediaStoreStorageAccess
+import com.appblish.jgallery.core.storage.internal.TrashMetadataStore
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -25,6 +30,11 @@ annotation class IoDispatcher
  * Binds the storage boundary for the whole app. Swapping the permission model = swapping the single
  * `StorageAccess` provider here; no feature module changes (spec §1.6).
  */
+/** Single DataStore instance for the Recycle Bin's retention metadata (spec §7.5). */
+private val Context.trashDataStore: DataStore<Preferences> by preferencesDataStore(
+    name = "jgallery_trash",
+)
+
 @Module
 @InstallIn(SingletonComponent::class)
 object StorageModule {
@@ -37,12 +47,19 @@ object StorageModule {
     fun provideContentResolver(@ApplicationContext context: Context): ContentResolver =
         context.contentResolver
 
+    // The Recycle Bin's persistent metadata store is an internal type, so it is constructed in the
+    // body here (not exposed as its own @Provides) — the module only ever surfaces the public
+    // StorageAccess boundary. Swapping the storage backend swaps this one provider (spec §1.6).
     @Provides
     @Singleton
     fun provideStorageAccess(
+        @ApplicationContext context: Context,
         resolver: ContentResolver,
         @IoDispatcher io: CoroutineDispatcher,
-    ): StorageAccess = MediaStoreStorageAccess(resolver, io)
+    ): StorageAccess {
+        val trashStore: TrashMetadataStore = DataStoreTrashMetadataStore(context.trashDataStore)
+        return MediaStoreStorageAccess(resolver, io, trashStore)
+    }
 
     /**
      * The permission half of the boundary. Swapping to media permissions / SAF means returning a

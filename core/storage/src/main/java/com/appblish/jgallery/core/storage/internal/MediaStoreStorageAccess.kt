@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
+import java.io.File
 import java.io.InputStream
 
 /**
@@ -42,16 +43,27 @@ import java.io.InputStream
  *
  * Scope note: read/enumerate paths are the Wave-1 seam. The file-operation mutations (copy / move /
  * rename / trash / delete — spec §7) are delegated to [FileOperationEngine] over the platform
- * [MediaStoreStorageOps] primitives (W2-E8); `createAlbum` remains a Wave-2 albums stub.
+ * [MediaStoreStorageOps] primitives (W2-E8). `createAlbum` (spec §6) makes the destination folder
+ * directly under All Files Access, since MediaStore has no empty-bucket concept (W2-E10).
  */
 internal class MediaStoreStorageAccess(
     private val resolver: ContentResolver,
     private val io: CoroutineDispatcher,
+    trashStore: TrashMetadataStore,
+    now: () -> Long = System::currentTimeMillis,
 ) : StorageAccess {
 
-    // Bulk/rename policy (streaming, collisions, progress, cancellation, result summary) lives in the
-    // engine; the platform SPI below it is the only part that talks to MediaStore.
-    private val fileOps = FileOperationEngine(MediaStoreStorageOps(resolver, io), io)
+    // The single platform SPI (copy/move/rename/trash/restore/delete primitives) — the only part that
+    // talks to MediaStore. Both engines share it so there is exactly one MediaStore surface.
+    private val storageOps = MediaStoreStorageOps(resolver, io)
+
+    // Bulk/rename policy (streaming, collisions, progress, cancellation, result summary) lives here;
+    // the platform SPI below it is the only part that talks to MediaStore.
+    private val fileOps = FileOperationEngine(storageOps, io)
+
+    // Recycle Bin policy (retention metadata, restore, purge, empty) — spec §7.5, built on the same
+    // platform SPI plus the persistent metadata store.
+    private val trashEngine = TrashEngine(storageOps, trashStore, io, now)
 
     override val backend: StorageBackend = StorageBackend.ALL_FILES_ACCESS
 
@@ -155,8 +167,41 @@ internal class MediaStoreStorageAccess(
     override suspend fun rename(id: MediaId, newDisplayName: String): OperationResult =
         fileOps.rename(id, newDisplayName)
 
-    override suspend fun createAlbum(name: String): OperationResult =
-        notImplementedYet("createAlbum")
+    /**
+     * Create an empty album folder under the public Pictures root (spec §6). Under All Files Access
+     * the directory can be created directly on the volume — MediaStore itself has no "empty bucket"
+     * concept (a bucket materialises only once it holds media), so this folder becomes a real,
+     * enumerable album the moment a copy/move drops the first item into it (spec §7.1/§7.2). An
+     * existing folder of the same name is treated as success (idempotent create). All IO is on [io].
+     */
+    override suspend fun createAlbum(name: String): OperationResult = withContext(io) {
+        when (val validation = AlbumNames.validate(name)) {
+            is AlbumNames.Result.Invalid -> failedAlbum(name, validation.reason)
+            is AlbumNames.Result.Valid -> {
+                val picturesRoot = Environment.getExternalStoragePublicDirectory(
+                    Environment.DIRECTORY_PICTURES,
+                )
+                val dir = File(picturesRoot, validation.name)
+                val created = when {
+                    dir.isDirectory -> true // already exists → idempotent success
+                    dir.exists() -> false // a file (not a dir) already owns the name
+                    else -> dir.mkdirs()
+                }
+                if (created) {
+                    OperationResult(succeeded = 1, failed = 0)
+                } else {
+                    failedAlbum(name, "Could not create the album folder")
+                }
+            }
+        }
+    }
+
+    private fun failedAlbum(name: String, reason: String): OperationResult =
+        OperationResult(
+            succeeded = 0,
+            failed = 1,
+            failures = listOf(OperationResult.Failure(MediaId(name), reason)),
+        )
 
     override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> =
         fileOps.copy(ids, destinationBucketId)
@@ -165,10 +210,22 @@ internal class MediaStoreStorageAccess(
         fileOps.move(ids, destinationBucketId)
 
     override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> =
-        fileOps.moveToTrash(ids)
+        trashEngine.moveToTrash(ids)
+
+    override fun observeTrash(): Flow<List<com.appblish.jgallery.core.model.TrashEntry>> =
+        trashEngine.observeTrash()
+
+    override fun restoreFromTrash(ids: List<MediaId>): Flow<FileOperationEvent> =
+        trashEngine.restore(ids)
 
     override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> =
-        fileOps.deletePermanently(ids)
+        trashEngine.deletePermanently(ids)
+
+    override fun emptyTrash(): Flow<FileOperationEvent> =
+        trashEngine.emptyTrash()
+
+    override suspend fun purgeExpiredTrash(): Int =
+        trashEngine.purgeExpired()
 
     // --- internals ---
 
@@ -274,11 +331,6 @@ internal class MediaStoreStorageAccess(
             )
         }
         return out
-    }
-
-    private fun notImplementedYet(op: String): OperationResult {
-        // Album creation lands with the Wave-2 albums ticket. Fail loud in dev if called early.
-        error("StorageAccess.$op is implemented in a later Wave 2 ticket")
     }
 
     private companion object {

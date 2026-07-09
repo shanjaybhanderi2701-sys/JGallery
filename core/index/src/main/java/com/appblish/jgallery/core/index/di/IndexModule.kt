@@ -3,11 +3,13 @@ package com.appblish.jgallery.core.index.di
 import android.content.Context
 import androidx.room.Room
 import com.appblish.jgallery.core.index.MediaIndexRepository
+import com.appblish.jgallery.core.index.TrashRepository
 import com.appblish.jgallery.core.index.internal.CachedMediaIndexRepository
 import com.appblish.jgallery.core.index.internal.MediaDao
 import com.appblish.jgallery.core.index.internal.MediaIndexDatabase
 import com.appblish.jgallery.core.index.internal.MediaIndexStore
 import com.appblish.jgallery.core.index.internal.RoomMediaIndexStore
+import com.appblish.jgallery.core.index.internal.StorageTrashRepository
 import com.appblish.jgallery.core.storage.di.IoDispatcher
 import dagger.Binds
 import dagger.Module
@@ -32,6 +34,10 @@ internal abstract class IndexModule {
     @Binds
     @Singleton
     abstract fun bindMediaIndexStore(impl: RoomMediaIndexStore): MediaIndexStore
+
+    @Binds
+    @Singleton
+    abstract fun bindTrashRepository(impl: StorageTrashRepository): TrashRepository
 }
 
 /** Provides the Room database, DAO, and the app-lifetime sync scope. */
