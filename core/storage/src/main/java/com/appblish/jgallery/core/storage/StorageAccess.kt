@@ -1,9 +1,9 @@
 package com.appblish.jgallery.core.storage
 
+import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
-import com.appblish.jgallery.core.model.OperationProgress
 import com.appblish.jgallery.core.model.OperationResult
 import kotlinx.coroutines.flow.Flow
 import java.io.InputStream
@@ -61,20 +61,27 @@ interface StorageAccess {
      */
     fun observeMediaChanges(): Flow<Unit>
 
-    // --- Mutations (spec §7). All off-thread; bulk variants stream a progress Flow + final summary. ---
+    // --- Mutations (spec §7). All off-thread; bulk variants stream progress + a terminal summary. ---
 
     suspend fun rename(id: MediaId, newDisplayName: String): OperationResult
 
     suspend fun createAlbum(name: String): OperationResult
 
-    fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<OperationProgress>
+    /**
+     * Copy [ids] into [destinationBucketId] (originals remain — spec §7.1). The returned flow emits
+     * a [FileOperationEvent.InProgress] per item and one terminal [FileOperationEvent.Completed]
+     * carrying the "X copied, Y failed" summary. Runs off-thread and streams (no whole-file buffer);
+     * cancelling collection stops the batch and discards the in-flight partial copy.
+     */
+    fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent>
 
-    fun move(ids: List<MediaId>, destinationBucketId: String): Flow<OperationProgress>
+    /** Move [ids] into [destinationBucketId]; removed from source, collisions handled (spec §7.2). */
+    fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent>
 
     /** Move to app-managed Trash (restorable) — permanent delete is a separate, 2-step call. */
-    fun moveToTrash(ids: List<MediaId>): Flow<OperationProgress>
+    fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent>
 
-    fun deletePermanently(ids: List<MediaId>): Flow<OperationProgress>
+    fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent>
 }
 
 /** The swappable permission strategy. All Files Access is the locked G1 choice. */

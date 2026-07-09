@@ -1,11 +1,11 @@
 package com.appblish.jgallery.core.storage
 
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.MediaType
-import com.appblish.jgallery.core.model.OperationProgress
 import com.appblish.jgallery.core.model.OperationResult
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.flow.Flow
@@ -138,8 +138,8 @@ class StorageBoundarySwapTest {
         override fun deletePermanently(ids: List<MediaId>) = done(ids.size)
 
         private fun ok() = OperationResult(succeeded = 1, failed = 0)
-        private fun done(n: Int): Flow<OperationProgress> =
-            flowOf(OperationProgress(completed = n, total = n, currentName = null))
+        private fun done(n: Int): Flow<FileOperationEvent> =
+            flowOf(FileOperationEvent.Completed(OperationResult(succeeded = n, failed = 0)))
 
         private fun item(id: String, name: String, bucketId: String, bucket: String, taken: Long) =
             MediaItem(

@@ -12,10 +12,10 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Size
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
-import com.appblish.jgallery.core.model.OperationProgress
 import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
@@ -29,7 +29,6 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
-import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
@@ -41,15 +40,18 @@ import java.io.InputStream
  * app that references `MediaStore`, `ContentResolver`, `Environment` and (via the manifest)
  * `MANAGE_EXTERNAL_STORAGE`. Everything is off the caller thread on [io].
  *
- * Scope note: read/enumerate paths are implemented here as the Wave-1 seam. The full mutation set
- * (copy/move/rename/trash — spec §7) and incremental-index integration are completed in APP-271
- * (§1.6 flow) and Wave 2. Mutations below are intentional stubs marked as such, not silent no-ops in
- * disguise — they emit a terminal progress event so callers wired against the API don't hang.
+ * Scope note: read/enumerate paths are the Wave-1 seam. The file-operation mutations (copy / move /
+ * rename / trash / delete — spec §7) are delegated to [FileOperationEngine] over the platform
+ * [MediaStoreStorageOps] primitives (W2-E8); `createAlbum` remains a Wave-2 albums stub.
  */
 internal class MediaStoreStorageAccess(
     private val resolver: ContentResolver,
     private val io: CoroutineDispatcher,
 ) : StorageAccess {
+
+    // Bulk/rename policy (streaming, collisions, progress, cancellation, result summary) lives in the
+    // engine; the platform SPI below it is the only part that talks to MediaStore.
+    private val fileOps = FileOperationEngine(MediaStoreStorageOps(resolver, io), io)
 
     override val backend: StorageBackend = StorageBackend.ALL_FILES_ACCESS
 
@@ -151,21 +153,22 @@ internal class MediaStoreStorageAccess(
     }.conflate().flowOn(io)
 
     override suspend fun rename(id: MediaId, newDisplayName: String): OperationResult =
-        notImplementedYet("rename")
+        fileOps.rename(id, newDisplayName)
 
     override suspend fun createAlbum(name: String): OperationResult =
         notImplementedYet("createAlbum")
 
-    override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<OperationProgress> =
-        stubProgress(ids.size)
+    override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> =
+        fileOps.copy(ids, destinationBucketId)
 
-    override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<OperationProgress> =
-        stubProgress(ids.size)
+    override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> =
+        fileOps.move(ids, destinationBucketId)
 
-    override fun moveToTrash(ids: List<MediaId>): Flow<OperationProgress> = stubProgress(ids.size)
+    override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> =
+        fileOps.moveToTrash(ids)
 
-    override fun deletePermanently(ids: List<MediaId>): Flow<OperationProgress> =
-        stubProgress(ids.size)
+    override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> =
+        fileOps.deletePermanently(ids)
 
     // --- internals ---
 
@@ -274,14 +277,9 @@ internal class MediaStoreStorageAccess(
     }
 
     private fun notImplementedYet(op: String): OperationResult {
-        // Wave 2 (APP-271 / operations tickets) implements this via the boundary. Fail loud in dev.
-        error("StorageAccess.$op is implemented in Wave 2, not the W1 scaffold")
+        // Album creation lands with the Wave-2 albums ticket. Fail loud in dev if called early.
+        error("StorageAccess.$op is implemented in a later Wave 2 ticket")
     }
-
-    private fun stubProgress(count: Int): Flow<OperationProgress> = flow {
-        emit(OperationProgress(completed = 0, total = count, currentName = null))
-        error("Bulk file operations are implemented in Wave 2, not the W1 scaffold")
-    }.flowOn(io)
 
     private companion object {
         // Literal value of MediaStore.VOLUME_EXTERNAL (API 29 constant) — using the string keeps
