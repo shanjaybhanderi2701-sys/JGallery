@@ -213,12 +213,17 @@ class MediaStoreFileOperationsTest {
     private fun idUri(id: MediaId): Uri =
         ContentUris.withAppendedId(MediaStore.Files.getContentUri(VOLUME), id.value.toLong())
 
-    private fun uniqueName(tag: String): String = "jgallery_${tag}_${nextSeq()}.jpg"
+    // [RUN_SALT] makes names unique per *process*, not just per counter value. The Android test
+    // orchestrator runs each method in a fresh process, so a bare counter restarts at the same
+    // values every attempt and collides with rows a prior (failed/retried) attempt left on the
+    // emulator's MediaStore — which then dedupes to "name (1).jpg" and breaks the rename assert.
+    private fun uniqueName(tag: String): String = "jgallery_${tag}_${RUN_SALT}_${nextSeq()}.jpg"
 
     private companion object {
         const val VOLUME = "external"
         const val SOURCE_FOLDER = "JGalleryOpsTestSrc"
         const val FALLBACK_FOLDER = "JGallery"
+        private val RUN_SALT: String = System.nanoTime().toString(36)
         private var seq = 0
         fun nextSeq(): Int = ++seq
     }
