@@ -39,7 +39,9 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
@@ -49,6 +51,14 @@ import com.appblish.jgallery.core.ui.component.GalleryTabHeader
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
+import com.appblish.jgallery.core.ui.selection.BulkAction
+import com.appblish.jgallery.core.ui.selection.BulkOperationUiState
+import com.appblish.jgallery.core.ui.selection.SelectionCheckBadge
+import com.appblish.jgallery.core.ui.selection.SelectionScaffold
+import com.appblish.jgallery.core.ui.selection.SelectionState
+import com.appblish.jgallery.core.ui.selection.rememberTileSelectScale
+import com.appblish.jgallery.core.ui.selection.selectableGridDrag
+import com.appblish.jgallery.core.ui.selection.tileSelectScale
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
 
@@ -61,6 +71,9 @@ import com.appblish.jgallery.core.ui.theme.JGalleryDimens
  * - fixed square tile geometry (no per-item measure);
  * - tiles load [thumbnailRequest] models only — the E4 pipeline guarantees no full-size decode, and
  *   its size-agnostic memory key makes the pinch morph a pure re-layout (no re-decode).
+ *
+ * Multi-select + bulk ops (spec §7.6) layer on via the shared [SelectionScaffold]: long-press enters
+ * selection, tap toggles, drag range-selects, Select All; the bulk bar drives E8 copy/move/trash.
  */
 @Composable
 fun PhotosScreen(
@@ -70,11 +83,25 @@ fun PhotosScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val columns by viewModel.columns.collectAsStateWithLifecycle()
+    val selection by viewModel.selection.collectAsStateWithLifecycle()
+    val bulk by viewModel.bulk.collectAsStateWithLifecycle()
+    val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     PhotosScreen(
         state = state,
         columns = columns,
+        selection = selection,
+        bulk = bulk,
+        destinations = destinations,
         onColumnsChange = viewModel::setColumns,
         onMediaClick = onMediaClick,
+        onToggle = viewModel::toggleSelection,
+        onBeginSelect = viewModel::beginSelection,
+        onDragSelect = viewModel::dragSelectTo,
+        onSelectAll = viewModel::selectAll,
+        onClearSelection = viewModel::clearSelection,
+        onRunBulk = viewModel::runBulk,
+        onCancelBulk = viewModel::cancelBulk,
+        onDismissResult = viewModel::dismissBulkResult,
         modifier = modifier,
     )
 }
@@ -86,11 +113,22 @@ fun PhotosScreen(
     columns: ColumnCount,
     onColumnsChange: (ColumnCount) -> Unit,
     modifier: Modifier = Modifier,
+    selection: SelectionState<MediaId> = SelectionState(),
+    bulk: BulkOperationUiState = BulkOperationUiState.Idle,
+    destinations: List<Album> = emptyList(),
     onMediaClick: (MediaItem) -> Unit = {},
+    onToggle: (MediaId) -> Unit = {},
+    onBeginSelect: (MediaId) -> Unit = {},
+    onDragSelect: (MediaId, List<MediaId>) -> Unit = { _, _ -> },
+    onSelectAll: (Collection<MediaId>) -> Unit = {},
+    onClearSelection: () -> Unit = {},
+    onRunBulk: (BulkAction, String?) -> Unit = { _, _ -> },
+    onCancelBulk: () -> Unit = {},
+    onDismissResult: () -> Unit = {},
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
 
-    Column(modifier = modifier.fillMaxSize().testTag("photos_screen")) {
+    val header: @Composable () -> Unit = {
         GalleryTabHeader(title = "Photos") {
             IconButton(
                 onClick = { showColumnSheet = true },
@@ -103,20 +141,49 @@ fun PhotosScreen(
                 )
             }
         }
+    }
 
-        when (state) {
-            PhotosUiState.Loading -> SkeletonGrid(columns = columns)
-            PhotosUiState.Empty -> EmptyTabState(
+    when (state) {
+        PhotosUiState.Loading -> Column(modifier.fillMaxSize().testTag("photos_screen")) {
+            header(); SkeletonGrid(columns = columns)
+        }
+        PhotosUiState.Empty -> Column(modifier.fillMaxSize().testTag("photos_screen")) {
+            header()
+            EmptyTabState(
                 icon = Icons.Outlined.Photo,
                 title = "No photos yet",
                 caption = "Photos and videos on this device will show up here.",
             )
-            is PhotosUiState.Content -> PhotosGrid(
-                timeline = state.timeline,
-                columns = columns,
-                onColumnsChange = onColumnsChange,
-                onMediaClick = onMediaClick,
-            )
+        }
+        is PhotosUiState.Content -> {
+            val tileIds = remember(state.timeline) {
+                state.timeline.cells.mapNotNull { (it as? PhotosCell.Tile)?.item?.id }
+            }
+            SelectionScaffold(
+                selection = selection,
+                bulk = bulk,
+                albums = destinations,
+                allIds = tileIds,
+                tabHeader = header,
+                onSelectAll = { onSelectAll(tileIds) },
+                onClearSelection = onClearSelection,
+                onRun = onRunBulk,
+                onCancel = onCancelBulk,
+                onDismissResult = onDismissResult,
+                modifier = modifier.testTag("photos_screen"),
+            ) {
+                PhotosGrid(
+                    timeline = state.timeline,
+                    columns = columns,
+                    selection = selection,
+                    orderedIds = tileIds,
+                    onColumnsChange = onColumnsChange,
+                    onMediaClick = onMediaClick,
+                    onToggle = onToggle,
+                    onBeginSelect = onBeginSelect,
+                    onDragSelect = onDragSelect,
+                )
+            }
         }
     }
 
@@ -133,16 +200,31 @@ fun PhotosScreen(
 private fun PhotosGrid(
     timeline: PhotosTimeline,
     columns: ColumnCount,
+    selection: SelectionState<MediaId>,
+    orderedIds: List<MediaId>,
     onColumnsChange: (ColumnCount) -> Unit,
     onMediaClick: (MediaItem) -> Unit,
+    onToggle: (MediaId) -> Unit,
+    onBeginSelect: (MediaId) -> Unit,
+    onDragSelect: (MediaId, List<MediaId>) -> Unit,
 ) {
     val gridState = rememberLazyGridState()
     val tileShape = JGalleryDimens.tileRadius(columns)
 
+    // Resolve a grid adapter index to the media id under it (null for date headers).
+    val idAtCell: (Int) -> MediaId? = { index ->
+        (timeline.cells.getOrNull(index) as? PhotosCell.Tile)?.item?.id
+    }
+
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .gridPinchColumns(currentColumns = { columns }, onColumnsChange = onColumnsChange),
+            .gridPinchColumns(currentColumns = { columns }, onColumnsChange = onColumnsChange)
+            .selectableGridDrag(
+                gridState = gridState,
+                onSelectStart = { index -> idAtCell(index)?.let(onBeginSelect) },
+                onDragOverIndex = { index -> idAtCell(index)?.let { onDragSelect(it, orderedIds) } },
+            ),
     ) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns.value),
@@ -177,7 +259,11 @@ private fun PhotosGrid(
                     is PhotosCell.Tile -> MediaTile(
                         item = cell.item,
                         shape = tileShape,
-                        onClick = { onMediaClick(cell.item) },
+                        selectionActive = selection.isActive,
+                        selected = selection.isSelected(cell.item.id),
+                        onClick = {
+                            if (selection.isActive) onToggle(cell.item.id) else onMediaClick(cell.item)
+                        },
                     )
                 }
             }
@@ -194,44 +280,60 @@ private fun PhotosGrid(
 /**
  * One square grid tile. The model is a [thumbnailRequest] — never a raw uri/path — so the load is
  * boundary-routed, size-capped, and served from the E4 caches (memory hit = zero IO, zero decode).
+ * In selection mode it insets (revealing the accent-tinted gap) and shows a check badge (spec §7.6).
  */
 @Composable
-private fun MediaTile(item: MediaItem, shape: RoundedCornerShape, onClick: () -> Unit) {
+private fun MediaTile(
+    item: MediaItem,
+    shape: RoundedCornerShape,
+    selectionActive: Boolean,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val scale = rememberTileSelectScale(selected)
     Box(
         modifier = Modifier
             .aspectRatio(1f)
-            .clip(shape)
-            .background(JGalleryColors.TilePlaceholder)
+            .background(JGalleryColors.AccentSoft, shape)
             .clickable(onClick = onClick),
     ) {
-        AsyncImage(
-            model = item.thumbnailRequest(),
-            contentDescription = item.displayName,
-            contentScale = ContentScale.Crop,
-            modifier = Modifier.fillMaxSize(),
-        )
-        if (item.type == MediaType.VIDEO) {
-            Row(
-                modifier = Modifier
-                    .align(Alignment.BottomEnd)
-                    .padding(6.dp)
-                    .background(Color(0x99000000), RoundedCornerShape(10.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.PlayArrow,
-                    contentDescription = null,
-                    tint = Color.White,
-                    modifier = Modifier.size(12.dp),
-                )
-                Text(
-                    text = formatDuration(item.durationMillis),
-                    color = Color.White,
-                    fontSize = 11.sp,
-                    maxLines = 1,
-                )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .tileSelectScale(scale)
+                .clip(shape)
+                .background(JGalleryColors.TilePlaceholder),
+        ) {
+            AsyncImage(
+                model = item.thumbnailRequest(),
+                contentDescription = item.displayName,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize(),
+            )
+            if (item.type == MediaType.VIDEO) {
+                Row(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(6.dp)
+                        .background(Color(0x99000000), RoundedCornerShape(10.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.PlayArrow,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Text(
+                        text = formatDuration(item.durationMillis),
+                        color = Color.White,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                    )
+                }
             }
         }
+        SelectionCheckBadge(selected = selected, active = selectionActive)
     }
 }

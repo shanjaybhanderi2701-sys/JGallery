@@ -1,12 +1,16 @@
 package com.appblish.jgallery.feature.photos
 
 import com.appblish.jgallery.core.index.MediaIndexRepository
+import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.MediaType
+import com.appblish.jgallery.core.model.OperationResult
+import kotlinx.coroutines.flow.emptyFlow
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -40,7 +44,7 @@ class PhotosViewModelTest {
     private fun viewModel(
         repository: FakeRepository = FakeRepository(),
         preferences: FakePreferences = FakePreferences(),
-    ) = PhotosViewModel(repository, preferences, dispatcher)
+    ) = PhotosViewModel(repository, NoopOperations, preferences, dispatcher)
 
     @Test
     fun `starts Loading, empty index lands on Empty`() = runTest(dispatcher) {
@@ -101,6 +105,15 @@ class PhotosViewModelTest {
         override fun observeAlbums(): Flow<List<Album>> = MutableStateFlow(emptyList())
         override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> = items
         override suspend fun refresh() = Unit
+    }
+
+    /** The bulk-op seam is exercised in [com.appblish.jgallery.core.ui.selection] tests; here it is inert. */
+    private object NoopOperations : MediaOperationsRepository {
+        override suspend fun createAlbum(name: String) = OperationResult(succeeded = 1, failed = 0)
+        override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
+        override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
+        override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
+        override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
     }
 
     private class FakePreferences : PhotosPreferences {

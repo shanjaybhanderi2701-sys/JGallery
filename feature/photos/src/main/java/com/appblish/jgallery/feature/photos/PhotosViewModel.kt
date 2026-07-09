@@ -3,8 +3,13 @@ package com.appblish.jgallery.feature.photos
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.appblish.jgallery.core.index.MediaIndexRepository
+import com.appblish.jgallery.core.index.MediaOperationsRepository
+import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaQuery
+import com.appblish.jgallery.core.ui.selection.BulkAction
+import com.appblish.jgallery.core.ui.selection.MediaSelectionController
 import com.appblish.jgallery.feature.photos.di.TimelineDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -34,6 +39,7 @@ sealed interface PhotosUiState {
 @HiltViewModel
 class PhotosViewModel @Inject constructor(
     repository: MediaIndexRepository,
+    operations: MediaOperationsRepository,
     private val preferences: PhotosPreferences,
     @TimelineDispatcher timelineDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
@@ -57,7 +63,37 @@ class PhotosViewModel @Inject constructor(
         preferences.columns
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ColumnCount.DEFAULT)
 
+    /**
+     * Multi-select + bulk ops (spec §7.6), driven off the retained [viewModelScope] so a running copy
+     * survives config changes. Copy/Move destinations are the device albums; the source (Photos =
+     * whole library) is null so every album is offered.
+     */
+    val selectionController = MediaSelectionController(
+        scope = viewModelScope,
+        copy = operations::copy,
+        move = operations::move,
+        trash = operations::moveToTrash,
+    )
+    val selection get() = selectionController.selection
+    val bulk get() = selectionController.bulk
+
+    /** Destination list for the Copy to / Move to picker (spec §7.1/§7.2). */
+    val destinations: StateFlow<List<Album>> =
+        repository.observeAlbums()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
     fun setColumns(columns: ColumnCount) {
         viewModelScope.launch { preferences.setColumns(columns) }
     }
+
+    // Selection intents forwarded to the shared controller.
+    fun toggleSelection(id: MediaId) = selectionController.toggle(id)
+    fun beginSelection(id: MediaId) = selectionController.beginDrag(id)
+    fun dragSelectTo(id: MediaId, ordered: List<MediaId>) = selectionController.dragOver(id, ordered)
+    fun selectAll(all: Collection<MediaId>) = selectionController.selectAll(all)
+    fun clearSelection() = selectionController.clearSelection()
+    fun runBulk(action: BulkAction, destinationBucketId: String?) =
+        selectionController.run(action, destinationBucketId)
+    fun cancelBulk() = selectionController.cancel()
+    fun dismissBulkResult() = selectionController.dismissResult()
 }
