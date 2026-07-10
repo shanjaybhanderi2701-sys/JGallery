@@ -44,9 +44,12 @@ class PhotosScrollBenchmark {
             startActivityAndWait(intent)
         },
     ) {
-        // The grid exposes testTag "photos_grid"; the app maps testTags → resource-ids so
-        // UiAutomator can find it out-of-process.
-        val grid = device.wait(Until.findObject(By.res(TARGET_PACKAGE, "photos_grid")), 5_000)
+        // The grid exposes testTag "photos_grid"; PhotosBenchmarkActivity sets
+        // testTagsAsResourceId=true so UiAutomator can find it out-of-process. Compose exposes the
+        // tag as a BARE resource-id ("photos_grid"), not "<pkg>:id/photos_grid" — so this must use
+        // the single-arg By.res(id) matcher, NOT By.res(pkg, id) (which looks for the pkg-prefixed
+        // id and never matches). See Google's macrobenchmark samples.
+        val grid = device.wait(Until.findObject(By.res("photos_grid")), 5_000)
             ?: error("photos_grid not found — is PhotosBenchmarkActivity showing the 10k grid?")
 
         // Keep the fling gesture off the screen edges (system gesture-nav zones would swallow it).
