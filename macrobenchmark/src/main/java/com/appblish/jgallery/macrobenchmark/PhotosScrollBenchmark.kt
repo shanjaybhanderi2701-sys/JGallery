@@ -60,7 +60,8 @@ class PhotosScrollBenchmark {
         // exposes testTagsAsResourceId to out-of-process UiAutomator (the API-30 CI emulator failed
         // By.res even at 30s, while API-35 resolves it fine). Flinging the scrollable container is
         // exactly the measurement we want either way.
-        val grid = device.wait(Until.findObject(By.res("photos_grid")), GRID_WAIT_MS)
+        // Wait for the grid to be on screen and ready (long wait covers the COLD first-frame race).
+        device.wait(Until.findObject(By.res("photos_grid")), GRID_WAIT_MS)
             ?: device.wait(Until.findObject(By.scrollable(true)), SCROLLABLE_FALLBACK_MS)
             ?: run {
                 // Neither the tag nor a scrollable node appeared → the grid isn't on screen. Capture
@@ -77,9 +78,16 @@ class PhotosScrollBenchmark {
                 )
             }
 
-        // Keep the fling gesture off the screen edges (system gesture-nav zones would swallow it).
-        grid.setGestureMargin(device.displayWidth / 5)
+        // Re-acquire a FRESH UiObject2 before EVERY fling. Holding one handle across flings throws
+        // StaleObjectException once the LazyVerticalGrid recomposes/recycles nodes mid-scroll (seen on
+        // the API-30 emulator). Re-finding is a cheap accessibility query (no app frame), so it does
+        // not distort FrameTimingMetric; the fling itself is the measured scroll.
         repeat(SCROLLS_PER_ITERATION) {
+            val grid = device.findObject(By.res("photos_grid"))
+                ?: device.findObject(By.scrollable(true))
+                ?: return@repeat
+            // Keep the fling gesture off the screen edges (system gesture-nav zones would swallow it).
+            grid.setGestureMargin(device.displayWidth / 5)
             grid.fling(Direction.DOWN)
             device.waitForIdle()
         }
