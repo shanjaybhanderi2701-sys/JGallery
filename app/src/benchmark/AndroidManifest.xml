@@ -21,7 +21,16 @@
         <activity
             android:name=".benchmark.PhotosBenchmarkActivity"
             android:exported="true"
-            android:theme="@style/Theme.JGallery" />
+            android:label="JGallery 15k Bench"
+            android:theme="@style/Theme.JGallery">
+            <!-- Tap-launchable in this benchmark build ONLY so the board can sideload the release-
+                 performance APK and feel the 15.5k grid scroll on a real device without needing 15k
+                 real photos or adb. Never in debug/release — this manifest is benchmark-variant only. -->
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
     </application>
 
 </manifest>

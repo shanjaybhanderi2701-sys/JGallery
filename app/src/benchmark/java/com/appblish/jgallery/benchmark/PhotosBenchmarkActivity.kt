@@ -67,8 +67,8 @@ class PhotosBenchmarkActivity : ComponentActivity() {
     }
 
     private companion object {
-        /** Comfortably clears the ">= 10,000 items" DoD bar with date-header cells on top. */
-        const val FIXTURE_ITEM_COUNT = 10_500
+        /** Comfortably clears the ">= 15,000 items" perf-spec bar (APP-369) with date-header cells on top. */
+        const val FIXTURE_ITEM_COUNT = 15_500
 
         /**
          * Synthetic media spread across many capture days so the timeline builds realistic
