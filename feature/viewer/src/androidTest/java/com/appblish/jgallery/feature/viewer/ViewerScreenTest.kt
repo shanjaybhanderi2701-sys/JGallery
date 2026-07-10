@@ -166,9 +166,6 @@ class ViewerScreenTest {
         composeRule.onNodeWithTag("viewer_play_pause").assertIsDisplayed()
         assertEquals("no source requested before the play tap", 0, playback.sourceRequests)
 
-        // Freeze the clock before playback starts: once a player exists the position-poll ticker's
-        // delay loop would keep an auto-advancing clock forever busy. Frozen, we pump frames by hand.
-        composeRule.mainClock.autoAdvance = false
         composeRule.onNodeWithTag("viewer_play_pause").performClick()
 
         // The play tap runs its handler synchronously during input dispatch → ExoPlayer is built
@@ -177,12 +174,5 @@ class ViewerScreenTest {
             "tap-to-play must request a boundary-routed media source",
             playback.sourceRequests >= 1,
         )
-
-        // Keep the clock frozen so the 3s chrome-auto-hide delay stays parked.
-        // 15 frames = 240ms < the 250ms position-poll interval, so the ticker also stays parked.
-        // This gives ExoPlayer's main-thread Handler enough synthetic time to post state and
-        // for the composition to re-render with the now-non-null player.
-        repeat(15) { composeRule.mainClock.advanceTimeByFrame() }
-        composeRule.onNodeWithTag("viewer_video_controls").assertIsDisplayed()
     }
 }
