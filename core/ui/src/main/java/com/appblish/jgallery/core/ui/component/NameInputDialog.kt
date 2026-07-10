@@ -13,7 +13,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
 
 /**
  * A single-field "name" dialog (spec §3/§6 "Create album", reused for §7.3 Rename): title, a text
@@ -30,8 +32,12 @@ fun NameInputDialog(
     initialValue: String = "",
     label: String = "Name",
 ) {
-    var text by remember { mutableStateOf(initialValue) }
-    val trimmed = text.trim()
+    // Seed the field with the caller's value AND park the cursor at its end, so a pre-filled Rename
+    // lets you keep typing where the name leaves off instead of prepending at index 0 (spec §7.3).
+    var value by remember {
+        mutableStateOf(TextFieldValue(initialValue, selection = TextRange(initialValue.length)))
+    }
+    val trimmed = value.text.trim()
     val canConfirm = trimmed.isNotEmpty()
 
     AlertDialog(
@@ -41,8 +47,8 @@ fun NameInputDialog(
         text = {
             Column(modifier = Modifier.fillMaxWidth()) {
                 OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
+                    value = value,
+                    onValueChange = { value = it },
                     singleLine = true,
                     label = { Text(label) },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(

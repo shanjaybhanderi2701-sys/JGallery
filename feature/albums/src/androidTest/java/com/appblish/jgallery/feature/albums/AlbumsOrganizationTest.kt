@@ -149,8 +149,9 @@ class AlbumsOrganizationTest {
         composeRule.onNodeWithTag("album_action_copy").performClick()
         composeRule.onNodeWithTag("destination_picker").assertIsDisplayed()
 
-        // Source (Camera) is excluded; the only other album is Screenshots.
-        composeRule.onNodeWithText("Screenshots").performClick()
+        // Source (Camera) is excluded; the only other album is Screenshots. Pick it by its unique
+        // row tag — "Screenshots" as plain text also matches the album card behind the sheet.
+        composeRule.onNodeWithTag("destination_shots").performClick()
 
         composeRule.runOnIdle {
             assert(copied?.first?.bucketId == "camera")
