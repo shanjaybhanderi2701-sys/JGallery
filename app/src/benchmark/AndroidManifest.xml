@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- benchmark variant ONLY (spec §11 10k frame-time gate, APP-342). Never merged into
+         debug/release, so this profiling surface can never ship to users.
+
+         profileable android:shell="true" lets `androidx.benchmark.macro` capture accurate frame
+         timing from this non-debuggable build via the platform Perfetto/simpleperf shell — the
+         supported way to profile a release-like APK without the JIT/debug distortion a debuggable
+         build introduces. -->
+    <application>
+        <profileable
+            android:shell="true"
+            tools:targetApi="29" />
+
+        <!-- Deterministic 10 000+ item Photos grid, launched directly by the macrobenchmark.
+             Bypasses Hilt/onboarding/MediaStore (no device index, no All-Files grant) so the
+             benchmark measures the exact scroll hot path the gate cares about — the same
+             stateless PhotosScreen + fixture strategy the instrumented PhotosGridTest uses. -->
+        <activity
+            android:name=".benchmark.PhotosBenchmarkActivity"
+            android:exported="true"
+            android:theme="@style/Theme.JGallery" />
+    </application>
+
+</manifest>

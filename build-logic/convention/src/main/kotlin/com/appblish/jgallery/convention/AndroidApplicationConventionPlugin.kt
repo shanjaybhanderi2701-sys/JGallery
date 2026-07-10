@@ -31,6 +31,23 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
                         "proguard-rules.pro",
                     )
                 }
+                // The macrobenchmark target (spec §11 10k-scroll frame-time gate, APP-342).
+                // A release-like, NON-debuggable, profileable variant — macrobenchmark refuses
+                // debuggable builds because JIT/debug hooks distort frame timing. Kept minify-off
+                // so the measured code path matches the tiles/list users actually scroll (not a
+                // shrunk graph) and so the benchmark-only PhotosBenchmarkActivity survives without
+                // keep rules. Debug-signed so it installs on CI/dev without a release keystore.
+                // Profileable is declared in app/src/benchmark/AndroidManifest.xml.
+                create("benchmark") {
+                    initWith(getByName("release"))
+                    isMinifyEnabled = false
+                    isShrinkResources = false
+                    isDebuggable = false
+                    signingConfig = signingConfigs.getByName("debug")
+                    // Feature/core modules only publish debug+release; consume their release
+                    // variant from this benchmark variant.
+                    matchingFallbacks += "release"
+                }
             }
         }
 

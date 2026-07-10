@@ -53,3 +53,6 @@ include(":feature:trash")       // Recycle Bin / Trash (W2-E9, spec §7.5)
 
 // --- Static-analysis / enforcement ---
 include(":lint:storage-boundary") // custom lint rule that enforces the §1.6 boundary
+
+// --- Performance gate ---
+include(":macrobenchmark") // 10k+ item scroll frame-time harness (spec §11 DoD, APP-342)
