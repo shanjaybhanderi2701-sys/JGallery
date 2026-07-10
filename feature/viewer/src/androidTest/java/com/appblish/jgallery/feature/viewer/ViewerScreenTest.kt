@@ -178,14 +178,11 @@ class ViewerScreenTest {
             playback.sourceRequests >= 1,
         )
 
-        // Re-enable auto-advance so the test clock resumes; the ticker's delay(250) may fire once
-        // but that's fine — we need real time for ExoPlayer's internal Handler to flush state, and
-        // waitUntil will poll until viewer_video_controls appears (up to 5s wall-clock).
-        composeRule.mainClock.autoAdvance = true
-        composeRule.waitUntil(timeoutMillis = 5_000) {
-            composeRule.onAllNodesWithTag("viewer_video_controls")
-                .fetchSemanticsNodes().isNotEmpty()
-        }
+        // Keep the clock frozen so the 3s chrome-auto-hide delay stays parked.
+        // 15 frames = 240ms < the 250ms position-poll interval, so the ticker also stays parked.
+        // This gives ExoPlayer's main-thread Handler enough synthetic time to post state and
+        // for the composition to re-render with the now-non-null player.
+        repeat(15) { composeRule.mainClock.advanceTimeByFrame() }
         composeRule.onNodeWithTag("viewer_video_controls").assertIsDisplayed()
     }
 }
