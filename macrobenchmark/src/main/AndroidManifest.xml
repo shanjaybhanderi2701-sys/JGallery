@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Test-only module: the com.android.test plugin synthesizes the instrumentation entry. This
+     stub exists so the module has an explicit manifest anchor; no permissions are declared —
+     the harness only reads frame stats from the target app it launches. -->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" />
