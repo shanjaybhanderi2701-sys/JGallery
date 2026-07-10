@@ -83,6 +83,10 @@ class ViewerViewModel @Inject constructor(
     private val setAsRequests = Channel<Uri>(Channel.BUFFERED)
     val setAsUri: Flow<Uri> = setAsRequests.receiveAsFlow()
 
+    /** One-shot: a `content://` uri for the "Open with" hand-off on an unplayable video (§8 W3-05). */
+    private val openWithRequests = Channel<Uri>(Channel.BUFFERED)
+    val openWithUri: Flow<Uri> = openWithRequests.receiveAsFlow()
+
     // Ops run in the retained viewModelScope so a copy/move survives a config change (spec §7.6).
     private var runningJob: Job? = null
 
@@ -112,6 +116,25 @@ class ViewerViewModel @Inject constructor(
             val uri = operations.viewUri(id)
             if (uri != null) {
                 setAsRequests.send(uri)
+            } else {
+                _action.value = ViewerActionUiState.Finished(
+                    ViewerActionKind.SET_AS,
+                    OperationResult(
+                        succeeded = 0,
+                        failed = 1,
+                        failures = listOf(OperationResult.Failure(id, "item no longer available")),
+                    ),
+                )
+            }
+        }
+    }
+
+    /** Resolve the boundary uri and emit it for the screen to launch "Open with", or report it's gone. */
+    fun openWith(id: MediaId) {
+        viewModelScope.launch {
+            val uri = operations.viewUri(id)
+            if (uri != null) {
+                openWithRequests.send(uri)
             } else {
                 _action.value = ViewerActionUiState.Finished(
                     ViewerActionKind.SET_AS,

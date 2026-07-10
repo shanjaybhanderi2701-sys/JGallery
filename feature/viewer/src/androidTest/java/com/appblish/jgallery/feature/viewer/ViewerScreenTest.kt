@@ -102,6 +102,7 @@ class ViewerScreenTest {
                     onRename = { _, _ -> },
                     onDelete = {},
                     onSetAs = {},
+                    onOpenWith = {},
                     onResultShown = {},
                 ),
                 onBack = {},

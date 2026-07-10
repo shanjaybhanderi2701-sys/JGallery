@@ -78,6 +78,8 @@ internal data class ViewerActionHandlers(
     val onRename: (id: MediaId, newName: String) -> Unit,
     val onDelete: (id: MediaId) -> Unit,
     val onSetAs: (id: MediaId) -> Unit,
+    /** Hand an undecodable video to another app (W3-05 "Open with", §8). Resolves via §1.6 viewUri. */
+    val onOpenWith: (id: MediaId) -> Unit,
     val onResultShown: () -> Unit,
 )
 
@@ -103,6 +105,10 @@ internal fun ViewerRoute(
         // A resolved boundary uri → launch the system "Set as" (ACTION_ATTACH_DATA) chooser (spec §7.4).
         viewModel.setAsUri.collect { uri -> context.launchSetAs(uri) }
     }
+    LaunchedEffect(viewModel) {
+        // Resolved boundary uri for an unplayable video → hand it to another app (§8 W3-05 "Open with").
+        viewModel.openWithUri.collect { uri -> context.launchOpenWith(uri) }
+    }
     ViewerScreen(
         state = state,
         playback = viewModel.playback,
@@ -114,6 +120,7 @@ internal fun ViewerRoute(
             onRename = viewModel::rename,
             onDelete = viewModel::delete,
             onSetAs = viewModel::setAs,
+            onOpenWith = viewModel::openWith,
             onResultShown = viewModel::dismissActionResult,
         ),
         onBack = onBack,
@@ -156,6 +163,18 @@ private fun Context.launchSetAs(uri: Uri) {
     }
     // No handler on this device (or a non-Activity context) shouldn't crash the viewer.
     runCatching { startActivity(Intent.createChooser(attach, "Set as")) }
+}
+
+/**
+ * Fire the system "Open with" chooser for a video the on-device codecs can't play (W3-05, §8). The
+ * uri is the §1.6-resolved `content://`; a granted read flag lets the chosen player stream it.
+ */
+private fun Context.launchOpenWith(uri: Uri) {
+    val view = Intent(Intent.ACTION_VIEW).apply {
+        setDataAndType(uri, "video/*")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    runCatching { startActivity(Intent.createChooser(view, "Open with")) }
 }
 
 @Composable
@@ -201,6 +220,9 @@ private fun ViewerPager(
                 MediaType.IMAGE -> ImagePage(
                     item = item,
                     onToggleChrome = { chromeVisible = !chromeVisible },
+                    onOpenWith = { handlers.onOpenWith(item.id) },
+                    onInfo = { infoItem = item },
+                    onDelete = { handlers.onDelete(item.id) },
                 )
                 MediaType.VIDEO -> VideoPage(
                     item = item,
@@ -208,6 +230,8 @@ private fun ViewerPager(
                     isSettledPage = pagerState.settledPage == page,
                     chromeVisible = chromeVisible,
                     onChromeVisibleChange = { chromeVisible = it },
+                    onOpenWith = { handlers.onOpenWith(item.id) },
+                    onInfo = { infoItem = item },
                 )
             }
         }

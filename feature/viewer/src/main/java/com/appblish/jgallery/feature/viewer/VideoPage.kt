@@ -45,6 +45,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.lifecycle.compose.LifecycleStartEffect
 import androidx.media3.common.AudioAttributes
 import androidx.media3.common.C
+import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
 import androidx.media3.common.VideoSize
 import androidx.media3.common.util.UnstableApi
@@ -75,6 +76,8 @@ internal fun VideoPage(
     isSettledPage: Boolean,
     chromeVisible: Boolean,
     onChromeVisibleChange: (Boolean) -> Unit,
+    onOpenWith: () -> Unit,
+    onInfo: () -> Unit,
 ) {
     val context = LocalContext.current
     var player by remember(item.id) { mutableStateOf<ExoPlayer?>(null) }
@@ -85,6 +88,7 @@ internal fun VideoPage(
     var durationMs by remember(item.id) { mutableLongStateOf(item.durationMillis) }
     var positionMs by remember(item.id) { mutableLongStateOf(0L) }
     var scrubFraction by remember(item.id) { mutableStateOf<Float?>(null) }
+    var videoError by remember(item.id) { mutableStateOf<VideoError?>(null) }
     val currentChromeVisible by rememberUpdatedState(chromeVisible)
 
     fun startPlayback() {
@@ -128,6 +132,12 @@ internal fun VideoPage(
                     override fun onRenderedFirstFrame() {
                         firstFrameRendered = true
                     }
+
+                    // Codec missing / decode failed (spec §8, W3-05). Record the reason; the effect
+                    // below tears the half-open decoder down so we fall back to poster + error card.
+                    override fun onPlayerError(error: PlaybackException) {
+                        videoError = error.toVideoError()
+                    }
                 })
                 setMediaSource(createMediaSource())
                 prepare()
@@ -135,7 +145,8 @@ internal fun VideoPage(
             }
     }
 
-    // Swiped off this page → release the decoder and fall back to the poster.
+    // Swiped off this page → release the decoder and fall back to the poster. Also clears any
+    // codec error, so swiping back re-attempts playback fresh (the page's implicit retry).
     LaunchedEffect(isSettledPage) {
         if (!isSettledPage) {
             player?.release()
@@ -143,6 +154,17 @@ internal fun VideoPage(
             isPlaying = false
             firstFrameRendered = false
             positionMs = 0L
+            videoError = null
+        }
+    }
+    // A codec/decode error came in → tear the half-open player down (outside the listener callback)
+    // so the page settles on poster + error card and never keeps a broken decoder around.
+    LaunchedEffect(videoError) {
+        if (videoError != null) {
+            player?.release()
+            player = null
+            isPlaying = false
+            firstFrameRendered = false
         }
     }
     // App leaves the foreground → pause (audio must not keep playing over other apps).
@@ -190,7 +212,8 @@ internal fun VideoPage(
             VideoPoster(item)
         }
 
-        val showPlayOverlay = player == null || ended || (chromeVisible && !ended)
+        val showPlayOverlay =
+            videoError == null && (player == null || ended || (chromeVisible && !ended))
         if (showPlayOverlay) {
             IconButton(
                 onClick = {
@@ -221,7 +244,7 @@ internal fun VideoPage(
             }
         }
 
-        if (player != null && chromeVisible) {
+        if (videoError == null && player != null && chromeVisible) {
             VideoControls(
                 positionMs = positionMs,
                 durationMs = durationMs,
@@ -238,6 +261,11 @@ internal fun VideoPage(
                     .align(Alignment.BottomCenter)
                     .padding(start = 16.dp, end = 16.dp, bottom = 92.dp),
             )
+        }
+
+        // Graceful §8 fallback: an undecodable clip shows the poster behind a card, never a crash.
+        videoError?.let { error ->
+            VideoErrorCard(error = error, onOpenWith = onOpenWith, onInfo = onInfo)
         }
     }
 }
