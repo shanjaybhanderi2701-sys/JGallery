@@ -55,8 +55,27 @@ class PhotosScrollBenchmark {
         // frame before the LazyVerticalGrid's semantics are queryable by UiAutomator — that race is
         // what reddened the slower API-30 CI emulator (it passes locally on API 35). This wait is
         // BEFORE the measured flings, so it never inflates the reported frame timing.
+        // Prefer the tagged grid, but fall back to ANY scrollable node: the LazyVerticalGrid is the
+        // only scrollable on this screen, so this sidesteps any API-level quirk in how Compose
+        // exposes testTagsAsResourceId to out-of-process UiAutomator (the API-30 CI emulator failed
+        // By.res even at 30s, while API-35 resolves it fine). Flinging the scrollable container is
+        // exactly the measurement we want either way.
         val grid = device.wait(Until.findObject(By.res("photos_grid")), GRID_WAIT_MS)
-            ?: error("photos_grid not found — is PhotosBenchmarkActivity showing the 10k grid?")
+            ?: device.wait(Until.findObject(By.scrollable(true)), SCROLLABLE_FALLBACK_MS)
+            ?: run {
+                // Neither the tag nor a scrollable node appeared → the grid isn't on screen. Capture
+                // the actual window hierarchy into the failure message so the uploaded test report
+                // shows exactly what API-30 rendered, instead of guessing across CI rounds.
+                val dump = java.io.ByteArrayOutputStream().use { os ->
+                    runCatching { device.dumpWindowHierarchy(os) }
+                    os.toString()
+                }
+                error(
+                    "Neither photos_grid (${GRID_WAIT_MS}ms) nor any scrollable node " +
+                        "(${SCROLLABLE_FALLBACK_MS}ms) found — PhotosBenchmarkActivity is not showing " +
+                        "the 10k grid. Window hierarchy follows:\n" + dump.take(4000),
+                )
+            }
 
         // Keep the fling gesture off the screen edges (system gesture-nav zones would swallow it).
         grid.setGestureMargin(device.displayWidth / 5)
@@ -74,5 +93,8 @@ class PhotosScrollBenchmark {
 
         /** Grid-ready wait — generous for the slow CI emulator's COLD 10.5k first-frame race. */
         const val GRID_WAIT_MS = 30_000L
+
+        /** Extra wait for any scrollable node once the tagged lookup misses (grid may still render). */
+        const val SCROLLABLE_FALLBACK_MS = 10_000L
     }
 }
