@@ -1,5 +1,8 @@
 package com.appblish.jgallery.feature.viewer
 
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -38,6 +41,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -50,22 +54,41 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.playback.PlaybackSources
+import com.appblish.jgallery.core.ui.component.NameInputDialog
+import com.appblish.jgallery.core.ui.selection.DestinationPickerSheet
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryViewerTheme
 import kotlinx.coroutines.launch
 
+/** The single-item file actions the viewer runs, bundled so the pager takes one param, not six. */
+internal data class ViewerActionHandlers(
+    val onCopyTo: (id: MediaId, bucketId: String) -> Unit,
+    val onMoveTo: (id: MediaId, bucketId: String) -> Unit,
+    val onRename: (id: MediaId, newName: String) -> Unit,
+    val onDelete: (id: MediaId) -> Unit,
+    val onSetAs: (id: MediaId) -> Unit,
+    val onResultShown: () -> Unit,
+)
+
+/** Which flavour of the shared destination picker is open. */
+private enum class PickerMode { COPY, MOVE }
+
 /**
  * Full-screen viewer (spec §5, design W1-08/09/10): swipe pager across the launch scope, image
- * zoom with pager-safe gesture priority, Media3 video playback, dark viewer-only chrome. All file
- * actions are Phase-G1 stubs — the real operations arrive in Wave 2 and only replace callbacks.
+ * zoom with pager-safe gesture priority, Media3 video playback, dark viewer-only chrome. The overflow
+ * + bottom-bar file actions (Copy/Move/Rename/Set-as/Delete/Info) run through the §7 E8 core via the
+ * `:core:index` operations facade (W2-E12). Favourite / Rotate / Share / Edit stay deferred stubs.
  */
 @Composable
 internal fun ViewerRoute(
@@ -73,13 +96,37 @@ internal fun ViewerRoute(
     viewModel: ViewerViewModel = hiltViewModel(),
 ) {
     val state by viewModel.uiState.collectAsStateWithLifecycle()
-    ViewerScreen(state = state, playback = viewModel.playback, onBack = onBack)
+    val destinations by viewModel.destinations.collectAsStateWithLifecycle()
+    val actionState by viewModel.action.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+    LaunchedEffect(viewModel) {
+        // A resolved boundary uri → launch the system "Set as" (ACTION_ATTACH_DATA) chooser (spec §7.4).
+        viewModel.setAsUri.collect { uri -> context.launchSetAs(uri) }
+    }
+    ViewerScreen(
+        state = state,
+        playback = viewModel.playback,
+        destinations = destinations,
+        actionState = actionState,
+        handlers = ViewerActionHandlers(
+            onCopyTo = viewModel::copyTo,
+            onMoveTo = viewModel::moveTo,
+            onRename = viewModel::rename,
+            onDelete = viewModel::delete,
+            onSetAs = viewModel::setAs,
+            onResultShown = viewModel::dismissActionResult,
+        ),
+        onBack = onBack,
+    )
 }
 
 @Composable
 internal fun ViewerScreen(
     state: ViewerUiState,
     playback: PlaybackSources,
+    destinations: List<Album>,
+    actionState: ViewerActionUiState,
+    handlers: ViewerActionHandlers,
     onBack: () -> Unit,
 ) {
     JGalleryViewerTheme {
@@ -92,16 +139,32 @@ internal fun ViewerScreen(
             when (state) {
                 ViewerUiState.Loading -> Unit // black canvas for the (near-instant) first index read
                 ViewerUiState.Empty -> EmptyViewer(onBack)
-                is ViewerUiState.Ready -> ViewerPager(state, playback, onBack)
+                is ViewerUiState.Ready ->
+                    ViewerPager(state, playback, destinations, actionState, handlers, onBack)
             }
         }
     }
+}
+
+/** Fire the system "Set as" chooser (wallpaper / contact photo). The receiver reads via a granted uri. */
+private fun Context.launchSetAs(uri: Uri) {
+    val attach = Intent(Intent.ACTION_ATTACH_DATA).apply {
+        addCategory(Intent.CATEGORY_DEFAULT)
+        setDataAndType(uri, "image/*")
+        putExtra("mimeType", "image/*")
+        addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+    }
+    // No handler on this device (or a non-Activity context) shouldn't crash the viewer.
+    runCatching { startActivity(Intent.createChooser(attach, "Set as")) }
 }
 
 @Composable
 private fun ViewerPager(
     state: ViewerUiState.Ready,
     playback: PlaybackSources,
+    destinations: List<Album>,
+    actionState: ViewerActionUiState,
+    handlers: ViewerActionHandlers,
     onBack: () -> Unit,
 ) {
     val items by rememberUpdatedState(state.items)
@@ -110,10 +173,19 @@ private fun ViewerPager(
     ) { items.size }
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
     var infoItem by remember { mutableStateOf<MediaItem?>(null) }
+    var picker by remember { mutableStateOf<PickerMode?>(null) }
+    var renaming by remember { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val onStubAction: (String) -> Unit = { action ->
-        scope.launch { snackbarHostState.showSnackbar("$action arrives with file operations in Wave 2") }
+        scope.launch { snackbarHostState.showSnackbar("$action arrives in a later phase") }
+    }
+
+    // Surface each completed op's "done / reason" summary once, then clear it (spec §7.6).
+    LaunchedEffect(actionState) {
+        val finished = actionState as? ViewerActionUiState.Finished ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(finished.message())
+        handlers.onResultShown()
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -156,7 +228,12 @@ private fun ViewerPager(
             exit = fadeOut() + slideOutVertically { it },
         ) {
             ViewerActionBar(
-                onStubAction = onStubAction,
+                item = currentItem,
+                onCopyTo = { picker = PickerMode.COPY },
+                onMoveTo = { picker = PickerMode.MOVE },
+                onRename = { renaming = true },
+                onSetAs = { currentItem?.let { handlers.onSetAs(it.id) } },
+                onDelete = { currentItem?.let { handlers.onDelete(it.id) } },
                 onInfo = { currentItem?.let { infoItem = it } },
             )
         }
@@ -175,6 +252,40 @@ private fun ViewerPager(
 
         infoItem?.let { item ->
             MediaInfoDialog(item = item, onDismiss = { infoItem = null })
+        }
+
+        picker?.let { mode ->
+            DestinationPickerSheet(
+                title = if (mode == PickerMode.COPY) "Copy to" else "Move to",
+                albums = destinations,
+                excludeBucketId = currentItem?.bucketId, // never offer the item's own album
+                onPick = { bucketId ->
+                    val id = currentItem?.id
+                    picker = null
+                    if (id != null) {
+                        when (mode) {
+                            PickerMode.COPY -> handlers.onCopyTo(id, bucketId)
+                            PickerMode.MOVE -> handlers.onMoveTo(id, bucketId)
+                        }
+                    }
+                },
+                onDismiss = { picker = null },
+            )
+        }
+
+        if (renaming) {
+            currentItem?.let { item ->
+                NameInputDialog(
+                    title = "Rename",
+                    confirmLabel = "Rename",
+                    initialValue = item.displayName,
+                    onConfirm = { name ->
+                        renaming = false
+                        handlers.onRename(item.id, name)
+                    },
+                    onDismiss = { renaming = false },
+                )
+            }
         }
     }
 }
@@ -218,12 +329,31 @@ private fun ViewerHeader(
 }
 
 /**
- * Bottom action bar (design W1-08/10). Share and Edit render disabled at 38% — deferred phases
- * with their slots reserved (design deviation #2). More opens the exact Phase-G1 overflow subset.
+ * Bottom action bar (design W1-08/10). Delete (→ Trash) and Move to are live single-item actions;
+ * Share and Edit render disabled at 38% — deferred phases with their slots reserved (design deviation
+ * #2). More opens the Phase-G1 overflow subset (spec §5); "Set as" only shows for images (§7.4).
  */
 @Composable
-private fun ViewerActionBar(onStubAction: (String) -> Unit, onInfo: () -> Unit) {
+private fun ViewerActionBar(
+    item: MediaItem?,
+    onCopyTo: () -> Unit,
+    onMoveTo: () -> Unit,
+    onRename: () -> Unit,
+    onSetAs: () -> Unit,
+    onDelete: () -> Unit,
+    onInfo: () -> Unit,
+) {
     var menuOpen by remember { mutableStateOf(false) }
+
+    // Overflow subset (spec §5); deferred reference items are omitted entirely, not shown disabled
+    // (design deviation #3). "Set as" is image-only — ACTION_ATTACH_DATA has no meaning for video.
+    val overflow = buildList<Pair<String, () -> Unit>> {
+        add("Copy to" to onCopyTo)
+        add("Move to" to onMoveTo)
+        add("Rename" to onRename)
+        if (item?.type == MediaType.IMAGE) add("Set as" to onSetAs)
+        add("Info" to onInfo)
+    }
 
     Row(
         modifier = Modifier
@@ -237,8 +367,8 @@ private fun ViewerActionBar(onStubAction: (String) -> Unit, onInfo: () -> Unit) 
         verticalAlignment = Alignment.CenterVertically,
     ) {
         ViewerAction(Icons.Filled.Share, "Share", Modifier.weight(1f), enabled = false) {}
-        ViewerAction(Icons.Outlined.Delete, "Delete", Modifier.weight(1f)) { onStubAction("Delete") }
-        ViewerAction(Icons.Outlined.DriveFileMove, "Move to", Modifier.weight(1f)) { onStubAction("Move to") }
+        ViewerAction(Icons.Outlined.Delete, "Delete", Modifier.weight(1f)) { onDelete() }
+        ViewerAction(Icons.Outlined.DriveFileMove, "Move to", Modifier.weight(1f)) { onMoveTo() }
         ViewerAction(Icons.Filled.Edit, "Edit", Modifier.weight(1f), enabled = false) {}
         Box(modifier = Modifier.weight(1f), contentAlignment = Alignment.Center) {
             ViewerAction(Icons.Filled.MoreVert, "More") { menuOpen = true }
@@ -247,17 +377,13 @@ private fun ViewerActionBar(onStubAction: (String) -> Unit, onInfo: () -> Unit) 
                 onDismissRequest = { menuOpen = false },
                 containerColor = JGalleryColors.ViewerSheet,
             ) {
-                // Exact Phase-G1 overflow subset (spec §5); deferred reference items are omitted
-                // entirely, not shown disabled (design deviation #3).
-                listOf("Copy to", "Move to", "Rename", "Set as", "Info").forEach { action ->
+                overflow.forEach { (label, action) ->
                     DropdownMenuItem(
-                        text = { Text(action, color = Color.White) },
-                        modifier = Modifier.testTag("viewer_overflow_$action"),
+                        text = { Text(label, color = Color.White) },
+                        modifier = Modifier.testTag("viewer_overflow_$label"),
                         onClick = {
                             menuOpen = false
-                            // Info is fully wired (spec §5.1); the rest land with the E8-backed
-                            // file-operation actions (APP-312 copy/move/rename/set-as).
-                            if (action == "Info") onInfo() else onStubAction(action)
+                            action()
                         },
                     )
                 }

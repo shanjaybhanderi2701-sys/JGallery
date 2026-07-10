@@ -94,6 +94,16 @@ class ViewerScreenTest {
             ViewerScreen(
                 state = ViewerUiState.Ready(items = items, initialIndex = initialIndex),
                 playback = playback,
+                destinations = emptyList(),
+                actionState = ViewerActionUiState.Idle,
+                handlers = ViewerActionHandlers(
+                    onCopyTo = { _, _ -> },
+                    onMoveTo = { _, _ -> },
+                    onRename = { _, _ -> },
+                    onDelete = {},
+                    onSetAs = {},
+                    onResultShown = {},
+                ),
                 onBack = {},
             )
         }
