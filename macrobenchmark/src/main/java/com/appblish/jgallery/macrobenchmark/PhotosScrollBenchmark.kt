@@ -36,23 +36,40 @@ class PhotosScrollBenchmark {
         // COLD so each iteration measures a fresh render of the full 10k timeline, not a warm cache.
         startupMode = StartupMode.COLD,
         setupBlock = {
-            // APP-382: pin the COLD launch to display 0. On the CI emulator a plain
-            // startActivityAndWait(intent) sometimes lands PhotosBenchmarkActivity on a SECONDARY
-            // display (display 2) while UiAutomation only ever queries display 0 — so the grid (and
-            // any scrollable node) is invisible to the finder below and the gate can't emit numbers,
-            // even though a WARM `am start` shows the grid fine. There is no supported way to set a
-            // launch-display id through the Intent / startActivityAndWait API in benchmark 1.3.3, so
-            // launch explicitly with `am start-activity --display 0`. COLD mode already kills the
-            // target process before setupBlock (killProcess() below makes that guarantee explicit and
-            // order-independent), so this is still a genuine cold start. `-W` blocks until the launch
-            // completes, mirroring startActivityAndWait's wait-for-Displayed behavior.
-            killProcess()
-            val status = device.executeShellCommand(
-                "am start-activity -W -n $TARGET_PACKAGE/$TARGET_ACTIVITY " +
-                    "--display 0 --activity-clear-task",
-            )
-            check(status.contains("Status: ok", ignoreCase = true)) {
-                "Cold launch of PhotosBenchmarkActivity on display 0 failed:\n$status"
+            // APP-382: the COLD launch races on the CI emulator. PhotosBenchmarkActivity
+            // intermittently lands on a SECONDARY display / loses focus while UiAutomation only ever
+            // queries display 0, so the grid is invisible to the finder and the gate emits no numbers.
+            // This is an intermittent focus/display race, not a hard failure: in the failing run,
+            // iteration 0 rendered + scrolled fine (produced a trace) while iteration 1 found nothing.
+            // Pinning the launch to display 0 alone did NOT fix it. The ticket's own diagnosis is the
+            // fix: a WARM `am start` reliably re-exposes the grid on the focused display-0 window.
+            //
+            // So: cold-launch once (killProcess() guarantees a genuine COLD start), then, if the grid
+            // is not queryable, issue a WARM re-launch (no kill) to force it back onto display 0, up to
+            // LAUNCH_ATTEMPTS times. `am ... --display 0` is used because benchmark 1.3.3 exposes no
+            // supported launch-display id through the Intent / startActivityAndWait API. This whole
+            // loop runs in setupBlock (UNMEASURED), so it never touches FrameTimingMetric — only the
+            // fling loop below is measured. In the common (non-racing) case attempt 0 wins and the
+            // iteration stays fully cold; a warm re-launch happens only to recover a raced launch.
+            for (attempt in 0 until LAUNCH_ATTEMPTS) {
+                if (attempt == 0) killProcess() // first attempt is COLD; recovery re-launches are WARM.
+                val status = device.executeShellCommand(
+                    "am start-activity -W -n $TARGET_PACKAGE/$TARGET_ACTIVITY " +
+                        "--display 0 --activity-clear-task",
+                )
+                check(!status.contains("Error:", ignoreCase = true)) {
+                    "am start-activity of PhotosBenchmarkActivity on display 0 failed " +
+                        "(attempt $attempt):\n$status"
+                }
+                // Grid queryable on display 0 → ready to measure. `Until.hasObject` returns as soon as
+                // it appears, so a successful launch clears this in well under LAUNCH_PROBE_MS.
+                if (device.wait(Until.hasObject(By.res("photos_grid")), LAUNCH_PROBE_MS) == true ||
+                    device.wait(Until.hasObject(By.scrollable(true)), LAUNCH_PROBE_MS) == true
+                ) {
+                    break
+                }
+                // Not ready → loop and WARM re-launch. If every attempt misses, the measureBlock's
+                // finder below does the final wait and captures the window hierarchy for diagnosis.
             }
         },
     ) {
@@ -64,10 +81,11 @@ class PhotosScrollBenchmark {
         //
         // GRID_WAIT_MS is generous (not the default 5s): a COLD launch builds the 10.5k timeline on
         // the main thread before first composition, and the launch can return on an early frame
-        // before the LazyVerticalGrid's semantics are queryable by UiAutomator. With the launch now
-        // pinned to display 0 in setupBlock (APP-382), this wait covers only that first-frame timing
-        // race, not the earlier wrong-display race. It is BEFORE the measured flings, so it never
-        // inflates the reported frame timing.
+        // before the LazyVerticalGrid's semantics are queryable by UiAutomator. setupBlock (APP-382)
+        // already retries/relaunches until the grid is queryable on display 0, so this wait normally
+        // resolves instantly; it is retained only as a last-resort gate that captures the window
+        // hierarchy if the grid somehow still isn't present. It is BEFORE the measured flings, so it
+        // never inflates the reported frame timing.
         // Prefer the tagged grid, but fall back to ANY scrollable node: the LazyVerticalGrid is the
         // only scrollable on this screen, so this sidesteps any API-level quirk in how Compose
         // exposes testTagsAsResourceId to out-of-process UiAutomator. Flinging the scrollable
@@ -85,8 +103,9 @@ class PhotosScrollBenchmark {
                 }
                 error(
                     "Neither photos_grid (${GRID_WAIT_MS}ms) nor any scrollable node " +
-                        "(${SCROLLABLE_FALLBACK_MS}ms) found — PhotosBenchmarkActivity is not showing " +
-                        "the 10k grid. Window hierarchy follows:\n" + dump.take(4000),
+                        "(${SCROLLABLE_FALLBACK_MS}ms) found after ${LAUNCH_ATTEMPTS} launch attempts " +
+                        "— PhotosBenchmarkActivity is not showing the 10k grid. Window hierarchy " +
+                        "follows:\n" + dump.take(12000),
                 )
             }
 
@@ -110,6 +129,16 @@ class PhotosScrollBenchmark {
         const val TARGET_ACTIVITY = "com.appblish.jgallery.benchmark.PhotosBenchmarkActivity"
         const val ITERATIONS = 5
         const val SCROLLS_PER_ITERATION = 10
+
+        /**
+         * Launch attempts per iteration (APP-382): attempt 0 is the genuine COLD start; the rest are
+         * WARM re-launches that recover the intermittent CI-emulator focus/display race. In the
+         * common non-racing case attempt 0 succeeds and no re-launch happens.
+         */
+        const val LAUNCH_ATTEMPTS = 4
+
+        /** Per-attempt grid-ready probe; `Until.hasObject` returns early once the grid appears. */
+        const val LAUNCH_PROBE_MS = 12_000L
 
         /** Grid-ready wait — generous for the slow CI emulator's COLD 10.5k first-frame race. */
         const val GRID_WAIT_MS = 30_000L

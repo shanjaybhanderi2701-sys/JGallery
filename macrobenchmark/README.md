@@ -49,16 +49,26 @@ regression signal, not the authoritative physical measurement.
 The `macrobenchmark` lane in `.github/workflows/ci.yml` runs the emulator fallback (API 30, pixel_5)
 and uploads the frame-timing JSON as the `macrobenchmark-results` artifact.
 
-### Display-0 pin (APP-382)
+### COLD launch display/focus race (APP-382)
 
-On the CI emulator, a plain `startActivityAndWait` COLD launch would occasionally place
-`PhotosBenchmarkActivity` on a **secondary display (display 2)** while `UiAutomation` only queries
-**display 0** — so the finder never saw `photos_grid` / any scrollable node and the gate emitted no
-numbers, even though a WARM `am start` showed the grid fine. `benchmark 1.3.3` has no supported way
-to set a launch-display id through the `Intent` / `startActivityAndWait` API, so the setup block
-launches explicitly with `am start-activity -W … --display 0` (after an explicit `killProcess()` to
-keep the start genuinely COLD). This resolves the wrong-display race at the source; the generous
-`GRID_WAIT_MS` then only has to cover the normal COLD first-frame timing race.
+On the CI emulator the COLD launch **intermittently** places `PhotosBenchmarkActivity` on a
+**secondary display / unfocused window** while `UiAutomation` only queries **display 0** — so the
+finder sees no `photos_grid` / scrollable node and the gate emits no numbers. It is a race, not a
+hard failure: in a failing run iteration 0 rendered and scrolled fine (produced a trace) while
+iteration 1 found nothing. Pinning the launch to display 0 alone did **not** fix it.
+
+The ticket's own diagnosis is the fix: a **WARM `am start` reliably re-exposes the grid** on the
+focused display-0 window. So the setup block:
+
+1. `killProcess()` then `am start-activity -W … --display 0` — a genuine **COLD** first attempt.
+2. Probes for the grid (`Until.hasObject`, display 0). If present, proceed to measure.
+3. Otherwise **WARM re-launch** (`am start` without a kill) and re-probe, up to `LAUNCH_ATTEMPTS`.
+
+`benchmark 1.3.3` exposes no supported launch-display id through the `Intent` /
+`startActivityAndWait` API, hence the explicit `am … --display 0`. The whole loop runs in
+`setupBlock` (unmeasured), so it never touches `FrameTimingMetric` — only the fling loop is measured.
+In the common non-racing case attempt 0 wins and the iteration stays fully cold; a warm re-launch
+happens only to recover a raced launch.
 
 ## Operator-assisted physical pass
 
