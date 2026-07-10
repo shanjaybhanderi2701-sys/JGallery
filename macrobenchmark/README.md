@@ -49,6 +49,17 @@ regression signal, not the authoritative physical measurement.
 The `macrobenchmark` lane in `.github/workflows/ci.yml` runs the emulator fallback (API 30, pixel_5)
 and uploads the frame-timing JSON as the `macrobenchmark-results` artifact.
 
+### Display-0 pin (APP-382)
+
+On the CI emulator, a plain `startActivityAndWait` COLD launch would occasionally place
+`PhotosBenchmarkActivity` on a **secondary display (display 2)** while `UiAutomation` only queries
+**display 0** — so the finder never saw `photos_grid` / any scrollable node and the gate emitted no
+numbers, even though a WARM `am start` showed the grid fine. `benchmark 1.3.3` has no supported way
+to set a launch-display id through the `Intent` / `startActivityAndWait` API, so the setup block
+launches explicitly with `am start-activity -W … --display 0` (after an explicit `killProcess()` to
+keep the start genuinely COLD). This resolves the wrong-display race at the source; the generous
+`GRID_WAIT_MS` then only has to cover the normal COLD first-frame timing race.
+
 ## Operator-assisted physical pass
 
 Per the DoD: with **no physical device available to CI**, the physical-device 10k+ frame-time pass

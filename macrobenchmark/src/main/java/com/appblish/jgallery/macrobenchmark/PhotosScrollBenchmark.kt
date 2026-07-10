@@ -1,6 +1,5 @@
 package com.appblish.jgallery.macrobenchmark
 
-import android.content.Intent
 import androidx.benchmark.macro.FrameTimingMetric
 import androidx.benchmark.macro.StartupMode
 import androidx.benchmark.macro.junit4.MacrobenchmarkRule
@@ -37,11 +36,24 @@ class PhotosScrollBenchmark {
         // COLD so each iteration measures a fresh render of the full 10k timeline, not a warm cache.
         startupMode = StartupMode.COLD,
         setupBlock = {
-            val intent = Intent().apply {
-                setClassName(TARGET_PACKAGE, TARGET_ACTIVITY)
-                addFlags(Intent.FLAG_ACTIVITY_CLEAR_TASK)
+            // APP-382: pin the COLD launch to display 0. On the CI emulator a plain
+            // startActivityAndWait(intent) sometimes lands PhotosBenchmarkActivity on a SECONDARY
+            // display (display 2) while UiAutomation only ever queries display 0 — so the grid (and
+            // any scrollable node) is invisible to the finder below and the gate can't emit numbers,
+            // even though a WARM `am start` shows the grid fine. There is no supported way to set a
+            // launch-display id through the Intent / startActivityAndWait API in benchmark 1.3.3, so
+            // launch explicitly with `am start-activity --display 0`. COLD mode already kills the
+            // target process before setupBlock (killProcess() below makes that guarantee explicit and
+            // order-independent), so this is still a genuine cold start. `-W` blocks until the launch
+            // completes, mirroring startActivityAndWait's wait-for-Displayed behavior.
+            killProcess()
+            val status = device.executeShellCommand(
+                "am start-activity -W -n $TARGET_PACKAGE/$TARGET_ACTIVITY " +
+                    "--display 0 --activity-clear-task",
+            )
+            check(status.contains("Status: ok", ignoreCase = true)) {
+                "Cold launch of PhotosBenchmarkActivity on display 0 failed:\n$status"
             }
-            startActivityAndWait(intent)
         },
     ) {
         // The grid exposes testTag "photos_grid"; PhotosBenchmarkActivity sets
@@ -51,15 +63,15 @@ class PhotosScrollBenchmark {
         // id and never matches). See Google's macrobenchmark samples.
         //
         // GRID_WAIT_MS is generous (not the default 5s): a COLD launch builds the 10.5k timeline on
-        // the main thread before first composition, and startActivityAndWait can return on an early
-        // frame before the LazyVerticalGrid's semantics are queryable by UiAutomator — that race is
-        // what reddened the slower API-30 CI emulator (it passes locally on API 35). This wait is
-        // BEFORE the measured flings, so it never inflates the reported frame timing.
+        // the main thread before first composition, and the launch can return on an early frame
+        // before the LazyVerticalGrid's semantics are queryable by UiAutomator. With the launch now
+        // pinned to display 0 in setupBlock (APP-382), this wait covers only that first-frame timing
+        // race, not the earlier wrong-display race. It is BEFORE the measured flings, so it never
+        // inflates the reported frame timing.
         // Prefer the tagged grid, but fall back to ANY scrollable node: the LazyVerticalGrid is the
         // only scrollable on this screen, so this sidesteps any API-level quirk in how Compose
-        // exposes testTagsAsResourceId to out-of-process UiAutomator (the API-30 CI emulator failed
-        // By.res even at 30s, while API-35 resolves it fine). Flinging the scrollable container is
-        // exactly the measurement we want either way.
+        // exposes testTagsAsResourceId to out-of-process UiAutomator. Flinging the scrollable
+        // container is exactly the measurement we want either way.
         // Wait for the grid to be on screen and ready (long wait covers the COLD first-frame race).
         device.wait(Until.findObject(By.res("photos_grid")), GRID_WAIT_MS)
             ?: device.wait(Until.findObject(By.scrollable(true)), SCROLLABLE_FALLBACK_MS)
