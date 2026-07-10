@@ -4,12 +4,15 @@ import android.content.Context
 import coil3.ImageLoader
 import coil3.disk.DiskCache
 import coil3.memory.MemoryCache
+import coil3.gif.AnimatedImageDecoder
 import coil3.request.crossfade
+import coil3.svg.SvgDecoder
 import coil3.video.VideoFrameDecoder
 import com.appblish.jgallery.core.storage.StorageAccess
 import com.appblish.jgallery.core.thumbs.internal.CoilDiskThumbnailCache
 import com.appblish.jgallery.core.thumbs.internal.FullImageFetcher
 import com.appblish.jgallery.core.thumbs.internal.FullImageKeyer
+import com.appblish.jgallery.core.thumbs.internal.RawImageDecoder
 import com.appblish.jgallery.core.thumbs.internal.ThumbnailFetcher
 import com.appblish.jgallery.core.thumbs.internal.ThumbnailKeyer
 import dagger.Module
@@ -66,6 +69,14 @@ object ThumbnailModule {
                 add(FullImageKeyer())
                 add(ThumbnailFetcher.Factory(storage, CoilDiskThumbnailCache(diskCache)))
                 add(FullImageFetcher.Factory(storage))
+                // Format breadth (W3-E13 §8). Each decoder content-sniffs and DECLINES sources it does
+                // not own, so ordinary JPEG/PNG/HEIF/WEBP/BMP flow untouched to the platform decoder;
+                // an undecodable file yields no bitmap and falls through to E15's placeholder (never a
+                // crash). Grid GIF tiles stay static — the thumbnail fetcher serves a JPEG first frame,
+                // so only the viewer's full-image stream reaches AnimatedImageDecoder and animates.
+                add(RawImageDecoder.Factory()) // RAW → embedded JPEG (best-effort), before the platform
+                add(SvgDecoder.Factory()) // SVG → rasterised vector (best-effort)
+                add(AnimatedImageDecoder.Factory()) // animated GIF / WEBP / HEIF (API 28+)
                 // Full-size video posters (viewer) decode a frame here. Grid video tiles never reach
                 // this — the thumbnail fetcher already served downsized frame bytes from the boundary.
                 add(VideoFrameDecoder.Factory())

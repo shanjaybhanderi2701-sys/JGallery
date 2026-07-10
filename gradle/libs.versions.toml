@@ -20,6 +20,7 @@ hiltNavigationCompose = "1.2.0"
 
 coil = "3.2.0"
 media3 = "1.4.1"
+exifinterface = "1.4.1"
 
 # Performance — 10k-item scroll frame-time gate (spec §11 DoD, APP-342)
 benchmark = "1.3.3"          # androidx.benchmark.macro — FrameTimingMetric
@@ -78,6 +79,9 @@ kotlinx-coroutines-test = { group = "org.jetbrains.kotlinx", name = "kotlinx-cor
 # --- Image pipeline ---
 coil-compose = { group = "io.coil-kt.coil3", name = "coil-compose", version.ref = "coil" }
 coil-video = { group = "io.coil-kt.coil3", name = "coil-video", version.ref = "coil" }
+coil-gif = { group = "io.coil-kt.coil3", name = "coil-gif", version.ref = "coil" } # animated GIF/WEBP/HEIF (W3-E13 §8)
+coil-svg = { group = "io.coil-kt.coil3", name = "coil-svg", version.ref = "coil" } # best-effort SVG (W3-E13 §8)
+androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterface", version.ref = "exifinterface" }
 
 # --- Media3 / ExoPlayer ---
 media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }

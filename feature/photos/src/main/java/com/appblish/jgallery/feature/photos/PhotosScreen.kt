@@ -44,8 +44,11 @@ import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
+import com.appblish.jgallery.core.model.formatBadge
+import com.appblish.jgallery.core.model.isPanorama
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
+import com.appblish.jgallery.core.ui.component.FormatBadgeChip
 import com.appblish.jgallery.core.ui.component.EmptyTabState
 import com.appblish.jgallery.core.ui.component.GalleryTabHeader
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
@@ -291,6 +294,10 @@ private fun MediaTile(
     onClick: () -> Unit,
 ) {
     val scale = rememberTileSelectScale(selected)
+    // Panoramas letterbox the full horizon on a dark cell instead of cropping to a square (W3-03);
+    // every other format still crops to fill the tile so the grid geometry never reflows (§1).
+    val isPano = item.isPanorama
+    val badge = item.formatBadge
     Box(
         modifier = Modifier
             .aspectRatio(1f)
@@ -302,14 +309,24 @@ private fun MediaTile(
                 .fillMaxSize()
                 .tileSelectScale(scale)
                 .clip(shape)
-                .background(JGalleryColors.TilePlaceholder),
+                .background(if (isPano) Color.Black else JGalleryColors.TilePlaceholder),
         ) {
             AsyncImage(
                 model = item.thumbnailRequest(),
                 contentDescription = item.displayName,
-                contentScale = ContentScale.Crop,
-                modifier = Modifier.fillMaxSize(),
+                contentScale = if (isPano) ContentScale.FillWidth else ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(if (isPano) Modifier.align(Alignment.Center) else Modifier),
             )
+            if (badge != null) {
+                FormatBadgeChip(
+                    badge = badge,
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp),
+                )
+            }
             if (item.type == MediaType.VIDEO) {
                 Row(
                     modifier = Modifier

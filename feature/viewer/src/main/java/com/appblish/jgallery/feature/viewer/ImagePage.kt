@@ -2,17 +2,22 @@ package com.appblish.jgallery.feature.viewer
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.appblish.jgallery.core.model.MediaItem
+import com.appblish.jgallery.core.model.bestEffortKind
 import com.appblish.jgallery.core.thumbs.fullImageRequest
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
 
@@ -65,6 +70,17 @@ internal fun ImagePage(
             modifier = zoomLayer,
             contentScale = ContentScale.Fit,
         )
+        // Best-effort formats (RAW embedded JPEG, SVG preview) surface an honest amber banner
+        // (W3-04). Graceful degradation — the render is real, we're just naming its limit.
+        item.bestEffortKind?.let { kind ->
+            BestEffortBanner(
+                kind = kind,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .navigationBarsPadding()
+                    .padding(16.dp),
+            )
+        }
     }
 }
 
