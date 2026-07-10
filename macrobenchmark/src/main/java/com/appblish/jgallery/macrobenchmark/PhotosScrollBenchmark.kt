@@ -49,7 +49,13 @@ class PhotosScrollBenchmark {
         // tag as a BARE resource-id ("photos_grid"), not "<pkg>:id/photos_grid" — so this must use
         // the single-arg By.res(id) matcher, NOT By.res(pkg, id) (which looks for the pkg-prefixed
         // id and never matches). See Google's macrobenchmark samples.
-        val grid = device.wait(Until.findObject(By.res("photos_grid")), 5_000)
+        //
+        // GRID_WAIT_MS is generous (not the default 5s): a COLD launch builds the 10.5k timeline on
+        // the main thread before first composition, and startActivityAndWait can return on an early
+        // frame before the LazyVerticalGrid's semantics are queryable by UiAutomator — that race is
+        // what reddened the slower API-30 CI emulator (it passes locally on API 35). This wait is
+        // BEFORE the measured flings, so it never inflates the reported frame timing.
+        val grid = device.wait(Until.findObject(By.res("photos_grid")), GRID_WAIT_MS)
             ?: error("photos_grid not found — is PhotosBenchmarkActivity showing the 10k grid?")
 
         // Keep the fling gesture off the screen edges (system gesture-nav zones would swallow it).
@@ -65,5 +71,8 @@ class PhotosScrollBenchmark {
         const val TARGET_ACTIVITY = "com.appblish.jgallery.benchmark.PhotosBenchmarkActivity"
         const val ITERATIONS = 5
         const val SCROLLS_PER_ITERATION = 10
+
+        /** Grid-ready wait — generous for the slow CI emulator's COLD 10.5k first-frame race. */
+        const val GRID_WAIT_MS = 30_000L
     }
 }
