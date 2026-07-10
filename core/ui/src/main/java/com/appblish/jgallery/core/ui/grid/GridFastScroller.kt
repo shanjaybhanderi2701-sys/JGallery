@@ -8,7 +8,7 @@ import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.fillMaxHeight
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -207,19 +207,21 @@ private fun BoxScope.DateBubble(label: String, fraction: Float, trackHeightPx: I
             .offset { IntOffset(0, y) }
             .align(Alignment.TopEnd)
             .padding(end = TouchTarget + 8.dp)
-            .height(44.dp)
+            .heightIn(min = 44.dp)
             .shadow(6.dp, RoundedCornerShape(22.dp))
             .background(JGalleryColors.Accent, RoundedCornerShape(22.dp))
-            .padding(horizontal = 20.dp)
+            .padding(horizontal = 20.dp, vertical = 8.dp)
             .testTag("fast_scroll_bubble"),
         contentAlignment = Alignment.Center,
     ) {
+        // At scale the label carries an absolute-position suffix ("March 2024 · item 8,412 of 61,908",
+        // design W3-09); allow a second line so it never truncates. Terse "YYYY" fling labels stay one line.
         Text(
             text = label,
             color = JGalleryColors.OnAccent,
             fontSize = 16.sp,
             textAlign = TextAlign.Center,
-            maxLines = 1,
+            maxLines = 2,
         )
     }
 }

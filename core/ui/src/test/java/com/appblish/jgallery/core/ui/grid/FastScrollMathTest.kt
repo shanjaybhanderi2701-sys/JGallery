@@ -1,6 +1,7 @@
 package com.appblish.jgallery.core.ui.grid
 
 import com.google.common.truth.Truth.assertThat
+import java.util.Locale
 import org.junit.Test
 
 /** The fast-scroll mapping rules (design §3): linear index map, snap points, visibility, collapse. */
@@ -49,5 +50,16 @@ class FastScrollMathTest {
         assertThat(FastScrollMath.bubbleCollapsed(0.001f)).isFalse()
         assertThat(FastScrollMath.bubbleCollapsed(0.01f)).isTrue()
         assertThat(FastScrollMath.bubbleCollapsed(-0.01f)).isTrue() // direction-agnostic
+    }
+
+    @Test
+    fun `position label groups digits and clamps to range`() {
+        assertThat(FastScrollMath.formatItemPosition(8_412, 61_908, Locale.US))
+            .isEqualTo("item 8,412 of 61,908")
+        // Overshoot during a layout race clamps to the ends instead of reading past them.
+        assertThat(FastScrollMath.formatItemPosition(0, 5, Locale.US)).isEqualTo("item 1 of 5")
+        assertThat(FastScrollMath.formatItemPosition(999, 5, Locale.US)).isEqualTo("item 5 of 5")
+        // Empty grid: nothing to count, caller falls back to the month label alone.
+        assertThat(FastScrollMath.formatItemPosition(1, 0, Locale.US)).isNull()
     }
 }

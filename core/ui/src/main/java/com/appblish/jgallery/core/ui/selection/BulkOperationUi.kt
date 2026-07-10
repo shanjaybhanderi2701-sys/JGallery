@@ -45,6 +45,42 @@ private fun BulkAction.pastVerb(): String = when (this) {
 }
 
 /**
+ * At-scale guardrail (design W3-09): a bulk op over [LARGE_SELECTION_THRESHOLD] items — easy to reach
+ * with Select-All on a 61,908-item folder — gets one extra "are you sure" step before the normal
+ * pick/confirm flow, so a stray tap can't move tens of thousands of files at once.
+ */
+const val LARGE_SELECTION_THRESHOLD: Int = 500
+
+/** True when [count] is large enough to warrant the extra at-scale confirm (design W3-09). */
+fun isLargeSelection(count: Int): Boolean = count >= LARGE_SELECTION_THRESHOLD
+
+/**
+ * Extra confirm shown before a large bulk op (design W3-09). Names the action and the count so the
+ * user sees the scale before committing; confirming falls through to the normal destination-picker
+ * (Copy/Move) or delete-confirm (Trash) flow.
+ */
+@Composable
+fun LargeSelectionWarningDialog(
+    count: Int,
+    action: BulkAction,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("large_selection_warning"),
+        title = { Text("${action.presentVerb()} $count items?") },
+        text = { Text("That's a lot of files. This can take a while — continue?") },
+        confirmButton = {
+            TextButton(onClick = onConfirm, modifier = Modifier.testTag("large_selection_warning_ok")) {
+                Text("Continue")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
+}
+
+/**
  * Confirm dialog before a bulk delete (spec §7.5: delete routes to Trash, which is restorable, so a
  * single confirm — not the 2-step permanent-delete gate — is correct here).
  */

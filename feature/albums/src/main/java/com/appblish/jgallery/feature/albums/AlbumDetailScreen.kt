@@ -39,7 +39,6 @@ import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
-import com.appblish.jgallery.core.ui.component.EmptyTabState
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.BulkOperationUiState
@@ -112,6 +111,8 @@ fun AlbumDetailScreen(
     onRunBulk: (BulkAction, String?) -> Unit = { _, _ -> },
     onCancelBulk: () -> Unit = {},
     onDismissResult: () -> Unit = {},
+    onAddPhotos: () -> Unit = {},
+    onOpenCamera: () -> Unit = {},
 ) {
     val header: @Composable () -> Unit = {
         Row(
@@ -139,10 +140,9 @@ fun AlbumDetailScreen(
         }
         AlbumDetailUiState.Empty -> Column(modifier.fillMaxSize().testTag("album_detail_screen")) {
             header()
-            EmptyTabState(
-                icon = Icons.AutoMirrored.Filled.ArrowBack,
-                title = "Empty album",
-                caption = "This album has no photos or videos.",
+            EmptyAlbumState(
+                onAddPhotos = onAddPhotos,
+                onOpenCamera = onOpenCamera,
             )
         }
         is AlbumDetailUiState.Content -> {

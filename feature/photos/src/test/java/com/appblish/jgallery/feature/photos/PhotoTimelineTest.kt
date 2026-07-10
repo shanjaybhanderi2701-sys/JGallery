@@ -106,7 +106,7 @@ class PhotoTimelineTest {
     }
 
     @Test
-    fun `bubble labels give month-year normally and year when collapsed`() {
+    fun `bubble labels give month-year plus position normally and year when collapsed`() {
         val timeline = buildPhotosTimeline(
             items = listOf(item("a", takenAt = LocalDate.of(2026, 7, 9))),
             zone = zone,
@@ -114,11 +114,37 @@ class PhotoTimelineTest {
             locale = locale,
         )
 
-        assertThat(timeline.bubbleLabel(1, collapsed = false)).isEqualTo("July 2026")
+        // Normal drag reads the month plus the absolute position (design W3-09).
+        assertThat(timeline.bubbleLabel(1, collapsed = false)).isEqualTo("July 2026 · item 1 of 1")
+        // A fast fling collapses to the terse year only — no position noise.
         assertThat(timeline.bubbleLabel(1, collapsed = true)).isEqualTo("2026")
         // Out-of-range indices clamp instead of crashing (drag can overshoot during layout races).
-        assertThat(timeline.bubbleLabel(99, collapsed = false)).isEqualTo("July 2026")
+        assertThat(timeline.bubbleLabel(99, collapsed = false)).isEqualTo("July 2026 · item 1 of 1")
         assertThat(timeline.bubbleLabel(-5, collapsed = true)).isEqualTo("2026")
+    }
+
+    @Test
+    fun `bubble position counts items across sections and ignores headers`() {
+        // Two days → two sections; five items total. The bubble ordinal is the 1-based item position
+        // (headers excluded), grouped by locale, and the header cell reports its section's first item.
+        val timeline = buildPhotosTimeline(
+            items = listOf(
+                item("a", takenAt = LocalDate.of(2026, 7, 9)),
+                item("b", takenAt = LocalDate.of(2026, 7, 9)),
+                item("c", takenAt = LocalDate.of(2026, 7, 8)),
+                item("d", takenAt = LocalDate.of(2026, 7, 8)),
+                item("e", takenAt = LocalDate.of(2026, 7, 8)),
+            ),
+            zone = zone,
+            today = today,
+            locale = locale,
+        )
+
+        // cells: [h0, a(1), b(2), h3, c(3), d(4), e(5)] — newest first.
+        assertThat(timeline.bubbleLabel(2, collapsed = false)).isEqualTo("July 2026 · item 2 of 5")
+        // The second section's header reports the ordinal of its first item.
+        assertThat(timeline.bubbleLabel(3, collapsed = false)).isEqualTo("July 2026 · item 3 of 5")
+        assertThat(timeline.bubbleLabel(6, collapsed = false)).isEqualTo("July 2026 · item 5 of 5")
     }
 
     @Test
