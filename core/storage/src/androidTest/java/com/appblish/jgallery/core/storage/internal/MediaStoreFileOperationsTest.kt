@@ -16,10 +16,14 @@ import androidx.test.filters.SdkSuppress
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.OperationResult
+import com.appblish.jgallery.core.model.TrashEntry
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
@@ -54,7 +58,9 @@ class MediaStoreFileOperationsTest {
     @Before
     fun setUp() {
         context = ApplicationProvider.getApplicationContext()
-        storage = MediaStoreStorageAccess(context.contentResolver, Dispatchers.IO)
+        // This suite exercises copy/move/rename/delete only — the Recycle Bin is not touched here,
+        // so a minimal in-memory metadata store satisfies the constructor without a DataStore.
+        storage = MediaStoreStorageAccess(context.contentResolver, Dispatchers.IO, InMemoryTrashStore())
     }
 
     @After
@@ -221,6 +227,21 @@ class MediaStoreFileOperationsTest {
     // values every attempt and collides with rows a prior (failed/retried) attempt left on the
     // emulator's MediaStore — which then dedupes to "name (1).jpg" and breaks the rename assert.
     private fun uniqueName(tag: String): String = "jgallery_${tag}_${RUN_SALT}_${nextSeq()}.jpg"
+
+    /** In-memory [TrashMetadataStore] — the file-op suite never trashes, so no persistence is needed. */
+    private class InMemoryTrashStore : TrashMetadataStore {
+        private val entries = MutableStateFlow<List<TrashEntry>>(emptyList())
+        override fun observe(): Flow<List<TrashEntry>> = entries.asStateFlow()
+        override suspend fun current(): List<TrashEntry> = entries.value
+        override suspend fun put(entry: TrashEntry) {
+            entries.value = entries.value.filterNot { it.id == entry.id } + entry
+        }
+        override suspend fun remove(ids: Collection<MediaId>) {
+            val drop = ids.toHashSet()
+            entries.value = entries.value.filterNot { it.id in drop }
+        }
+        override suspend fun clear() { entries.value = emptyList() }
+    }
 
     private companion object {
         const val VOLUME = "external"
