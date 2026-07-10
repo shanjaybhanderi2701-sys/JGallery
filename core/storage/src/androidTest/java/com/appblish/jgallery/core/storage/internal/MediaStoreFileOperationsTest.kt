@@ -104,6 +104,21 @@ class MediaStoreFileOperationsTest {
     }
 
     @Test
+    fun renameAlbumMovesMembersIntoRenamedFolderOnDevice() = runBlocking {
+        // Two members of the same source album (bucket) so the entity rename must move both rows.
+        val a = seedImage(uniqueName("albuma"), ByteArray(16) { 3 })
+        val b = seedImage(uniqueName("albumb"), ByteArray(16) { 4 })
+        val bucketId = requireNotNull(currentBucketId(a)) { "seed row must have a bucket id" }
+        val newLeaf = "JGalleryRenamed_${a.value}"
+
+        val result = storage.renameAlbum(bucketId, newLeaf)
+
+        assertEquals(OperationResult(succeeded = 2, failed = 0), result)
+        assertTrue("member A must move into the renamed folder", currentRelativePath(a)!!.contains(newLeaf))
+        assertTrue("member B must move into the renamed folder", currentRelativePath(b)!!.contains(newLeaf))
+    }
+
+    @Test
     fun deletePermanentlyRemovesTheItem() = runBlocking {
         val id = seedImage(uniqueName("delete"), ByteArray(16) { 2 })
 
@@ -169,6 +184,20 @@ class MediaStoreFileOperationsTest {
         context.contentResolver.query(
             idUri(id),
             arrayOf(MediaStore.MediaColumns.DISPLAY_NAME),
+            null, null, null,
+        )?.use { if (it.moveToFirst()) it.getString(0) else null }
+
+    private fun currentBucketId(id: MediaId): String? =
+        context.contentResolver.query(
+            idUri(id),
+            arrayOf(MediaStore.Files.FileColumns.BUCKET_ID),
+            null, null, null,
+        )?.use { if (it.moveToFirst()) it.getString(0) else null }
+
+    private fun currentRelativePath(id: MediaId): String? =
+        context.contentResolver.query(
+            idUri(id),
+            arrayOf(MediaStore.MediaColumns.RELATIVE_PATH),
             null, null, null,
         )?.use { if (it.moveToFirst()) it.getString(0) else null }
 

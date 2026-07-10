@@ -209,6 +209,16 @@ internal class MediaStoreStorageAccess(
         }
     }
 
+    /**
+     * Rename an album/folder as an entity (spec §7.3, §11) by relocating every member row into the
+     * renamed folder — the MediaStore-native folder rename. Policy (validation, no-op, per-member
+     * aggregation) lives in the pure [FileOperationEngine]; the RELATIVE_PATH rewrite is the platform
+     * primitive. An album exists in MediaStore only while it holds media, so there is always ≥1 row
+     * to move (an empty just-created folder never appears as an album to rename).
+     */
+    override suspend fun renameAlbum(bucketId: String, newName: String): OperationResult =
+        fileOps.renameAlbum(bucketId, newName)
+
     private fun failedAlbum(name: String, reason: String): OperationResult =
         OperationResult(
             succeeded = 0,

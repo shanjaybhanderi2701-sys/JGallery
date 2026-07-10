@@ -70,6 +70,16 @@ interface StorageAccess {
     suspend fun createAlbum(name: String): OperationResult
 
     /**
+     * Rename an album/folder *as an entity* — the folder itself, not one file inside it (spec §7.3,
+     * §11 DoD). [bucketId] is the opaque album handle (APP-297 purity: no path or MediaStore concept
+     * crosses the boundary), [newName] the desired folder name (validated like [createAlbum]). Because
+     * an album only materialises once it holds media, the rename always has ≥1 member row to relocate
+     * into the renamed folder; the returned [OperationResult] aggregates that per-member relocation
+     * (`succeeded`/`failed` counts, with a human-readable reason per failure). Off-thread.
+     */
+    suspend fun renameAlbum(bucketId: String, newName: String): OperationResult
+
+    /**
      * A readable `content://` uri for [id], to hand to a system "set as" / attach intent
      * (`ACTION_ATTACH_DATA` — wallpaper / contact photo, spec §7.4). Returns null if the item no
      * longer exists. This is the one place a uri is *deliberately* exposed across the boundary: the

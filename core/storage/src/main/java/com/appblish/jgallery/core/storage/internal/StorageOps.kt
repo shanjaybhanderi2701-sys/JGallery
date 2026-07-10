@@ -49,6 +49,21 @@ internal interface StorageOps {
     /** Rename [id] in place to [newName]. Returns false if the item no longer exists. */
     suspend fun rename(id: MediaId, newName: String): Boolean
 
+    /**
+     * The `RELATIVE_PATH` of the folder backing [bucketId] (read from any member row), or null when
+     * the album has no rows. Used to compute the destination folder for an album rename.
+     */
+    suspend fun albumRelativePath(bucketId: String): String?
+
+    /** Ids of every media row currently in [bucketId] — the album's members to relocate on rename. */
+    suspend fun idsInBucket(bucketId: String): List<MediaId>
+
+    /**
+     * Move [id] into the folder [relativePath] (a `RELATIVE_PATH` like `"Pictures/Holiday/"`) — the
+     * per-row half of an album rename. Returns false if the row no longer exists.
+     */
+    suspend fun moveToFolder(id: MediaId, relativePath: String): Boolean
+
     /** Move [id] to the app-managed Trash (restorable). Returns false if already gone. */
     suspend fun trash(id: MediaId): Boolean
 

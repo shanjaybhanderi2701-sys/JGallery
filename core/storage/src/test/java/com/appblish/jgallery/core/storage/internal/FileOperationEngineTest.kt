@@ -169,6 +169,59 @@ class FileOperationEngineTest {
         assertThat(engine.rename(MediaId("missing"), "x.jpg").failed).isEqualTo(1)
     }
 
+    // --- rename album (entity) ---
+
+    @Test
+    fun `renameAlbum moves every member into the renamed folder, preserving the parent`() = runTest {
+        val ops = FakeStorageOps().apply {
+            put("1", "a.jpg", "image/jpeg", bytesOf(1, size = 2), bucket = "trip")
+            put("2", "b.jpg", "image/jpeg", bytesOf(2, size = 2), bucket = "trip")
+        }
+        // Default relativePath is "Pictures/<bucket>/" → parent "Pictures".
+        val engine = FileOperationEngine(ops, StandardTestDispatcher(testScheduler))
+
+        val result = engine.renameAlbum("trip", "Holiday")
+
+        assertThat(result).isEqualTo(OperationResult(succeeded = 2, failed = 0))
+        assertThat(ops.relativePathOf("1")).isEqualTo("Pictures/Holiday/")
+        assertThat(ops.relativePathOf("2")).isEqualTo("Pictures/Holiday/")
+    }
+
+    @Test
+    fun `renameAlbum is a no-op success when the name is unchanged`() = runTest {
+        val ops = FakeStorageOps().apply {
+            put("1", "a.jpg", "image/jpeg", bytesOf(1, size = 2), bucket = "trip")
+        }
+        // Folder leaf equals the new name → nothing to move.
+        val engine = FileOperationEngine(ops, StandardTestDispatcher(testScheduler))
+
+        val result = engine.renameAlbum("trip", "trip")
+
+        assertThat(result).isEqualTo(OperationResult(succeeded = 1, failed = 0))
+        assertThat(ops.relativePathOf("1")).isEqualTo("Pictures/trip/") // untouched
+    }
+
+    @Test
+    fun `renameAlbum rejects an invalid name without touching any row`() = runTest {
+        val ops = FakeStorageOps().apply {
+            put("1", "a.jpg", "image/jpeg", bytesOf(1, size = 2), bucket = "trip")
+        }
+        val engine = FileOperationEngine(ops, StandardTestDispatcher(testScheduler))
+
+        val result = engine.renameAlbum("trip", "bad/name")
+
+        assertThat(result.failed).isEqualTo(1)
+        assertThat(result.succeeded).isEqualTo(0)
+        assertThat(ops.relativePathOf("1")).isEqualTo("Pictures/trip/") // untouched
+    }
+
+    @Test
+    fun `renameAlbum fails when the album has no rows`() = runTest {
+        val engine = FileOperationEngine(FakeStorageOps(), StandardTestDispatcher(testScheduler))
+
+        assertThat(engine.renameAlbum("ghost", "New").failed).isEqualTo(1)
+    }
+
     // --- cancellation ---
 
     @OptIn(kotlinx.coroutines.ExperimentalCoroutinesApi::class) // advanceUntilIdle
@@ -208,7 +261,13 @@ class FileOperationEngineTest {
 
     /** In-memory [StorageOps]: a bucket -> files map, so the engine's policy is fully observable. */
     private class FakeStorageOps : StorageOps {
-        private class Entry(var name: String, val mime: String, val bytes: ByteArray, val bucketId: String)
+        private class Entry(
+            var name: String,
+            val mime: String,
+            val bytes: ByteArray,
+            val bucketId: String,
+            var relativePath: String = "Pictures/$bucketId/",
+        )
 
         private val items = LinkedHashMap<String, Entry>()
         private val firstReadHooks = mutableMapOf<String, () -> Unit>()
@@ -221,6 +280,8 @@ class FileOperationEngineTest {
         fun put(id: String, name: String, mime: String, bytes: ByteArray, bucket: String) {
             items[id] = Entry(name, mime, bytes, bucket)
         }
+
+        fun relativePathOf(id: String): String? = items[id]?.relativePath
 
         fun hookFirstRead(id: String, action: () -> Unit) {
             firstReadHooks[id] = action
@@ -255,6 +316,18 @@ class FileOperationEngineTest {
         override suspend fun trash(id: MediaId): Boolean = items.remove(id.value) != null
 
         override suspend fun delete(id: MediaId): Boolean = items.remove(id.value) != null
+
+        override suspend fun albumRelativePath(bucketId: String): String? =
+            items.values.firstOrNull { it.bucketId == bucketId }?.relativePath
+
+        override suspend fun idsInBucket(bucketId: String): List<MediaId> =
+            items.filterValues { it.bucketId == bucketId }.keys.map { MediaId(it) }
+
+        override suspend fun moveToFolder(id: MediaId, relativePath: String): Boolean {
+            val entry = items[id.value] ?: return false
+            entry.relativePath = relativePath
+            return true
+        }
 
         private inner class FakeSink(
             private val bucketId: String,

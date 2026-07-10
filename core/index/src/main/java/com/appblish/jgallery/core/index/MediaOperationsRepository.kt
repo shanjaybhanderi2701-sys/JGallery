@@ -51,4 +51,23 @@ interface MediaOperationsRepository {
 
     /** Permanently remove [ids] from device storage (spec §7.5 — reached only via a 2-step confirm). */
     fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent>
+
+    // --- Album-as-entity operations (spec §7, §11 DoD: albums are first-class Copy/Move/Rename/Delete
+    // targets). [bucketId] is the opaque album handle; Copy/Move/Delete simply enumerate the album's
+    // members and reuse the per-item primitives above, so the §1.6 surface grows by only `renameAlbum`.
+
+    /**
+     * Rename the album/folder [bucketId] to [newName] — updates the real folder name via the storage
+     * layer (spec §7.3, §11). One-shot [OperationResult]: `failed = 0` on success, else a reason.
+     */
+    suspend fun renameAlbum(bucketId: String, newName: String): OperationResult
+
+    /** Copy every member of album [bucketId] into [destinationBucketId]; originals remain (spec §7.1). */
+    fun copyAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent>
+
+    /** Move every member of album [bucketId] into [destinationBucketId] (spec §7.2). */
+    fun moveAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent>
+
+    /** Move every member of album [bucketId] to the restorable Trash — "delete album" (spec §7.5). */
+    fun deleteAlbum(bucketId: String): Flow<FileOperationEvent>
 }

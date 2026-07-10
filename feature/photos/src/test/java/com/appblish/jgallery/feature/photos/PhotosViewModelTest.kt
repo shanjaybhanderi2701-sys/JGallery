@@ -116,6 +116,10 @@ class PhotosViewModelTest {
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
         override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
+        override suspend fun renameAlbum(bucketId: String, newName: String) = OperationResult(succeeded = 1, failed = 0)
+        override fun copyAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
+        override fun moveAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
+        override fun deleteAlbum(bucketId: String): Flow<FileOperationEvent> = emptyFlow()
     }
 
     private class FakePreferences : PhotosPreferences {

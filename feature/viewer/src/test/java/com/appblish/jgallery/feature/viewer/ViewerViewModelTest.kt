@@ -243,5 +243,12 @@ class ViewerViewModelTest {
             flowOf(FileOperationEvent.Completed(result))
         override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> =
             flowOf(FileOperationEvent.Completed(result))
+        override suspend fun renameAlbum(bucketId: String, newName: String) = result
+        override fun copyAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> =
+            flowOf(FileOperationEvent.Completed(result))
+        override fun moveAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> =
+            flowOf(FileOperationEvent.Completed(result))
+        override fun deleteAlbum(bucketId: String): Flow<FileOperationEvent> =
+            flowOf(FileOperationEvent.Completed(result))
     }
 }

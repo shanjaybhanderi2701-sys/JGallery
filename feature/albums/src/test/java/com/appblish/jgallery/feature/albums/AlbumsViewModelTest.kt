@@ -19,6 +19,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -147,6 +148,81 @@ class AlbumsViewModelTest {
         assertThat((event as CreateAlbumResult.Failure).reason).isEqualTo("Album name can't be empty")
     }
 
+    @Test
+    fun `renameAlbum delegates by bucketId and emits Success`() = runTest(dispatcher) {
+        val operations = FakeOperations()
+        val vm = viewModel(operations = operations)
+
+        vm.renameAlbum(album("camera", count = 3, newest = 10), "Holiday")
+        val event = withTimeout(5_000) { vm.albumActionEvents.first() }
+
+        assertThat(operations.renamed).containsExactly("camera" to "Holiday")
+        assertThat(event).isInstanceOf(AlbumActionResult.Success::class.java)
+    }
+
+    @Test
+    fun `renameAlbum surfaces the failure reason`() = runTest(dispatcher) {
+        val operations = FakeOperations().apply {
+            result = OperationResult(
+                succeeded = 0, failed = 1,
+                failures = listOf(OperationResult.Failure(MediaId("camera"), "album no longer exists")),
+            )
+        }
+        val vm = viewModel(operations = operations)
+
+        vm.renameAlbum(album("camera", count = 1, newest = 1), "Whatever")
+        val event = withTimeout(5_000) { vm.albumActionEvents.first() }
+
+        assertThat(event).isInstanceOf(AlbumActionResult.Failure::class.java)
+        assertThat((event as AlbumActionResult.Failure).reason).isEqualTo("album no longer exists")
+    }
+
+    @Test
+    fun `copyAlbum runs the bulk op against the chosen destination and reports Success`() =
+        runTest(dispatcher) {
+            val operations = FakeOperations().apply {
+                bulkResult = OperationResult(succeeded = 4, failed = 0)
+            }
+            val vm = viewModel(operations = operations)
+
+            vm.copyAlbum(album("camera", count = 4, newest = 9), destinationBucketId = "shots")
+            val event = withTimeout(5_000) { vm.albumActionEvents.first() }
+
+            assertThat(operations.copied).containsExactly("camera" to "shots")
+            assertThat(event).isInstanceOf(AlbumActionResult.Success::class.java)
+        }
+
+    @Test
+    fun `moveAlbum with partial failure surfaces a Failure`() = runTest(dispatcher) {
+        val operations = FakeOperations().apply {
+            bulkResult = OperationResult(
+                succeeded = 2, failed = 1,
+                failures = listOf(OperationResult.Failure(MediaId("7"), "copied, but the source could not be removed")),
+            )
+        }
+        val vm = viewModel(operations = operations)
+
+        vm.moveAlbum(album("camera", count = 3, newest = 9), destinationBucketId = "shots")
+        val event = withTimeout(5_000) { vm.albumActionEvents.first() }
+
+        assertThat(operations.moved).containsExactly("camera" to "shots")
+        assertThat(event).isInstanceOf(AlbumActionResult.Failure::class.java)
+    }
+
+    @Test
+    fun `deleteAlbum trashes the album members and reports Success`() = runTest(dispatcher) {
+        val operations = FakeOperations().apply {
+            bulkResult = OperationResult(succeeded = 5, failed = 0)
+        }
+        val vm = viewModel(operations = operations)
+
+        vm.deleteAlbum(album("camera", count = 5, newest = 9))
+        val event = withTimeout(5_000) { vm.albumActionEvents.first() }
+
+        assertThat(operations.deleted).containsExactly("camera")
+        assertThat(event).isInstanceOf(AlbumActionResult.Success::class.java)
+    }
+
     private fun album(bucketId: String, count: Int, newest: Long) = Album(
         bucketId = bucketId,
         name = bucketId.replaceFirstChar { it.uppercase() },
@@ -175,6 +251,29 @@ class AlbumsViewModelTest {
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
         override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
+
+        val renamed = mutableListOf<Pair<String, String>>()
+        val copied = mutableListOf<Pair<String, String>>()
+        val moved = mutableListOf<Pair<String, String>>()
+        val deleted = mutableListOf<String>()
+        var bulkResult: OperationResult = OperationResult(succeeded = 1, failed = 0)
+
+        override suspend fun renameAlbum(bucketId: String, newName: String): OperationResult {
+            renamed += bucketId to newName
+            return result
+        }
+        override fun copyAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> {
+            copied += bucketId to destinationBucketId
+            return flowOf(FileOperationEvent.Completed(bulkResult))
+        }
+        override fun moveAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> {
+            moved += bucketId to destinationBucketId
+            return flowOf(FileOperationEvent.Completed(bulkResult))
+        }
+        override fun deleteAlbum(bucketId: String): Flow<FileOperationEvent> {
+            deleted += bucketId
+            return flowOf(FileOperationEvent.Completed(bulkResult))
+        }
     }
 
     private class FakePreferences : AlbumsPreferences {

@@ -4,9 +4,12 @@ import android.net.Uri
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
+import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.storage.StorageAccess
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -39,4 +42,34 @@ internal class StorageMediaOperationsRepository @Inject constructor(
 
     override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> =
         storage.deletePermanently(ids)
+
+    override suspend fun renameAlbum(bucketId: String, newName: String): OperationResult =
+        storage.renameAlbum(bucketId, newName)
+
+    override fun copyAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> =
+        overAlbumMembers(bucketId) { ids -> storage.copy(ids, destinationBucketId) }
+
+    override fun moveAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> =
+        overAlbumMembers(bucketId) { ids -> storage.move(ids, destinationBucketId) }
+
+    override fun deleteAlbum(bucketId: String): Flow<FileOperationEvent> =
+        overAlbumMembers(bucketId) { ids -> storage.moveToTrash(ids) }
+
+    /**
+     * Enumerate an album's members through the §1.6 read seam (authoritative, not a stale UI
+     * snapshot) then run [op] over them — so album Copy/Move/Delete reuse the exact per-item engine
+     * primitives with all their progress/streaming/rollback guarantees. An album with no members
+     * emits a single empty terminal event so collectors always see a completion.
+     */
+    private fun overAlbumMembers(
+        bucketId: String,
+        op: (List<MediaId>) -> Flow<FileOperationEvent>,
+    ): Flow<FileOperationEvent> = flow {
+        val ids = storage.queryMedia(MediaQuery(bucketId = bucketId)).map { it.id }
+        if (ids.isEmpty()) {
+            emit(FileOperationEvent.Completed(OperationResult(succeeded = 0, failed = 0)))
+        } else {
+            emitAll(op(ids))
+        }
+    }
 }

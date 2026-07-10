@@ -2,10 +2,12 @@ package com.appblish.jgallery.feature.albums
 
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
@@ -39,6 +41,10 @@ class AlbumsOrganizationTest {
         onSortChange: (SortSpec) -> Unit = {},
         onCreateAlbum: (String) -> Unit = {},
         onColumnsChange: (ColumnCount) -> Unit = {},
+        onRenameAlbum: (Album, String) -> Unit = { _, _ -> },
+        onCopyAlbum: (Album, String) -> Unit = { _, _ -> },
+        onMoveAlbum: (Album, String) -> Unit = { _, _ -> },
+        onDeleteAlbum: (Album) -> Unit = {},
     ) {
         composeRule.setContent {
             JGalleryTheme {
@@ -46,9 +52,14 @@ class AlbumsOrganizationTest {
                     state = AlbumsUiState.Content(albums),
                     columns = ColumnCount(3),
                     sort = sort,
+                    destinations = albums,
                     onColumnsChange = onColumnsChange,
                     onSortChange = onSortChange,
                     onCreateAlbum = onCreateAlbum,
+                    onRenameAlbum = onRenameAlbum,
+                    onCopyAlbum = onCopyAlbum,
+                    onMoveAlbum = onMoveAlbum,
+                    onDeleteAlbum = onDeleteAlbum,
                 )
             }
         }
@@ -93,5 +104,70 @@ class AlbumsOrganizationTest {
         composeRule.onNodeWithTag("albums_menu_column_count").performClick()
         composeRule.onNodeWithTag("column_count_sheet").assertIsDisplayed()
         composeRule.onNodeWithText("Column count").assertIsDisplayed()
+    }
+
+    // --- Album-as-entity actions (spec §7, §11 DoD, APP-341) ---
+
+    @Test
+    fun longPressAlbum_opensActionMenu_withAllFourActions() {
+        content()
+
+        composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
+
+        composeRule.onNodeWithTag("album_action_menu").assertIsDisplayed()
+        composeRule.onNodeWithTag("album_action_rename").assertIsDisplayed()
+        composeRule.onNodeWithTag("album_action_copy").assertIsDisplayed()
+        composeRule.onNodeWithTag("album_action_move").assertIsDisplayed()
+        composeRule.onNodeWithTag("album_action_delete").assertIsDisplayed()
+    }
+
+    @Test
+    fun longPress_thenRename_confirmsWithTargetAlbumAndTrimmedName() {
+        var renamed: Pair<Album, String>? = null
+        content(onRenameAlbum = { album, name -> renamed = album to name })
+
+        composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
+        composeRule.onNodeWithTag("album_action_rename").performClick()
+        composeRule.onNodeWithTag("name_input_dialog").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("name_input_field").performTextInput("_Renamed")
+        composeRule.onNodeWithTag("name_input_confirm").performClick()
+
+        // Rename dialog pre-fills the album name, so the field ends with the appended text.
+        composeRule.runOnIdle {
+            assert(renamed?.first?.bucketId == "camera")
+            assert(renamed?.second?.endsWith("_Renamed") == true)
+        }
+    }
+
+    @Test
+    fun longPress_thenCopy_picksDestinationExcludingSource() {
+        var copied: Pair<Album, String>? = null
+        content(onCopyAlbum = { album, dest -> copied = album to dest })
+
+        composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
+        composeRule.onNodeWithTag("album_action_copy").performClick()
+        composeRule.onNodeWithTag("destination_picker").assertIsDisplayed()
+
+        // Source (Camera) is excluded; the only other album is Screenshots.
+        composeRule.onNodeWithText("Screenshots").performClick()
+
+        composeRule.runOnIdle {
+            assert(copied?.first?.bucketId == "camera")
+            assert(copied?.second == "shots")
+        }
+    }
+
+    @Test
+    fun longPress_thenDelete_confirmsMoveToTrash() {
+        var deleted: Album? = null
+        content(onDeleteAlbum = { deleted = it })
+
+        composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
+        composeRule.onNodeWithTag("album_action_delete").performClick()
+        composeRule.onNodeWithTag("delete_album_dialog").assertIsDisplayed()
+        composeRule.onNodeWithTag("delete_album_confirm").performClick()
+
+        composeRule.runOnIdle { assert(deleted?.bucketId == "camera") }
     }
 }
