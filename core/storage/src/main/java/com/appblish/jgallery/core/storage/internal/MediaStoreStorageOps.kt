@@ -113,25 +113,19 @@ internal class MediaStoreStorageOps(
         // Rewriting RELATIVE_PATH relocates the underlying file into that folder — the MediaStore-native
         // way to "move" a row. Under All Files Access this needs no per-item consent dialog.
         //
-        // A *bare* RELATIVE_PATH update, however, does not physically relocate the file on a
-        // scoped-storage device: the provider reports 0 rows affected and the row stays put (APP-353 —
-        // album rename moved 0/N members on-device while unit-green). MediaStore only honours the move
-        // when the row is first marked pending, so we toggle IS_PENDING around the rewrite — the same
-        // pending lifecycle the insert/copy path uses to commit bytes to disk. Two updates (not one
-        // combined write) so the pending flag is committed before the relocation is requested.
-        val uri = idToUri(id)
-        resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 1) }, null, null)
+        // The move MUST be issued through the item's *typed* collection (Images / Video), NOT the
+        // generic Files collection: MediaProvider rejects a RELATIVE_PATH relocation addressed through
+        // `MediaStore.Files` with "Movement of <uri> which isn't part of well-defined collection not
+        // allowed", so the update relocates 0 rows and the file stays put. That is why album rename
+        // moved 0/N members on a scoped-storage device while the pure path math was unit-green
+        // (APP-353). The insert/copy path already addresses the typed collection via `collectionFor`,
+        // which is why per-item move/copy works on device; mirror it here.
+        val mime = readString(id, MediaStore.Files.FileColumns.MIME_TYPE) ?: DEFAULT_MIME
+        val uri = ContentUris.withAppendedId(collectionFor(mime), id.value.toLong())
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
-            put(MediaStore.MediaColumns.IS_PENDING, 0)
         }
-        val moved = resolver.update(uri, values, null, null) > 0
-        if (!moved) {
-            // Relocation was rejected — clear the pending flag we set so the row does not stay
-            // invisibly pending (which would hide the member from the gallery, worse than a plain fail).
-            runCatching { resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null) }
-        }
-        moved
+        resolver.update(uri, values, null, null) > 0
     }
 
     override suspend fun trash(id: MediaId): Boolean = withContext(io) {
