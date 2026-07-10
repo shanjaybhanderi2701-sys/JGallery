@@ -57,18 +57,26 @@ finder sees no `photos_grid` / scrollable node and the gate emits no numbers. It
 hard failure: in a failing run iteration 0 rendered and scrolled fine (produced a trace) while
 iteration 1 found nothing. Pinning the launch to display 0 alone did **not** fix it.
 
-The ticket's own diagnosis is the fix: a **WARM `am start` reliably re-exposes the grid** on the
-focused display-0 window. So the setup block:
+The failure is caused by the **COLD process-kill between iterations**, not by the first launch.
+Evidence from the uploaded artifacts of two failed COLD runs: iteration 0 always rendered + scrolled
+fine (produced a perfetto trace), but after the between-iteration process kill, iteration 1
+relaunched onto a display/window `UiAutomation` (display 0) could not see — the dumped hierarchy
+showed **only `com.android.systemui`**, no app window — and warm re-launches *within* that iteration
+never recovered it. Pinning the launch to `--display 0` alone did **not** fix it.
 
-1. `killProcess()` then `am start-activity -W … --display 0` — a genuine **COLD** first attempt.
-2. Probes for the grid (`Until.hasObject`, display 0). If present, proceed to measure.
-3. Otherwise **WARM re-launch** (`am start` without a kill) and re-probe, up to `LAUNCH_ATTEMPTS`.
+The ticket's own diagnosis is decisive: a **WARM `am start` (process still alive) reliably exposes
+the grid** on display 0. So the benchmark now runs with **`StartupMode.WARM`** instead of `COLD`:
+the target process is kept warm across iterations, so the display-0 window association from the
+first launch persists and every iteration stays queryable. The setup block issues `am start-activity
+-W … --display 0` (benchmark 1.3.3 exposes no supported launch-display id through the `Intent` /
+`startActivityAndWait` API) with a short retry/re-probe as belt-and-suspenders for the first launch.
+The whole loop runs in `setupBlock` (unmeasured), so it never touches `FrameTimingMetric` — only the
+fling loop is measured.
 
-`benchmark 1.3.3` exposes no supported launch-display id through the `Intent` /
-`startActivityAndWait` API, hence the explicit `am … --display 0`. The whole loop runs in
-`setupBlock` (unmeasured), so it never touches `FrameTimingMetric` — only the fling loop is measured.
-In the common non-racing case attempt 0 wins and the iteration stays fully cold; a warm re-launch
-happens only to recover a raced launch.
+**Trade-off:** WARM measures a warm-process scroll rather than a cold first render — the right signal
+for this *directional scroll-jank regression* lane (it isolates scroll cost from cold-start IO
+noise). The authoritative COLD 10k+ frame-time headline is covered by the board-confirmed
+operator-assisted physical pass (below), not by this emulator lane.
 
 ## Operator-assisted physical pass
 

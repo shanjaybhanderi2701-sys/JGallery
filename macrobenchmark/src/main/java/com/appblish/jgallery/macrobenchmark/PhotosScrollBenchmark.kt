@@ -33,26 +33,30 @@ class PhotosScrollBenchmark {
         packageName = TARGET_PACKAGE,
         metrics = listOf(FrameTimingMetric()),
         iterations = ITERATIONS,
-        // COLD so each iteration measures a fresh render of the full 10k timeline, not a warm cache.
-        startupMode = StartupMode.COLD,
+        // WARM, not COLD (APP-382): on the CI emulator the COLD process-kill BETWEEN iterations is
+        // what breaks the gate. Evidence from two failed COLD runs: iteration 0 always rendered +
+        // scrolled fine (produced a trace), but after the between-iteration process kill, iteration 1
+        // relaunched onto a display/window UiAutomation (display 0) could not see — the dumped
+        // hierarchy showed ONLY com.android.systemui, no app window — and warm re-launches within
+        // that iteration never recovered it. The ticket's own diagnosis is decisive: a WARM `am
+        // start` (process still alive) reliably exposes the grid on display 0. StartupMode.WARM keeps
+        // the process warm across iterations, so the display-0 window association from the first
+        // launch persists and every iteration stays queryable.
+        //
+        // Trade-off: WARM measures a warm-process scroll rather than a cold first render. That is the
+        // right signal for THIS lane — a directional scroll-jank regression gate — and isolates
+        // scroll cost from cold-start IO noise. The authoritative COLD 10k+ frame-time headline is
+        // covered by the board-confirmed operator-assisted physical pass (see README / APP-369), not
+        // by this emulator lane.
+        startupMode = StartupMode.WARM,
         setupBlock = {
-            // APP-382: the COLD launch races on the CI emulator. PhotosBenchmarkActivity
-            // intermittently lands on a SECONDARY display / loses focus while UiAutomation only ever
-            // queries display 0, so the grid is invisible to the finder and the gate emits no numbers.
-            // This is an intermittent focus/display race, not a hard failure: in the failing run,
-            // iteration 0 rendered + scrolled fine (produced a trace) while iteration 1 found nothing.
-            // Pinning the launch to display 0 alone did NOT fix it. The ticket's own diagnosis is the
-            // fix: a WARM `am start` reliably re-exposes the grid on the focused display-0 window.
-            //
-            // So: cold-launch once (killProcess() guarantees a genuine COLD start), then, if the grid
-            // is not queryable, issue a WARM re-launch (no kill) to force it back onto display 0, up to
-            // LAUNCH_ATTEMPTS times. `am ... --display 0` is used because benchmark 1.3.3 exposes no
-            // supported launch-display id through the Intent / startActivityAndWait API. This whole
-            // loop runs in setupBlock (UNMEASURED), so it never touches FrameTimingMetric — only the
-            // fling loop below is measured. In the common (non-racing) case attempt 0 wins and the
-            // iteration stays fully cold; a warm re-launch happens only to recover a raced launch.
+            // Bring PhotosBenchmarkActivity to the foreground on display 0. With WARM the process is
+            // kept alive between iterations, so this is a warm `am start` from iteration 1 on — the
+            // exact case the ticket confirmed exposes the grid. `am ... --display 0` is used because
+            // benchmark 1.3.3 exposes no supported launch-display id through the Intent /
+            // startActivityAndWait API. This runs in setupBlock (UNMEASURED); only the fling loop
+            // below is measured. The retry/re-probe is belt-and-suspenders for the first launch.
             for (attempt in 0 until LAUNCH_ATTEMPTS) {
-                if (attempt == 0) killProcess() // first attempt is COLD; recovery re-launches are WARM.
                 val status = device.executeShellCommand(
                     "am start-activity -W -n $TARGET_PACKAGE/$TARGET_ACTIVITY " +
                         "--display 0 --activity-clear-task",
@@ -68,7 +72,7 @@ class PhotosScrollBenchmark {
                 ) {
                     break
                 }
-                // Not ready → loop and WARM re-launch. If every attempt misses, the measureBlock's
+                // Not ready → re-issue the warm `am start`. If every attempt misses, the measureBlock's
                 // finder below does the final wait and captures the window hierarchy for diagnosis.
             }
         },
@@ -90,7 +94,7 @@ class PhotosScrollBenchmark {
         // only scrollable on this screen, so this sidesteps any API-level quirk in how Compose
         // exposes testTagsAsResourceId to out-of-process UiAutomator. Flinging the scrollable
         // container is exactly the measurement we want either way.
-        // Wait for the grid to be on screen and ready (long wait covers the COLD first-frame race).
+        // Wait for the grid to be on screen and ready (long wait covers the first-frame build race).
         device.wait(Until.findObject(By.res("photos_grid")), GRID_WAIT_MS)
             ?: device.wait(Until.findObject(By.scrollable(true)), SCROLLABLE_FALLBACK_MS)
             ?: run {
