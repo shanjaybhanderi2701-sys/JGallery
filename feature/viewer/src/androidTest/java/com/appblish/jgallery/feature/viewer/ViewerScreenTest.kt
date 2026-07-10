@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
+import androidx.compose.ui.test.waitUntilAtLeastOneExists
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.ByteArrayDataSource
 import androidx.media3.exoplayer.source.MediaSource
@@ -178,9 +179,14 @@ class ViewerScreenTest {
             playback.sourceRequests >= 1,
         )
 
-        // Pump a few frames — well under the 250ms poll interval, so the ticker delay stays parked —
-        // to let the now-non-null player recompose the scrub controls into view.
-        repeat(4) { composeRule.mainClock.advanceTimeByFrame() }
+        // Re-enable auto-advance so the test clock resumes; the ticker's delay(250) may fire once
+        // but that's fine — we need real time for ExoPlayer's internal Handler to flush state, and
+        // waitUntilAtLeastOneExists will poll until the controls node appears (up to 5s wall-clock).
+        composeRule.mainClock.autoAdvance = true
+        composeRule.waitUntilAtLeastOneExists(
+            androidx.compose.ui.test.hasTestTag("viewer_video_controls"),
+            timeoutMillis = 5_000,
+        )
         composeRule.onNodeWithTag("viewer_video_controls").assertIsDisplayed()
     }
 }
