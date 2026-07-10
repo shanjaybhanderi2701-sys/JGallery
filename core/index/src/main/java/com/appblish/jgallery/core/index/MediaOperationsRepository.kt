@@ -1,5 +1,6 @@
 package com.appblish.jgallery.core.index
 
+import android.net.Uri
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.OperationResult
@@ -24,6 +25,20 @@ interface MediaOperationsRepository {
      * already exists), or `failed = 1` with a human-readable reason (invalid name / IO failure).
      */
     suspend fun createAlbum(name: String): OperationResult
+
+    /**
+     * Rename a single item's underlying file (spec §7.3). Returns a one-item [OperationResult]:
+     * `succeeded = 1` on success (or a no-op when the name is unchanged), or `failed = 1` with a
+     * human-readable reason (blank/illegal name, item gone, IO failure). Off the main thread.
+     */
+    suspend fun rename(id: MediaId, newDisplayName: String): OperationResult
+
+    /**
+     * A readable `content://` uri for [id] to hand to the system "set as" intent (`ACTION_ATTACH_DATA`
+     * — wallpaper / contact photo, spec §7.4). Null if the item no longer exists. The caller grants
+     * the receiving app read permission on the intent (the only sanctioned uri exposure — APP-297).
+     */
+    suspend fun viewUri(id: MediaId): Uri?
 
     /** Copy [ids] into [destinationBucketId]; originals remain (spec §7.1). */
     fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent>

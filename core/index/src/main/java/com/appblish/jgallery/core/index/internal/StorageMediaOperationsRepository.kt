@@ -1,5 +1,6 @@
 package com.appblish.jgallery.core.index.internal
 
+import android.net.Uri
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
@@ -21,6 +22,11 @@ internal class StorageMediaOperationsRepository @Inject constructor(
 ) : MediaOperationsRepository {
 
     override suspend fun createAlbum(name: String): OperationResult = storage.createAlbum(name)
+
+    override suspend fun rename(id: MediaId, newDisplayName: String): OperationResult =
+        storage.rename(id, newDisplayName)
+
+    override suspend fun viewUri(id: MediaId): Uri? = storage.viewUri(id)
 
     override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> =
         storage.copy(ids, destinationBucketId)

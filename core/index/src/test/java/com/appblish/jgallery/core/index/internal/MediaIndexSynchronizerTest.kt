@@ -120,6 +120,7 @@ private class FakeStorageAccess(val device: MutableList<MediaItem>) : StorageAcc
     override suspend fun openStream(id: MediaId, target: DecodeTarget): InputStream = error("unused")
     override suspend fun rename(id: MediaId, newDisplayName: String) = error("unused")
     override suspend fun createAlbum(name: String) = error("unused")
+    override suspend fun viewUri(id: MediaId): android.net.Uri? = error("unused")
     override fun copy(ids: List<MediaId>, destinationBucketId: String) = error("unused")
     override fun move(ids: List<MediaId>, destinationBucketId: String) = error("unused")
     override fun moveToTrash(ids: List<MediaId>) = error("unused")

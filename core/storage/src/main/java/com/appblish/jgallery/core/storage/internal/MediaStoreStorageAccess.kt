@@ -167,6 +167,19 @@ internal class MediaStoreStorageAccess(
     override suspend fun rename(id: MediaId, newDisplayName: String): OperationResult =
         fileOps.rename(id, newDisplayName)
 
+    // The cursor is closed by `use`; no stream/ownership transfer here, so Recycle is a false positive.
+    @SuppressLint("Recycle")
+    override suspend fun viewUri(id: MediaId): Uri? = withContext(io) {
+        val rowId = id.value.toLongOrNull() ?: return@withContext null
+        val uri = ContentUris.withAppendedId(MediaStore.Files.getContentUri(EXTERNAL_VOLUME), rowId)
+        // Confirm the row still exists so "Set as" on an item deleted underneath us degrades to a
+        // graceful "no longer available" rather than firing an intent at a dangling uri.
+        val exists = resolver
+            .query(uri, arrayOf(MediaStore.Files.FileColumns._ID), null, null, null)
+            ?.use { it.moveToFirst() } ?: false
+        if (exists) uri else null
+    }
+
     /**
      * Create an empty album folder under the public Pictures root (spec §6). Under All Files Access
      * the directory can be created directly on the volume — MediaStore itself has no "empty bucket"

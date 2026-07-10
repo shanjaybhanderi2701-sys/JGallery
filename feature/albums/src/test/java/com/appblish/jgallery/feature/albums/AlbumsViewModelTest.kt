@@ -169,6 +169,8 @@ class AlbumsViewModelTest {
             createdNames += name
             return result
         }
+        override suspend fun rename(id: MediaId, newDisplayName: String) = result
+        override suspend fun viewUri(id: MediaId): android.net.Uri? = null
         override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()

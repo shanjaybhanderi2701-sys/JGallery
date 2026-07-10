@@ -110,6 +110,8 @@ class PhotosViewModelTest {
     /** The bulk-op seam is exercised in [com.appblish.jgallery.core.ui.selection] tests; here it is inert. */
     private object NoopOperations : MediaOperationsRepository {
         override suspend fun createAlbum(name: String) = OperationResult(succeeded = 1, failed = 0)
+        override suspend fun rename(id: MediaId, newDisplayName: String) = OperationResult(succeeded = 1, failed = 0)
+        override suspend fun viewUri(id: MediaId): android.net.Uri? = null
         override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()

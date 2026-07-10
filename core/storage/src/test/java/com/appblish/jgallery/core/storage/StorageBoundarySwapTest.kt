@@ -132,6 +132,7 @@ class StorageBoundarySwapTest {
 
         override suspend fun rename(id: MediaId, newDisplayName: String) = ok()
         override suspend fun createAlbum(name: String) = ok()
+        override suspend fun viewUri(id: MediaId): android.net.Uri? = null
         override fun copy(ids: List<MediaId>, destinationBucketId: String) = done(ids.size)
         override fun move(ids: List<MediaId>, destinationBucketId: String) = done(ids.size)
         override fun moveToTrash(ids: List<MediaId>) = done(ids.size)

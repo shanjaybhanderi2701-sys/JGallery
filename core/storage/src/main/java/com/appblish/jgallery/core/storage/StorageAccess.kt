@@ -1,5 +1,6 @@
 package com.appblish.jgallery.core.storage
 
+import android.net.Uri
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
@@ -67,6 +68,15 @@ interface StorageAccess {
     suspend fun rename(id: MediaId, newDisplayName: String): OperationResult
 
     suspend fun createAlbum(name: String): OperationResult
+
+    /**
+     * A readable `content://` uri for [id], to hand to a system "set as" / attach intent
+     * (`ACTION_ATTACH_DATA` — wallpaper / contact photo, spec §7.4). Returns null if the item no
+     * longer exists. This is the one place a uri is *deliberately* exposed across the boundary: the
+     * receiving app needs one to read the bytes, so the caller grants read permission on the intent.
+     * No filesystem path crosses — only the opaque MediaStore uri (APP-297 boundary-purity ruling).
+     */
+    suspend fun viewUri(id: MediaId): Uri?
 
     /**
      * Copy [ids] into [destinationBucketId] (originals remain — spec §7.1). The returned flow emits
