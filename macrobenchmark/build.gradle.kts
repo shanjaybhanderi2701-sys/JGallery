@@ -44,12 +44,26 @@ android {
     buildTypes {
         create("benchmark") {
             isDebuggable = true
+            // A freshly-created build type has no signingConfig, so the emitted test APK is
+            // unsigned and the device refuses to install it (INSTALL_PARSE_FAILED_NO_CERTIFICATES).
+            // Sign with debug, like every other installable variant.
+            signingConfig = signingConfigs.getByName("debug")
             matchingFallbacks += "release"
         }
     }
 
     targetProjectPath = ":app"
     experimentalProperties["android.experimental.self-instrumenting"] = true
+}
+
+// This module measures ONLY the app's non-debuggable `benchmark` variant. The default `debug`
+// variant would drive the macrobenchmark against a debuggable app — androidx.benchmark aborts with
+// "ERRORS (not suppressed): DEBUGGABLE" — and it gets swept into the generic
+// `connectedDebugAndroidTest` lane. Disable it so only `connectedBenchmarkAndroidTest` runs here.
+androidComponents {
+    beforeVariants(selector().withBuildType("debug")) { variant ->
+        variant.enable = false
+    }
 }
 
 kotlin {
