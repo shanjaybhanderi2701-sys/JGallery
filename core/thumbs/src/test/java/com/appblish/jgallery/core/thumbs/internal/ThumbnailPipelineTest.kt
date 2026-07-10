@@ -132,6 +132,7 @@ private class FakeStorage(private val payload: ByteArray?) : StorageAccess {
     override fun observeMediaChanges(): Flow<Unit> = emptyFlow()
     override suspend fun rename(id: MediaId, newDisplayName: String): OperationResult = error("unused")
     override suspend fun createAlbum(name: String): OperationResult = error("unused")
+    override suspend fun renameAlbum(bucketId: String, newName: String): OperationResult = error("unused")
     override suspend fun viewUri(id: MediaId): android.net.Uri? = error("unused")
     override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = error("unused")
     override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = error("unused")

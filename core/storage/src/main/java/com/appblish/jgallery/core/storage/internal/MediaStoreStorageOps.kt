@@ -84,6 +84,40 @@ internal class MediaStoreStorageOps(
         resolver.update(idToUri(id), values, null, null) > 0
     }
 
+    override suspend fun albumRelativePath(bucketId: String): String? = withContext(io) {
+        resolver.query(
+            MediaStore.Files.getContentUri(EXTERNAL_VOLUME),
+            arrayOf(MediaStore.Files.FileColumns.RELATIVE_PATH),
+            "${MediaStore.Files.FileColumns.BUCKET_ID} = ?",
+            arrayOf(bucketId),
+            "${MediaStore.Files.FileColumns._ID} ASC",
+        )?.use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0)?.takeIf { it.isNotBlank() } else null
+        }
+    }
+
+    override suspend fun idsInBucket(bucketId: String): List<MediaId> = withContext(io) {
+        resolver.query(
+            MediaStore.Files.getContentUri(EXTERNAL_VOLUME),
+            arrayOf(MediaStore.Files.FileColumns._ID),
+            "${MediaStore.Files.FileColumns.BUCKET_ID} = ?",
+            arrayOf(bucketId),
+            null,
+        )?.use { cursor ->
+            val idCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
+            buildList { while (cursor.moveToNext()) add(MediaId(cursor.getLong(idCol).toString())) }
+        }.orEmpty()
+    }
+
+    override suspend fun moveToFolder(id: MediaId, relativePath: String): Boolean = withContext(io) {
+        // Rewriting RELATIVE_PATH relocates the underlying file into that folder — the MediaStore-native
+        // way to "move" a row. Under All Files Access this needs no per-item consent dialog.
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+        }
+        resolver.update(idToUri(id), values, null, null) > 0
+    }
+
     override suspend fun trash(id: MediaId): Boolean = withContext(io) {
         // Restorable trash is the MediaStore IS_TRASHED flag (API 30+). E9 builds the app-managed
         // Trash UI/restore on top of this primitive; on Q there is no provider-level trash column.

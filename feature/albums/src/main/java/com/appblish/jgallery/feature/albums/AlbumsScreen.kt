@@ -1,8 +1,10 @@
 package com.appblish.jgallery.feature.albums
 
 import android.widget.Toast
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -17,12 +19,16 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -47,6 +53,7 @@ import com.appblish.jgallery.core.ui.component.EmptyTabState
 import com.appblish.jgallery.core.ui.component.GalleryTabHeader
 import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
+import com.appblish.jgallery.core.ui.selection.DestinationPickerSheet
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
@@ -68,6 +75,7 @@ fun AlbumsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val columns by viewModel.columns.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
+    val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Surface create-album outcomes (spec §6) as a toast while this tab is on screen.
@@ -81,13 +89,29 @@ fun AlbumsScreen(
         }
     }
 
+    // Surface rename/copy/move/delete-album outcomes (spec §7) as a toast.
+    androidx.compose.runtime.LaunchedEffect(viewModel) {
+        viewModel.albumActionEvents.collect { result ->
+            val message = when (result) {
+                is AlbumActionResult.Success -> result.message
+                is AlbumActionResult.Failure -> result.reason
+            }
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     AlbumsScreen(
         state = state,
         columns = columns,
         sort = sort,
+        destinations = destinations,
         onColumnsChange = viewModel::setColumns,
         onSortChange = viewModel::setSort,
         onCreateAlbum = viewModel::createAlbum,
+        onRenameAlbum = viewModel::renameAlbum,
+        onCopyAlbum = viewModel::copyAlbum,
+        onMoveAlbum = viewModel::moveAlbum,
+        onDeleteAlbum = viewModel::deleteAlbum,
         onAlbumClick = onAlbumClick,
         modifier = modifier,
     )
@@ -103,11 +127,19 @@ fun AlbumsScreen(
     onSortChange: (SortSpec) -> Unit,
     onCreateAlbum: (String) -> Unit,
     modifier: Modifier = Modifier,
+    destinations: List<Album> = emptyList(),
+    onRenameAlbum: (Album, String) -> Unit = { _, _ -> },
+    onCopyAlbum: (Album, String) -> Unit = { _, _ -> },
+    onMoveAlbum: (Album, String) -> Unit = { _, _ -> },
+    onDeleteAlbum: (Album) -> Unit = {},
     onAlbumClick: (Album) -> Unit = {},
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
+    // The album whose per-album action menu / dialog is open, plus which dialog (null = closed).
+    var actionTarget by remember { mutableStateOf<Album?>(null) }
+    var openDialog by remember { mutableStateOf<AlbumDialog?>(null) }
 
     Column(modifier = modifier.fillMaxSize().testTag("albums_screen")) {
         GalleryTabHeader(title = "Albums") {
@@ -130,8 +162,56 @@ fun AlbumsScreen(
                 columns = columns,
                 onColumnsChange = onColumnsChange,
                 onAlbumClick = onAlbumClick,
+                onAlbumLongClick = { actionTarget = it },
             )
         }
+    }
+
+    // Per-album action menu (spec §7, §11): long-press an album → Rename / Copy / Move / Delete.
+    // The menu shows until an action selects a dialog; the target survives so the dialog can use it.
+    actionTarget?.let { target ->
+        if (openDialog == null) {
+            AlbumActionMenu(
+                album = target,
+                onRename = { openDialog = AlbumDialog.Rename },
+                onCopy = { openDialog = AlbumDialog.Copy },
+                onMove = { openDialog = AlbumDialog.Move },
+                onDelete = { openDialog = AlbumDialog.Delete },
+                onDismiss = { actionTarget = null },
+            )
+        }
+    }
+
+    val target = actionTarget
+    when (openDialog) {
+        AlbumDialog.Rename -> if (target != null) NameInputDialog(
+            title = "Rename album",
+            label = "Album name",
+            confirmLabel = "Rename",
+            initialValue = target.name,
+            onConfirm = { name -> onRenameAlbum(target, name); openDialog = null; actionTarget = null },
+            onDismiss = { openDialog = null; actionTarget = null },
+        )
+        AlbumDialog.Copy -> if (target != null) DestinationPickerSheet(
+            title = "Copy “${target.name}” to",
+            albums = destinations,
+            excludeBucketId = target.bucketId,
+            onPick = { dest -> onCopyAlbum(target, dest); openDialog = null; actionTarget = null },
+            onDismiss = { openDialog = null; actionTarget = null },
+        )
+        AlbumDialog.Move -> if (target != null) DestinationPickerSheet(
+            title = "Move “${target.name}” to",
+            albums = destinations,
+            excludeBucketId = target.bucketId,
+            onPick = { dest -> onMoveAlbum(target, dest); openDialog = null; actionTarget = null },
+            onDismiss = { openDialog = null; actionTarget = null },
+        )
+        AlbumDialog.Delete -> if (target != null) DeleteAlbumDialog(
+            album = target,
+            onConfirm = { onDeleteAlbum(target); openDialog = null; actionTarget = null },
+            onDismiss = { openDialog = null; actionTarget = null },
+        )
+        null -> Unit
     }
 
     if (showColumnSheet) {
@@ -207,6 +287,7 @@ private fun AlbumsGrid(
     columns: ColumnCount,
     onColumnsChange: (ColumnCount) -> Unit,
     onAlbumClick: (Album) -> Unit,
+    onAlbumLongClick: (Album) -> Unit,
 ) {
     val gridState = rememberLazyGridState()
 
@@ -224,15 +305,25 @@ private fun AlbumsGrid(
             .testTag("albums_grid"),
     ) {
         items(albums, key = { it.bucketId }) { album ->
-            AlbumCard(album = album, onClick = { onAlbumClick(album) })
+            AlbumCard(
+                album = album,
+                onClick = { onAlbumClick(album) },
+                onLongClick = { onAlbumLongClick(album) },
+            )
         }
     }
 }
 
 /** Cover (16dp radius, square) + name + count, per design a04 / token table. */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun AlbumCard(album: Album, onClick: () -> Unit) {
-    Column(modifier = Modifier.fillMaxWidth().clickable(onClick = onClick)) {
+private fun AlbumCard(album: Album, onClick: () -> Unit, onLongClick: () -> Unit) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            .testTag("album_card_${album.bucketId}"),
+    ) {
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -264,4 +355,67 @@ private fun AlbumCard(album: Album, onClick: () -> Unit) {
             color = JGalleryColors.TextSecondary,
         )
     }
+}
+
+/** Which per-album dialog is open (spec §7, §11 album-entity ops). */
+private enum class AlbumDialog { Rename, Copy, Move, Delete }
+
+/** Long-press action sheet for a single album: Rename / Copy / Move / Delete (spec §7, §11). */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AlbumActionMenu(
+    album: Album,
+    onRename: () -> Unit,
+    onCopy: () -> Unit,
+    onMove: () -> Unit,
+    onDelete: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    ModalBottomSheet(onDismissRequest = onDismiss, modifier = Modifier.testTag("album_action_menu")) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
+            Text(
+                text = album.name,
+                style = MaterialTheme.typography.titleLarge,
+                color = JGalleryColors.Text,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+            )
+            AlbumActionRow("Rename", "album_action_rename", onRename)
+            AlbumActionRow("Copy", "album_action_copy", onCopy)
+            AlbumActionRow("Move", "album_action_move", onMove)
+            AlbumActionRow("Delete", "album_action_delete", onDelete)
+        }
+    }
+}
+
+@Composable
+private fun AlbumActionRow(label: String, tag: String, onClick: () -> Unit) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.bodyLarge,
+        color = JGalleryColors.Text,
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onClick)
+            .padding(horizontal = 20.dp, vertical = 14.dp)
+            .testTag(tag),
+    )
+}
+
+/** Confirm moving a whole album to the Trash (spec §7.5 — restorable, so a single confirm). */
+@Composable
+private fun DeleteAlbumDialog(album: Album, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        modifier = Modifier.testTag("delete_album_dialog"),
+        title = { Text("Delete album?") },
+        text = { Text("“${album.name}” and its ${album.itemCount} item(s) will be moved to the Trash. You can restore them within 30 days.") },
+        confirmButton = {
+            TextButton(onClick = onConfirm, modifier = Modifier.testTag("delete_album_confirm")) {
+                Text("Delete")
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Cancel") } },
+    )
 }

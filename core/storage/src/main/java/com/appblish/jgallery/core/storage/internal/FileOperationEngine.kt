@@ -86,6 +86,46 @@ internal class FileOperationEngine(
         if (ok) OperationResult(succeeded = 1, failed = 0) else failure(id, "rename failed")
     }
 
+    /**
+     * Rename an album/folder as an entity (spec §7.3, §11): a folder rename manifests through
+     * MediaStore as moving every member row into a sibling folder whose last path segment is
+     * [newName]. Pure policy over [ops] — name validation, a no-op when the name is unchanged, and a
+     * per-member relocation with failure isolation aggregated into a "moved / failed" summary; the
+     * `RELATIVE_PATH` rewrite itself is device-verified in the instrumented test.
+     *
+     * The failure marker uses [bucketId] (not a member id) so a whole-album failure — invalid name,
+     * album gone — is attributable without a member handle.
+     */
+    suspend fun renameAlbum(bucketId: String, newName: String): OperationResult = withContext(io) {
+        val marker = MediaId(bucketId)
+        val validName = when (val v = AlbumNames.validate(newName)) {
+            is AlbumNames.Result.Invalid -> return@withContext failure(marker, v.reason)
+            is AlbumNames.Result.Valid -> v.name
+        }
+        val currentPath = ops.albumRelativePath(bucketId)
+            ?: return@withContext failure(marker, "album no longer exists")
+        if (AlbumPaths.leaf(currentPath) == validName) {
+            return@withContext OperationResult(succeeded = 1, failed = 0) // unchanged → no-op success
+        }
+        val newPath = AlbumPaths.renameLeaf(currentPath, validName)
+        val ids = ops.idsInBucket(bucketId)
+        if (ids.isEmpty()) return@withContext failure(marker, "album no longer exists")
+
+        var succeeded = 0
+        val failures = ArrayList<OperationResult.Failure>()
+        for (id in ids) {
+            val ok = try {
+                ops.moveToFolder(id, newPath)
+            } catch (c: CancellationException) {
+                throw c
+            } catch (t: Throwable) {
+                false
+            }
+            if (ok) succeeded++ else failures += OperationResult.Failure(id, "could not move into renamed folder")
+        }
+        OperationResult(succeeded, failures.size, failures)
+    }
+
     // --- internals ---
 
     /**

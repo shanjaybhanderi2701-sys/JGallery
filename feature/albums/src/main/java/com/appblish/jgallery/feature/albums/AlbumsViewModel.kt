@@ -6,6 +6,8 @@ import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.FileOperationEvent
+import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
@@ -15,6 +17,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -44,6 +47,19 @@ class AlbumsViewModel @Inject constructor(
 
     /** One-shot create-album outcomes for the UI to surface as a snackbar/toast. */
     val createAlbumEvents: Flow<CreateAlbumResult> = createAlbumResults.receiveAsFlow()
+
+    private val albumActionResults = Channel<AlbumActionResult>(Channel.BUFFERED)
+
+    /** One-shot rename/copy/move/delete-album outcomes for the UI to surface as a snackbar/toast. */
+    val albumActionEvents: Flow<AlbumActionResult> = albumActionResults.receiveAsFlow()
+
+    /**
+     * Copy/Move destinations (spec §7.1/§7.2) — the current album list, straight from the index. The
+     * picker omits the album being acted on so it can't target itself.
+     */
+    val destinations: StateFlow<List<Album>> =
+        repository.observeAlbums()
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
     val state: StateFlow<AlbumsUiState> =
         combine(repository.observeAlbums(), preferences.sort) { albums, sort ->
@@ -83,6 +99,57 @@ class AlbumsViewModel @Inject constructor(
             )
         }
     }
+
+    /** Rename an album/folder as an entity (spec §7.3, §11). Result on [albumActionEvents]. */
+    fun renameAlbum(album: Album, newName: String) {
+        viewModelScope.launch {
+            report(operations.renameAlbum(album.bucketId, newName), "Album renamed", "Couldn't rename album")
+        }
+    }
+
+    /** Copy a whole album into [destinationBucketId] (spec §7.1). Result on [albumActionEvents]. */
+    fun copyAlbum(album: Album, destinationBucketId: String) {
+        viewModelScope.launch {
+            report(operations.copyAlbum(album.bucketId, destinationBucketId).summary(), "Album copied", "Couldn't copy album")
+        }
+    }
+
+    /** Move a whole album into [destinationBucketId] (spec §7.2). Result on [albumActionEvents]. */
+    fun moveAlbum(album: Album, destinationBucketId: String) {
+        viewModelScope.launch {
+            report(operations.moveAlbum(album.bucketId, destinationBucketId).summary(), "Album moved", "Couldn't move album")
+        }
+    }
+
+    /** Move a whole album to the restorable Trash — "delete album" (spec §7.5, §11). */
+    fun deleteAlbum(album: Album) {
+        viewModelScope.launch {
+            report(operations.deleteAlbum(album.bucketId).summary(), "Album moved to Trash", "Couldn't delete album")
+        }
+    }
+
+    /** Fold a bulk op's event stream to its terminal summary (empty album → nothing done). */
+    private suspend fun Flow<FileOperationEvent>.summary(): OperationResult =
+        when (val terminal = last()) {
+            is FileOperationEvent.Completed -> terminal.summary
+            else -> OperationResult(succeeded = 0, failed = 0)
+        }
+
+    private suspend fun report(result: OperationResult, success: String, failureFallback: String) {
+        albumActionResults.send(
+            if (result.failed == 0 && result.succeeded > 0) {
+                AlbumActionResult.Success(success)
+            } else {
+                AlbumActionResult.Failure(result.failures.firstOrNull()?.reason ?: failureFallback)
+            },
+        )
+    }
+}
+
+/** Outcome of a rename/copy/move/delete-album request, surfaced to the UI as a message (spec §7). */
+sealed interface AlbumActionResult {
+    data class Success(val message: String) : AlbumActionResult
+    data class Failure(val reason: String) : AlbumActionResult
 }
 
 /** Outcome of a create-album request, surfaced to the UI as a message (spec §6). */
