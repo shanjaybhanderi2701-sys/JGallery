@@ -112,10 +112,26 @@ internal class MediaStoreStorageOps(
     override suspend fun moveToFolder(id: MediaId, relativePath: String): Boolean = withContext(io) {
         // Rewriting RELATIVE_PATH relocates the underlying file into that folder — the MediaStore-native
         // way to "move" a row. Under All Files Access this needs no per-item consent dialog.
+        //
+        // A *bare* RELATIVE_PATH update, however, does not physically relocate the file on a
+        // scoped-storage device: the provider reports 0 rows affected and the row stays put (APP-353 —
+        // album rename moved 0/N members on-device while unit-green). MediaStore only honours the move
+        // when the row is first marked pending, so we toggle IS_PENDING around the rewrite — the same
+        // pending lifecycle the insert/copy path uses to commit bytes to disk. Two updates (not one
+        // combined write) so the pending flag is committed before the relocation is requested.
+        val uri = idToUri(id)
+        resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 1) }, null, null)
         val values = ContentValues().apply {
             put(MediaStore.MediaColumns.RELATIVE_PATH, relativePath)
+            put(MediaStore.MediaColumns.IS_PENDING, 0)
         }
-        resolver.update(idToUri(id), values, null, null) > 0
+        val moved = resolver.update(uri, values, null, null) > 0
+        if (!moved) {
+            // Relocation was rejected — clear the pending flag we set so the row does not stay
+            // invisibly pending (which would hide the member from the gallery, worse than a plain fail).
+            runCatching { resolver.update(uri, ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }, null, null) }
+        }
+        moved
     }
 
     override suspend fun trash(id: MediaId): Boolean = withContext(io) {
