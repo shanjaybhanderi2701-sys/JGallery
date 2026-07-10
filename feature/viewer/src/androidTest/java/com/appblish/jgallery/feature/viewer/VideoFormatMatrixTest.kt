@@ -76,26 +76,33 @@ class VideoFormatMatrixTest {
 
     @Test
     fun everyDeclaredFormat_rendersVideoPageWithPlayControl() {
-        formatMatrix.forEach { (name, mime) ->
-            val playback = RecordingPlaybackSources()
-            composeRule.setContent {
-                ViewerScreen(
-                    state = ViewerUiState.Ready(listOf(videoItem(name, mime)), initialIndex = 0),
-                    playback = playback,
-                    destinations = emptyList(),
-                    actionState = ViewerActionUiState.Idle,
-                    handlers = ViewerActionHandlers(
-                        onCopyTo = { _, _ -> },
-                        onMoveTo = { _, _ -> },
-                        onRename = { _, _ -> },
-                        onDelete = {},
-                        onSetAs = {},
-                        onOpenWith = {},
-                        onResultShown = {},
-                    ),
-                    onBack = {},
-                )
-            }
+        // Compose permits setContent only ONCE per test, so we host it a single time and walk the
+        // matrix by swapping the current container through state — each mime must land on the same
+        // video-page path (mime only matters at decode time, which the fallback test covers).
+        val current = mutableStateOf(formatMatrix.first())
+        val playback = RecordingPlaybackSources()
+        composeRule.setContent {
+            val (name, mime) = current.value
+            ViewerScreen(
+                state = ViewerUiState.Ready(listOf(videoItem(name, mime)), initialIndex = 0),
+                playback = playback,
+                destinations = emptyList(),
+                actionState = ViewerActionUiState.Idle,
+                handlers = ViewerActionHandlers(
+                    onCopyTo = { _, _ -> },
+                    onMoveTo = { _, _ -> },
+                    onRename = { _, _ -> },
+                    onDelete = {},
+                    onSetAs = {},
+                    onOpenWith = {},
+                    onResultShown = {},
+                ),
+                onBack = {},
+            )
+        }
+        formatMatrix.forEach { format ->
+            composeRule.runOnUiThread { current.value = format }
+            composeRule.waitForIdle()
             // The video-page path is reached for this container, and the poster's play affordance is up.
             composeRule.onNodeWithTag("viewer_video_page").assertIsDisplayed()
             composeRule.onNodeWithTag("viewer_play_pause").assertIsDisplayed()
