@@ -38,13 +38,14 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
+import com.appblish.jgallery.core.ui.format.MediaDecodeBox
+import com.appblish.jgallery.core.ui.format.MediaDecodeTilePlaceholder
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.EmptyTabState
 import com.appblish.jgallery.core.ui.component.GalleryTabHeader
@@ -304,11 +305,17 @@ private fun MediaTile(
                 .clip(shape)
                 .background(JGalleryColors.TilePlaceholder),
         ) {
-            AsyncImage(
+            // Central §8 degrade hook: renders the cached thumbnail, or the D3 placeholder for a
+            // format we can't decode — corrupt/zero-byte/unknown types never crash the grid (APP-364).
+            MediaDecodeBox(
                 model = item.thumbnailRequest(),
+                displayName = item.displayName,
+                mimeType = item.mimeType,
+                sizeBytes = item.sizeBytes,
                 contentDescription = item.displayName,
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
+                placeholder = { MediaDecodeTilePlaceholder(it) },
             )
             if (item.type == MediaType.VIDEO) {
                 Row(

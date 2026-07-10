@@ -3,18 +3,25 @@ package com.appblish.jgallery.feature.viewer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import coil3.compose.AsyncImage
+import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.thumbs.fullImageRequest
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
+import com.appblish.jgallery.core.ui.format.MediaDecodeState
+import com.appblish.jgallery.core.ui.format.MediaFormatSupport
+import com.appblish.jgallery.core.ui.format.ViewerUnsupportedCard
 
 /**
  * One photo page: the E4 thumbnail renders instantly underneath (it is what the grid just showed —
@@ -22,11 +29,58 @@ import com.appblish.jgallery.core.thumbs.thumbnailRequest
  * the full-quality decode streams in over it through the §1.6 boundary, off the main thread, on
  * Coil's fetcher dispatcher (spec §1 rule 3). Full-size decode happens here ONLY (spec §1 rule 2);
  * Coil still subsamples it to the viewport, never a needless full-resolution bitmap.
+ *
+ * Graceful degradation (spec §8, APP-364): the page shares the *same* typed [MediaDecodeState] the
+ * grid tile uses. A format we can't render (up-front classification) or a file whose decode throws
+ * (runtime Coil error) shows the shared [ViewerUnsupportedCard] instead of the image — never a crash,
+ * never a blank canvas. The bottom action bar stays live above this so the file is still operable.
  */
 @Composable
 internal fun ImagePage(
     item: MediaItem,
     onToggleChrome: () -> Unit,
+    onOpenWith: () -> Unit,
+    onInfo: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    val extension = remember(item.displayName) { MediaFormatSupport.extensionOf(item.displayName) }
+    val preState = remember(item.id) {
+        MediaFormatSupport.preClassify(item.displayName, item.mimeType, item.sizeBytes)
+    }
+    // Runtime decode failure of a would-be-renderable image. Keyed to the item so a recycled page
+    // never inherits a stale error from the previous photo.
+    var decodeFailed by remember(item.id) { mutableStateOf(false) }
+    val state: MediaDecodeState = preState
+        ?: if (decodeFailed) MediaDecodeState.Corrupt(extension) else MediaDecodeState.Rendered
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("viewer_image_page"),
+    ) {
+        if (state.isPlaceholder) {
+            val corrupt = state is MediaDecodeState.Corrupt
+            ViewerUnsupportedCard(
+                state = state,
+                fileName = item.displayName,
+                formatLabel = extension.uppercase(),
+                sizeLabel = formatFileSize(item.sizeBytes),
+                // Corrupt → Delete is the useful primary (clean it up); unsupported → Open with (spec §8).
+                primaryLabel = if (corrupt) "Delete" else "Open with",
+                onPrimary = if (corrupt) onDelete else onOpenWith,
+                onInfo = onInfo,
+            )
+        } else {
+            RenderablePhoto(item = item, onToggleChrome = onToggleChrome, onDecodeError = { decodeFailed = true })
+        }
+    }
+}
+
+@Composable
+private fun RenderablePhoto(
+    item: MediaItem,
+    onToggleChrome: () -> Unit,
+    onDecodeError: () -> Unit,
 ) {
     val zoomState = remember(item.id) { ZoomState() }
     zoomState.contentAspectRatio = item.aspectRatioOrZero()
@@ -50,8 +104,7 @@ internal fun ImagePage(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .viewerZoomGestures(zoomState, scope, onTap = onToggleChrome)
-            .testTag("viewer_image_page"),
+            .viewerZoomGestures(zoomState, scope, onTap = onToggleChrome),
     ) {
         AsyncImage(
             model = placeholderRequest,
@@ -64,6 +117,10 @@ internal fun ImagePage(
             contentDescription = item.displayName,
             modifier = zoomLayer,
             contentScale = ContentScale.Fit,
+            // Coil surfaces a failed full-size decode as Error rather than throwing — promote it to the
+            // shared Corrupt card (spec §8). The placeholder underlay may still be a valid cache hit,
+            // but a full decode that fails means the file itself can't be trusted to open.
+            onState = { s -> if (s is AsyncImagePainter.State.Error) onDecodeError() },
         )
     }
 }
