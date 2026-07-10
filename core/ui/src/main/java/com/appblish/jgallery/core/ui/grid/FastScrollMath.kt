@@ -1,5 +1,7 @@
 package com.appblish.jgallery.core.ui.grid
 
+import java.text.NumberFormat
+import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -46,4 +48,18 @@ object FastScrollMath {
 
     /** True when the bubble should collapse ("Month YYYY" → "YYYY") at this drag speed (design §3, a14). */
     fun bubbleCollapsed(fractionPerMs: Float): Boolean = abs(fractionPerMs) > COLLAPSE_FRACTION_PER_MS
+
+    /**
+     * Absolute-position suffix for the fast-scroll bubble at scale (design W3-09): `"item 8,412 of
+     * 61,908"`. [ordinal] is the 1-based item position (headers excluded) and [total] the item count;
+     * both come straight from the cached index, so dragging a very large single folder never triggers
+     * a rescan. Grouping separators are locale-aware. Returns `null` when there is nothing to count
+     * (empty grid) so the caller can fall back to the month label alone.
+     */
+    fun formatItemPosition(ordinal: Int, total: Int, locale: Locale = Locale.getDefault()): String? {
+        if (total <= 0) return null
+        val nf = NumberFormat.getIntegerInstance(locale)
+        val clamped = ordinal.coerceIn(1, total)
+        return "item ${nf.format(clamped)} of ${nf.format(total)}"
+    }
 }

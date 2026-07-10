@@ -45,6 +45,16 @@ fun SelectionScaffold(
     // Which action, if any, is waiting on a destination pick or a delete confirm.
     var pendingPick by remember { mutableStateOf<BulkAction?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    // A large Select-All op paused on its at-scale warning (design W3-09) before the normal flow.
+    var pendingLarge by remember { mutableStateOf<BulkAction?>(null) }
+
+    // Normal routing once any at-scale warning has cleared: Copy/Move pick a destination, Trash confirms.
+    val routeAction: (BulkAction) -> Unit = { action ->
+        when (action) {
+            BulkAction.COPY, BulkAction.MOVE -> pendingPick = action
+            BulkAction.TRASH -> confirmDelete = true
+        }
+    }
 
     Column(modifier.fillMaxSize()) {
         if (selection.isActive) {
@@ -65,13 +75,22 @@ fun SelectionScaffold(
             BulkActionBar(
                 enabled = bulk !is BulkOperationUiState.Running,
                 onAction = { action ->
-                    when (action) {
-                        BulkAction.COPY, BulkAction.MOVE -> pendingPick = action
-                        BulkAction.TRASH -> confirmDelete = true
-                    }
+                    if (isLargeSelection(selection.count)) pendingLarge = action else routeAction(action)
                 },
             )
         }
+    }
+
+    pendingLarge?.let { action ->
+        LargeSelectionWarningDialog(
+            count = selection.count,
+            action = action,
+            onConfirm = {
+                pendingLarge = null
+                routeAction(action)
+            },
+            onDismiss = { pendingLarge = null },
+        )
     }
 
     pendingPick?.let { action ->

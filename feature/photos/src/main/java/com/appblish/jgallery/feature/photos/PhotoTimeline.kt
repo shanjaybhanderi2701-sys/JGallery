@@ -1,6 +1,7 @@
 package com.appblish.jgallery.feature.photos
 
 import com.appblish.jgallery.core.model.MediaItem
+import com.appblish.jgallery.core.ui.grid.FastScrollMath
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -37,11 +38,24 @@ class PhotosTimeline(
     val sectionStarts: List<Int>,
     private val monthYearByCell: List<String>,
     private val yearByCell: List<String>,
+    private val itemOrdinalByCell: List<Int>,
     val itemCount: Int,
+    private val locale: Locale = Locale.getDefault(),
 ) {
+    /**
+     * Fast-scroll bubble text for a cell. At a normal drag it reads "Month YYYY · item N of TOTAL"
+     * (design W3-09 at-scale readout) — the ordinal comes straight from the precomputed
+     * [itemOrdinalByCell], so dragging a 61,908-item folder never rescans. A fast fling collapses to
+     * the terse year only ([collapsed]), where an absolute position would just be noise.
+     */
     fun bubbleLabel(cellIndex: Int, collapsed: Boolean): String? {
-        val labels = if (collapsed) yearByCell else monthYearByCell
-        return labels.getOrNull(cellIndex.coerceIn(0, labels.size - 1))
+        if (collapsed) {
+            return yearByCell.getOrNull(cellIndex.coerceIn(0, yearByCell.size - 1))
+        }
+        val month = monthYearByCell.getOrNull(cellIndex.coerceIn(0, monthYearByCell.size - 1)) ?: return null
+        val ordinal = itemOrdinalByCell.getOrNull(cellIndex.coerceIn(0, itemOrdinalByCell.size - 1)) ?: return month
+        val position = FastScrollMath.formatItemPosition(ordinal, itemCount, locale) ?: return month
+        return "$month · $position"
     }
 }
 
@@ -69,8 +83,13 @@ fun buildPhotosTimeline(
     val sectionStarts = ArrayList<Int>(64)
     val monthYearByCell = ArrayList<String>(sorted.size + 64)
     val yearByCell = ArrayList<String>(sorted.size + 64)
+    // 1-based item position (headers excluded) for the W3-09 "item N of TOTAL" bubble readout. A header
+    // cell carries the ordinal of the first item beneath it, so a drag that lands on a section boundary
+    // reports where that section begins.
+    val itemOrdinalByCell = ArrayList<Int>(sorted.size + 64)
 
     var currentEpochDay = Long.MIN_VALUE
+    var itemsSoFar = 0
     // Bubble labels repeat for every cell in a month/year; format once per section, share the string.
     var monthLabel = ""
     var yearLabel = ""
@@ -90,10 +109,13 @@ fun buildPhotosTimeline(
             cells += PhotosCell.DateHeader(label = label, epochDay = currentEpochDay)
             monthYearByCell += monthLabel
             yearByCell += yearLabel
+            itemOrdinalByCell += itemsSoFar + 1
         }
+        itemsSoFar++
         cells += PhotosCell.Tile(item)
         monthYearByCell += monthLabel
         yearByCell += yearLabel
+        itemOrdinalByCell += itemsSoFar
     }
 
     return PhotosTimeline(
@@ -101,7 +123,9 @@ fun buildPhotosTimeline(
         sectionStarts = sectionStarts,
         monthYearByCell = monthYearByCell,
         yearByCell = yearByCell,
+        itemOrdinalByCell = itemOrdinalByCell,
         itemCount = sorted.size,
+        locale = locale,
     )
 }
 

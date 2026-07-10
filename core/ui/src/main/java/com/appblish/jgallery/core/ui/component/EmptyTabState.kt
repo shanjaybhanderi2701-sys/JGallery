@@ -2,6 +2,7 @@ package com.appblish.jgallery.core.ui.component
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,13 +18,20 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
-/** Empty-library state (design a13): quiet icon + copy, image-forward, no dead-end taps. */
+/**
+ * Empty-library state (design a13): quiet icon + copy, image-forward, no dead-end taps.
+ *
+ * [actions] is an optional slot below the caption for context-specific CTAs — e.g. the empty-folder
+ * state (design W3-08) hangs Add-photos + Camera buttons here. Omitting it renders exactly the
+ * icon-plus-copy state every existing caller already uses.
+ */
 @Composable
 fun EmptyTabState(
     icon: ImageVector,
     title: String,
     caption: String,
     modifier: Modifier = Modifier,
+    actions: (@Composable ColumnScope.() -> Unit)? = null,
 ) {
     Column(
         modifier = modifier.fillMaxSize().padding(32.dp).testTag("empty_tab_state"),
@@ -50,5 +58,6 @@ fun EmptyTabState(
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
         )
+        actions?.invoke(this)
     }
 }
