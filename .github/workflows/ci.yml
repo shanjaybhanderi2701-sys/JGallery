@@ -117,8 +117,16 @@ jobs:
           arch: x86_64
           profile: pixel_5
           ram-size: 4096M
+          cores: 2
+          # Headless-runner stability. The API-30 reds were an emulator-environment failure, not a
+          # test bug: with no explicit GPU the headless emulator renders nothing (empty UiAutomator
+          # hierarchy) and its console/input layer is unreliable ("[EmulatorConsole]: Failed to start
+          # Emulator console", "Unable to connect to adb daemon", "Failed to inject touch input").
+          # swiftshader_indirect is the documented software renderer for CI; the flags drop the
+          # unused desktop/audio/camera subsystems and force a clean deterministic cold boot.
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none
           disable-animations: true
-          # Retry once on failure: "Failed to inject touch input" is transient emulator jitter.
+          # Retry once on failure: residual "Failed to inject touch input" jitter after stabilization.
           script: ./gradlew connectedDebugAndroidTest || ./gradlew connectedDebugAndroidTest
 
       - name: Upload instrumented-test reports
@@ -174,6 +182,13 @@ jobs:
           arch: x86_64
           profile: pixel_5
           ram-size: 4096M
+          cores: 2
+          # Headless-runner stability — same root cause that reddened this lane on API 30: without an
+          # explicit software GPU the headless emulator renders nothing, so UiAutomator's window
+          # hierarchy came back empty ("Neither photos_grid nor any scrollable node found"). The
+          # API-34 bump alone does NOT address the GPU; swiftshader_indirect is what makes the
+          # profileable benchmark surface actually render so FrameTimingMetric can measure it.
+          emulator-options: -no-window -gpu swiftshader_indirect -noaudio -no-boot-anim -no-snapshot -camera-back none -camera-front none
           disable-animations: true
           # suppressErrors=EMULATOR: the DoD explicitly allows the emulator fallback; without it
           # macrobenchmark aborts on a non-physical device. The physical pass stays operator-assisted.
