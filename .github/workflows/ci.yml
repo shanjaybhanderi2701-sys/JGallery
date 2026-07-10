@@ -136,6 +136,12 @@ jobs:
   # frameDurationCpuMs P50/P90/P99 into the uploaded benchmark JSON.
   # NOTE: emulator numbers are directional (macrobenchmark flags EMULATOR; we suppress that
   # error so the lane is a REGRESSION gate, not the authoritative physical measurement). ---
+  #
+  # API level: 34, NOT 30. Root cause of the repeated APP-342 CI reds was the API-30 emulator, not
+  # the harness: on the slow API-30 image the COLD 10.5k first-frame race left UiAutomator unable to
+  # resolve the grid (and, on a degraded runner, an empty window-hierarchy dump), while the harness
+  # is proven green on a modern API level locally. A newer google_apis image boots the profileable
+  # benchmark surface reliably, so the lane emits real frameDurationCpuMs numbers instead of racing.
   macrobenchmark:
     name: Macrobenchmark (10k scroll, API ${{ matrix.api-level }})
     runs-on: ubuntu-latest
@@ -143,7 +149,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        api-level: [30]
+        api-level: [34]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-java@v4
