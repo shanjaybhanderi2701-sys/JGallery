@@ -9,6 +9,10 @@ android {
 
 dependencies {
     api(project(":core:model"))
+    // The shared, app-agnostic player kit (APP-402): the pluggable DataSource seam JGallery's
+    // plain-file source plugs into, the same seam CalcVault's encrypted source uses. api() so the
+    // Media3 MediaSource facade stays visible to features exactly as before.
+    api(project(":core:playerkit"))
     // implementation (not api): features depend on :core:playback but cannot see :core:storage through it.
     implementation(project(":core:storage"))
 

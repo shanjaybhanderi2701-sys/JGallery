@@ -3,6 +3,15 @@ package com.appblish.jgallery.core.ui.grid
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.lazy.grid.LazyGridState
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.Stable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
@@ -48,3 +57,54 @@ fun Modifier.gridPinchColumns(
         }
     }
 }
+
+/**
+ * Self-contained state for a pinch-zoomable grid: the live [columns] count plus the [gridState] the
+ * grid scrolls with. Bundling them is what makes the pinch primitive reusable on *any* grid without
+ * per-screen plumbing — and it is also what preserves the scroll anchor: the SAME [LazyGridState]
+ * instance is handed to the grid across every column-count change, so LazyGrid keeps
+ * `firstVisibleItemIndex` (the top item stays the top item) instead of snapping to the start. The
+ * bug this rules out is recreating the grid/state when the column count changes.
+ *
+ * [columns] is snapshot-backed (recomposes the grid) and rememberSaveable-persisted (a pinch survives
+ * rotation / process recreation). Screens that already own a persisted column preference — Photos,
+ * Albums — drive [gridPinchColumns] with their own value instead of this holder.
+ */
+@Stable
+class GridZoomState(
+    initialColumns: ColumnCount,
+    val gridState: LazyGridState,
+) {
+    var columns: ColumnCount by mutableStateOf(initialColumns)
+        private set
+
+    /** Apply a new column count (from a pinch). No-op when unchanged so no needless recomposition. */
+    fun updateColumns(next: ColumnCount) {
+        if (next != columns) columns = next
+    }
+
+    companion object {
+        /** Persists just the column int; the grid state is restored/re-remembered by the caller. */
+        fun Saver(gridState: LazyGridState): Saver<GridZoomState, Int> = Saver(
+            save = { it.columns.value },
+            restore = { GridZoomState(ColumnCount.clamp(it), gridState) },
+        )
+    }
+}
+
+/**
+ * Remember a [GridZoomState] for a grid that has no external column preference (folder grids, the
+ * Recycle Bin, pickers). Pair it with [gridPinchColumns] and read [GridZoomState.columns] for the
+ * `GridCells.Fixed` count and [GridZoomState.gridState] for the grid's `state`.
+ */
+@Composable
+fun rememberGridZoomState(
+    initialColumns: ColumnCount = ColumnCount.DEFAULT,
+    gridState: LazyGridState = rememberLazyGridState(),
+): GridZoomState = rememberSaveable(gridState, saver = GridZoomState.Saver(gridState)) {
+    GridZoomState(initialColumns, gridState)
+}
+
+/** Wire pinch-to-zoom column morphing straight from a [GridZoomState]. */
+fun Modifier.gridPinchColumns(state: GridZoomState): Modifier =
+    gridPinchColumns(currentColumns = { state.columns }, onColumnsChange = state::updateColumns)

@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material3.Icon
@@ -40,6 +39,8 @@ import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
+import com.appblish.jgallery.core.ui.grid.gridPinchColumns
+import com.appblish.jgallery.core.ui.grid.rememberGridZoomState
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.BulkOperationUiState
 import com.appblish.jgallery.core.ui.selection.SelectionCheckBadge
@@ -185,13 +186,15 @@ private fun AlbumDetailGrid(
     onBeginSelect: (MediaId) -> Unit,
     onDragSelect: (MediaId, List<MediaId>) -> Unit,
 ) {
-    val gridState = rememberLazyGridState()
-    val tileShape = JGalleryDimens.tileRadius(AlbumDetailColumns)
+    val zoom = rememberGridZoomState(initialColumns = AlbumDetailColumns)
+    val gridState = zoom.gridState
+    val tileShape = JGalleryDimens.tileRadius(zoom.columns)
     val idAtCell: (Int) -> MediaId? = { index -> items.getOrNull(index)?.id }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
+            .gridPinchColumns(zoom)
             .selectableGridDrag(
                 gridState = gridState,
                 onSelectStart = { index -> idAtCell(index)?.let(onBeginSelect) },
@@ -199,7 +202,7 @@ private fun AlbumDetailGrid(
             ),
     ) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(AlbumDetailColumns.value),
+            columns = GridCells.Fixed(zoom.columns.value),
             state = gridState,
             horizontalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
             verticalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),

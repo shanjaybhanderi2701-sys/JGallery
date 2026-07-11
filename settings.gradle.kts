@@ -40,6 +40,7 @@ include(":core:storage") // §1.6 storage-access abstraction — the ONLY file/m
 include(":core:index")   // MediaStore-backed cached, incremental index
 include(":core:thumbs")  // cached thumbnail pipeline (in-memory LRU + on-disk)
 include(":core:playback") // Media3 playback sources routed through the §1.6 boundary (viewer video)
+include(":core:playerkit") // APP-402: app-agnostic video-player kit (pluggable DataSource seam + gesture/scale/zoom core) shared with CalcVault
 include(":core:ui")      // theme scaffolding + shared Compose components
 
 // --- Features ---

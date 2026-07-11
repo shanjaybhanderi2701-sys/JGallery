@@ -56,10 +56,13 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
+import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.TrashEntry
 import com.appblish.jgallery.core.model.TrashPolicy
+import com.appblish.jgallery.core.ui.grid.gridPinchColumns
+import com.appblish.jgallery.core.ui.grid.rememberGridZoomState
 import com.appblish.jgallery.core.thumbs.ThumbnailRequest
 import com.appblish.jgallery.core.ui.component.EmptyTabState
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
@@ -391,11 +394,14 @@ private fun TrashGrid(
     now: Long,
     onToggleSelect: (MediaId) -> Unit,
 ) {
+    val zoom = rememberGridZoomState(initialColumns = ColumnCount(3))
     LazyVerticalGrid(
-        columns = GridCells.Fixed(3),
+        columns = GridCells.Fixed(zoom.columns.value),
+        state = zoom.gridState,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp).testTag("trash_grid"),
+        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp)
+            .gridPinchColumns(zoom).testTag("trash_grid"),
     ) {
         items(items = entries, key = { it.id.value }) { entry ->
             TrashTile(
