@@ -1,21 +1,12 @@
 package com.appblish.jgallery.feature.albums
 
 import android.widget.Toast
-import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PhotoLibrary
@@ -35,19 +26,16 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.AlbumKind
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.SortSpec
-import com.appblish.jgallery.core.thumbs.coverRequest
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.EmptyTabState
 import com.appblish.jgallery.core.ui.component.GalleryTabHeader
@@ -55,14 +43,12 @@ import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.ui.selection.DestinationPickerSheet
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
-import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
-import com.appblish.jgallery.core.ui.theme.JGalleryDimens
 
 /**
  * Albums tab — the default tab (spec §2/§3, design a04): album grid with cover thumbnails + item
  * counts from the cached index. The overflow (spec §3) hosts Sort By, Column count and Create album
- * (spec §6). Covers are [coverRequest] models, so they ride the same E4 cache as grid tiles. Same
+ * (spec §6). Covers are coverRequest models, so they ride the same E4 cache as grid tiles. Same
  * structural perf properties as the Photos grid: stable keys, fixed geometry, precomputed state,
  * pinch column morph 2–6 persisted per tab.
  */
@@ -112,6 +98,7 @@ fun AlbumsScreen(
         onCopyAlbum = viewModel::copyAlbum,
         onMoveAlbum = viewModel::moveAlbum,
         onDeleteAlbum = viewModel::deleteAlbum,
+        onTogglePin = viewModel::togglePin,
         onAlbumClick = onAlbumClick,
         modifier = modifier,
     )
@@ -132,6 +119,7 @@ fun AlbumsScreen(
     onCopyAlbum: (Album, String) -> Unit = { _, _ -> },
     onMoveAlbum: (Album, String) -> Unit = { _, _ -> },
     onDeleteAlbum: (Album) -> Unit = {},
+    onTogglePin: (Album) -> Unit = {},
     onAlbumClick: (Album) -> Unit = {},
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
@@ -157,7 +145,7 @@ fun AlbumsScreen(
                 title = "No albums yet",
                 caption = "Folders with photos or videos will show up here.",
             )
-            is AlbumsUiState.Content -> AlbumsGrid(
+            is AlbumsUiState.Content -> AlbumCoverGrid(
                 albums = state.albums,
                 columns = columns,
                 onColumnsChange = onColumnsChange,
@@ -173,6 +161,7 @@ fun AlbumsScreen(
         if (openDialog == null) {
             AlbumActionMenu(
                 album = target,
+                onTogglePin = { onTogglePin(target); actionTarget = null },
                 onRename = { openDialog = AlbumDialog.Rename },
                 onCopy = { openDialog = AlbumDialog.Copy },
                 onMove = { openDialog = AlbumDialog.Move },
@@ -281,90 +270,19 @@ private fun AlbumsOverflowMenu(
     }
 }
 
-@Composable
-private fun AlbumsGrid(
-    albums: List<Album>,
-    columns: ColumnCount,
-    onColumnsChange: (ColumnCount) -> Unit,
-    onAlbumClick: (Album) -> Unit,
-    onAlbumLongClick: (Album) -> Unit,
-) {
-    val gridState = rememberLazyGridState()
-
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columns.value),
-        state = gridState,
-        horizontalArrangement = Arrangement.spacedBy(JGalleryDimens.AlbumsGutter),
-        verticalArrangement = Arrangement.spacedBy(JGalleryDimens.AlbumsGutter),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(
-            start = 16.dp, end = 16.dp, bottom = 16.dp,
-        ),
-        modifier = Modifier
-            .fillMaxSize()
-            .gridPinchColumns(currentColumns = { columns }, onColumnsChange = onColumnsChange)
-            .testTag("albums_grid"),
-    ) {
-        items(albums, key = { it.bucketId }) { album ->
-            AlbumCard(
-                album = album,
-                onClick = { onAlbumClick(album) },
-                onLongClick = { onAlbumLongClick(album) },
-            )
-        }
-    }
-}
-
-/** Cover (16dp radius, square) + name + count, per design a04 / token table. */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-private fun AlbumCard(album: Album, onClick: () -> Unit, onLongClick: () -> Unit) {
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
-            .testTag("album_card_${album.bucketId}"),
-    ) {
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .aspectRatio(1f)
-                .clip(JGalleryDimens.AlbumCoverRadius)
-                .background(JGalleryColors.TilePlaceholder),
-        ) {
-            val cover = album.coverRequest()
-            if (cover != null) {
-                AsyncImage(
-                    model = cover,
-                    contentDescription = album.name,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize(),
-                )
-            }
-        }
-        Text(
-            text = album.name,
-            style = MaterialTheme.typography.titleMedium,
-            color = JGalleryColors.Text,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-            modifier = Modifier.padding(top = 8.dp),
-        )
-        Text(
-            text = "${album.itemCount}",
-            style = MaterialTheme.typography.bodySmall,
-            color = JGalleryColors.TextSecondary,
-        )
-    }
-}
-
 /** Which per-album dialog is open (spec §7, §11 album-entity ops). */
 private enum class AlbumDialog { Rename, Copy, Move, Delete }
 
-/** Long-press action sheet for a single album: Rename / Copy / Move / Delete (spec §7, §11). */
+/**
+ * Long-press action sheet for a single album. Every album can be pinned/unpinned (spec C4 item 6);
+ * the entity ops Rename / Copy / Move / Delete (spec §7, §11) apply only to real device folders — the
+ * synthetic Recent/Video smart albums expose Pin only.
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun AlbumActionMenu(
     album: Album,
+    onTogglePin: () -> Unit,
     onRename: () -> Unit,
     onCopy: () -> Unit,
     onMove: () -> Unit,
@@ -381,10 +299,17 @@ private fun AlbumActionMenu(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
             )
-            AlbumActionRow("Rename", "album_action_rename", onRename)
-            AlbumActionRow("Copy", "album_action_copy", onCopy)
-            AlbumActionRow("Move", "album_action_move", onMove)
-            AlbumActionRow("Delete", "album_action_delete", onDelete)
+            AlbumActionRow(
+                label = if (album.pinned) "Unpin" else "Pin",
+                tag = "album_action_pin",
+                onClick = onTogglePin,
+            )
+            if (album.kind == AlbumKind.DEVICE_FOLDER) {
+                AlbumActionRow("Rename", "album_action_rename", onRename)
+                AlbumActionRow("Copy", "album_action_copy", onCopy)
+                AlbumActionRow("Move", "album_action_move", onMove)
+                AlbumActionRow("Delete", "album_action_delete", onDelete)
+            }
         }
     }
 }

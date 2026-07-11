@@ -3,6 +3,7 @@ package com.appblish.jgallery.feature.albums
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.AlbumKind
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
@@ -55,12 +56,12 @@ class AlbumsViewModelTest {
     }
 
     @Test
-    fun `albums from the index surface in Content, default sort keeps newest-first order`() =
+    fun `albums from the index surface in Content, priority folders lead ordinary folders`() =
         runTest(dispatcher) {
             val repository = FakeRepository()
             val vm = viewModel(repository = repository)
 
-            // camera newer than screenshots → default (Last Modified, Desc) puts camera first.
+            // Camera + Screenshots are priority folders; a synthetic Recent album is surfaced too.
             repository.albums.value = listOf(
                 album("screenshots", count = 4, newest = 100),
                 album("camera", count = 12, newest = 200),
@@ -68,16 +69,20 @@ class AlbumsViewModelTest {
             val content = withTimeout(5_000) {
                 vm.state.first { it is AlbumsUiState.Content } as AlbumsUiState.Content
             }
-            assertThat(content.albums.map { it.bucketId }).containsExactly("camera", "screenshots").inOrder()
-            assertThat(content.albums.first().itemCount).isEqualTo(12)
+            // Recent leads; then the priority folders in fixed Camera → Screenshots order (spec C4).
+            assertThat(content.albums.first().kind).isEqualTo(AlbumKind.RECENT)
+            val folders = content.albums.filter { it.kind == AlbumKind.DEVICE_FOLDER }
+            assertThat(folders.map { it.bucketId }).containsExactly("camera", "screenshots").inOrder()
+            assertThat(folders.first().itemCount).isEqualTo(12)
         }
 
     @Test
-    fun `sort by File Name Ascending re-orders the album list`() = runTest(dispatcher) {
+    fun `sort by File Name Ascending re-orders ordinary folders`() = runTest(dispatcher) {
         val repository = FakeRepository()
         val preferences = FakePreferences()
         val vm = viewModel(repository = repository, preferences = preferences)
 
+        // Non-priority names so the active sort — not the priority tier — decides their order.
         repository.albums.value = listOf(
             album("zeta", count = 1, newest = 300),
             album("alpha", count = 1, newest = 100),
@@ -87,10 +92,40 @@ class AlbumsViewModelTest {
 
         val content = withTimeout(5_000) {
             vm.state.first {
-                it is AlbumsUiState.Content && it.albums.firstOrNull()?.name == "Alpha"
+                it is AlbumsUiState.Content &&
+                    it.albums.filter { a -> a.kind == AlbumKind.DEVICE_FOLDER }.firstOrNull()?.name == "Alpha"
             } as AlbumsUiState.Content
         }
-        assertThat(content.albums.map { it.name }).containsExactly("Alpha", "Zeta").inOrder()
+        val folders = content.albums.filter { it.kind == AlbumKind.DEVICE_FOLDER }
+        assertThat(folders.map { it.name }).containsExactly("Alpha", "Zeta").inOrder()
+    }
+
+    @Test
+    fun `togglePin persists a pin and floats the album to the very top`() = runTest(dispatcher) {
+        val repository = FakeRepository()
+        val preferences = FakePreferences()
+        val vm = viewModel(repository = repository, preferences = preferences)
+
+        repository.albums.value = listOf(
+            album("camera", count = 12, newest = 200),
+            album("holiday", count = 3, newest = 50),
+        )
+        val holiday = withTimeout(5_000) {
+            (vm.state.first { it is AlbumsUiState.Content } as AlbumsUiState.Content)
+                .albums.first { it.bucketId == "holiday" }
+        }
+        vm.togglePin(holiday)
+        advanceUntilIdle()
+
+        assertThat(preferences.storedPins.value).containsExactly("holiday")
+        val content = withTimeout(5_000) {
+            vm.state.first {
+                it is AlbumsUiState.Content && it.albums.first().bucketId == "holiday"
+            } as AlbumsUiState.Content
+        }
+        // Pinned album outranks even Recent and the priority Camera folder (spec C4 item 6).
+        assertThat(content.albums.first().pinned).isTrue()
+        assertThat(content.albums.first().bucketId).isEqualTo("holiday")
     }
 
     @Test
@@ -279,6 +314,7 @@ class AlbumsViewModelTest {
     private class FakePreferences : AlbumsPreferences {
         val stored = MutableStateFlow(ColumnCount.DEFAULT.value)
         val storedSort = MutableStateFlow(SortSpec())
+        val storedPins = MutableStateFlow<Set<String>>(emptySet())
         override val columns: Flow<ColumnCount> = stored.map(ColumnCount::clamp)
         override suspend fun setColumns(columns: ColumnCount) {
             stored.value = columns.value
@@ -286,6 +322,10 @@ class AlbumsViewModelTest {
         override val sort: Flow<SortSpec> = storedSort
         override suspend fun setSort(sort: SortSpec) {
             storedSort.value = sort
+        }
+        override val pinnedBucketIds: Flow<Set<String>> = storedPins
+        override suspend fun setPinned(bucketId: String, pinned: Boolean) {
+            storedPins.value = if (pinned) storedPins.value + bucketId else storedPins.value - bucketId
         }
     }
 }

@@ -28,11 +28,39 @@ data class MediaItem(
     val mimeType: String,
 )
 
-/** A device folder / album with a cover + count, as shown on the Albums tab. */
+/**
+ * What an [Album] card represents on the Albums tab.
+ *
+ * The index only ever produces [DEVICE_FOLDER]s; the feature layer synthesizes [RECENT] and [VIDEO]
+ * "smart" albums on top of the cached index and tags them so ordering and navigation can treat them
+ * specially (spec C4: Recent album, Video album with folder-wise grouping).
+ */
+enum class AlbumKind {
+    /** A real device folder (MediaStore bucket). */
+    DEVICE_FOLDER,
+
+    /** Synthetic "Recent" — the whole library, newest-first. */
+    RECENT,
+
+    /** Synthetic "Video" — all videos, with folder-wise sub-grouping. */
+    VIDEO,
+}
+
+/**
+ * A device folder / album with a cover + count, as shown on the Albums tab.
+ *
+ * [kind] distinguishes real folders from the synthetic Recent/Video smart albums. [isPriority] marks
+ * the always-sort-first folders (Camera, Screenshots, Video — spec C4 item 7). [pinned] reflects the
+ * user's persisted pin (spec C4 item 6); pinned albums sort above the priority folders. The last three
+ * default so the index-produced album path (real folders) is unaffected — the feature layer enriches.
+ */
 data class Album(
     val bucketId: String,
     val name: String,
     val itemCount: Int,
     val cover: MediaId?,
     val newestItemMillis: Long,
+    val kind: AlbumKind = AlbumKind.DEVICE_FOLDER,
+    val isPriority: Boolean = false,
+    val pinned: Boolean = false,
 )

@@ -31,8 +31,11 @@ import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
 import com.appblish.jgallery.feature.albums.ALBUM_DETAIL_ROUTE
 import com.appblish.jgallery.feature.albums.AlbumsScreen
+import com.appblish.jgallery.feature.albums.VIDEO_ALBUMS_ROUTE
 import com.appblish.jgallery.feature.albums.albumDetailScreen
-import com.appblish.jgallery.feature.albums.navigateToAlbumDetail
+import com.appblish.jgallery.feature.albums.openAlbum
+import com.appblish.jgallery.feature.albums.openVideoMemberAlbum
+import com.appblish.jgallery.feature.albums.videoAlbumsScreen
 import com.appblish.jgallery.feature.collections.CollectionsScreen
 import com.appblish.jgallery.feature.photos.PhotosScreen
 import com.appblish.jgallery.feature.search.SearchScreen
@@ -63,8 +66,9 @@ fun JGalleryApp(
     val resolvedTabContent: @Composable (GalleryTab) -> Unit = tabContent ?: { tab ->
         when (tab) {
             GalleryTab.ALBUMS -> AlbumsScreen(
-                // Tapping an album opens its media grid (album detail), where E11 multi-select works.
-                onAlbumClick = { album -> navController.navigateToAlbumDetail(album.bucketId, album.name) },
+                // Tapping an album routes by kind (spec C4): Video → folder-wise grouping, Recent/folder
+                // → the media grid, where E11 multi-select works.
+                onAlbumClick = { album -> navController.openAlbum(album) },
             )
             // Tapping a tile opens the E7 full-screen viewer, paged across the whole Photos stream.
             GalleryTab.PHOTOS -> PhotosScreen(
@@ -84,7 +88,7 @@ fun JGalleryApp(
             // The full-screen viewer and the Recycle Bin own the whole canvas (their own chrome) —
             // the tab bar disappears for them and returns on pop.
             if (currentRoute == VIEWER_ROUTE || currentRoute == TRASH_ROUTE ||
-                currentRoute == ALBUM_DETAIL_ROUTE
+                currentRoute == ALBUM_DETAIL_ROUTE || currentRoute == VIDEO_ALBUMS_ROUTE
             ) return@Scaffold
             NavigationBar(
                 modifier = Modifier.height(JGalleryDimens.NavHeight),
@@ -133,6 +137,11 @@ fun JGalleryApp(
             albumDetailScreen(
                 onBack = { navController.popBackStack() },
                 onMediaClick = { item -> navController.navigateToViewer(item.id, item.bucketId) },
+            )
+            // Video smart album (spec C4): All Videos + folder-wise grouping; each opens a video-scoped grid.
+            videoAlbumsScreen(
+                onBack = { navController.popBackStack() },
+                onOpenAlbum = { album -> navController.openVideoMemberAlbum(album) },
             )
             // Full-screen viewer (E7). Grids open it via NavController.navigateToViewer(id, bucketId).
             viewerScreen(onBack = { navController.popBackStack() })

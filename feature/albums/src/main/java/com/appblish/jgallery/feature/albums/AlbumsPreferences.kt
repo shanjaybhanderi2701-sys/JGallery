@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
+import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
@@ -28,6 +29,12 @@ interface AlbumsPreferences {
     val sort: Flow<SortSpec>
 
     suspend fun setSort(sort: SortSpec)
+
+    /** Bucket ids the user has pinned (spec C4 item 6). Persisted; pinned albums sort to the top. */
+    val pinnedBucketIds: Flow<Set<String>>
+
+    /** Pin or unpin [bucketId] (spec C4 item 6). Idempotent. */
+    suspend fun setPinned(bucketId: String, pinned: Boolean)
 }
 
 /** DataStore-backed [AlbumsPreferences]. Unknown/legacy stored values fall back to the defaults. */
@@ -59,6 +66,16 @@ internal class DataStoreAlbumsPreferences(
         }
     }
 
+    override val pinnedBucketIds: Flow<Set<String>> =
+        dataStore.data.map { prefs -> prefs[KEY_PINNED].orEmpty() }
+
+    override suspend fun setPinned(bucketId: String, pinned: Boolean) {
+        dataStore.edit { prefs ->
+            val current = prefs[KEY_PINNED].orEmpty()
+            prefs[KEY_PINNED] = if (pinned) current + bucketId else current - bucketId
+        }
+    }
+
     private fun String?.toSortKey(): SortKey =
         this?.let { name -> SortKey.entries.firstOrNull { it.name == name } } ?: DEFAULT.key
 
@@ -69,6 +86,7 @@ internal class DataStoreAlbumsPreferences(
         val KEY_COLUMNS = intPreferencesKey("albums_columns")
         val KEY_SORT_KEY = stringPreferencesKey("albums_sort_key")
         val KEY_SORT_DIR = stringPreferencesKey("albums_sort_dir")
+        val KEY_PINNED = stringSetPreferencesKey("albums_pinned_bucket_ids")
         val DEFAULT = SortSpec()
     }
 }

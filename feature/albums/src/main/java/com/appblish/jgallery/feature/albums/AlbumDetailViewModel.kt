@@ -9,6 +9,10 @@ import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
+import com.appblish.jgallery.core.model.MediaType
+import com.appblish.jgallery.core.model.SortDirection
+import com.appblish.jgallery.core.model.SortKey
+import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.MediaSelectionController
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -43,9 +47,29 @@ class AlbumDetailViewModel @Inject constructor(
         "AlbumDetail requires a bucketId argument"
     }
     val title: String = savedStateHandle.get<String>(ALBUM_DETAIL_NAME_ARG) ?: "Album"
+    private val videoOnly: Boolean = savedStateHandle[ALBUM_DETAIL_VIDEO_ONLY_ARG] ?: false
+
+    /**
+     * Translate the nav args into a cache query. Real folders scope by [bucketId]; the smart-album
+     * sentinels (spec C4) map to library-wide queries — Recent = whole library newest-first,
+     * All-Videos = every video. [videoOnly] narrows a real folder to its videos (Video → folder-wise).
+     */
+    private val query: MediaQuery = when (bucketId) {
+        AlbumsCatalog.RECENT_BUCKET_ID ->
+            MediaQuery(sort = SortSpec(SortKey.LAST_MODIFIED, SortDirection.DESCENDING))
+        AlbumsCatalog.ALL_VIDEOS_BUCKET_ID ->
+            MediaQuery(
+                types = setOf(MediaType.VIDEO),
+                sort = SortSpec(SortKey.LAST_MODIFIED, SortDirection.DESCENDING),
+            )
+        else -> MediaQuery(
+            bucketId = bucketId,
+            types = if (videoOnly) setOf(MediaType.VIDEO) else setOf(MediaType.IMAGE, MediaType.VIDEO),
+        )
+    }
 
     val state: StateFlow<AlbumDetailUiState> =
-        repository.observeMedia(MediaQuery(bucketId = bucketId))
+        repository.observeMedia(query)
             .map { items ->
                 if (items.isEmpty()) AlbumDetailUiState.Empty else AlbumDetailUiState.Content(items)
             }

@@ -7,6 +7,8 @@ import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.FileOperationEvent
+import com.appblish.jgallery.core.model.MediaQuery
+import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
@@ -61,12 +63,23 @@ class AlbumsViewModel @Inject constructor(
         repository.observeAlbums()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /**
+     * The Albums tab (spec C4). Assembled by [AlbumsCatalog] from three cache-backed inputs: the
+     * device folders, the video subset (for the Video smart album + its folder-wise grouping), and the
+     * persisted pin/sort preferences. Recent/Video are synthesized on top and the whole list is ordered
+     * deterministically (pinned → Recent → Camera → Screenshots → Video → other folders by sort).
+     */
     val state: StateFlow<AlbumsUiState> =
-        combine(repository.observeAlbums(), preferences.sort) { albums, sort ->
+        combine(
+            repository.observeAlbums(),
+            repository.observeMedia(MediaQuery(types = setOf(MediaType.VIDEO))),
+            preferences.pinnedBucketIds,
+            preferences.sort,
+        ) { albums, videos, pinned, sort ->
             if (albums.isEmpty()) {
                 AlbumsUiState.Empty
             } else {
-                AlbumsUiState.Content(albums.sortedWith(sort.albumComparator()))
+                AlbumsUiState.Content(AlbumsCatalog.buildAlbumsTab(albums, videos, pinned, sort))
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AlbumsUiState.Loading)
 
@@ -84,6 +97,11 @@ class AlbumsViewModel @Inject constructor(
 
     fun setSort(sort: SortSpec) {
         viewModelScope.launch { preferences.setSort(sort) }
+    }
+
+    /** Pin/unpin an album (spec C4 item 6). Persisted; pinned albums sort above the priority folders. */
+    fun togglePin(album: Album) {
+        viewModelScope.launch { preferences.setPinned(album.bucketId, !album.pinned) }
     }
 
     /** Create a new album folder (spec §6). Result is delivered on [createAlbumEvents]. */
