@@ -73,8 +73,10 @@ import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.playback.PlaybackSources
+import com.appblish.jgallery.core.thumbs.coverRequest
 import com.appblish.jgallery.core.ui.component.NameInputDialog
-import com.appblish.jgallery.core.ui.selection.DestinationPickerSheet
+import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
+import com.appblish.jgallery.core.ui.selection.MoveDestinationSheet
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryViewerTheme
 import kotlinx.coroutines.launch
@@ -83,6 +85,10 @@ import kotlinx.coroutines.launch
 internal data class ViewerActionHandlers(
     val onCopyTo: (id: MediaId, bucketId: String) -> Unit,
     val onMoveTo: (id: MediaId, bucketId: String) -> Unit,
+    /** Create-and-fill: make album [name] and copy [id] into it as its first item (C1-03 New-album tile). */
+    val onCopyToNewAlbum: (id: MediaId, name: String) -> Unit,
+    /** Create-and-fill: make album [name] and move [id] into it (C1-03 New-album tile, Move verb). */
+    val onMoveToNewAlbum: (id: MediaId, name: String) -> Unit,
     val onRename: (id: MediaId, newName: String) -> Unit,
     val onDelete: (id: MediaId) -> Unit,
     val onSetAs: (id: MediaId) -> Unit,
@@ -125,6 +131,8 @@ internal fun ViewerRoute(
         handlers = ViewerActionHandlers(
             onCopyTo = viewModel::copyTo,
             onMoveTo = viewModel::moveTo,
+            onCopyToNewAlbum = viewModel::copyToNewAlbum,
+            onMoveToNewAlbum = viewModel::moveToNewAlbum,
             onRename = viewModel::rename,
             onDelete = viewModel::delete,
             onSetAs = viewModel::setAs,
@@ -328,9 +336,14 @@ private fun ViewerPager(
         }
 
         picker?.let { mode ->
-            DestinationPickerSheet(
-                title = if (mode == PickerMode.COPY) "Copy to" else "Move to",
+            // C1-03 (item 12): cover-thumbnail destination grid + inline "New album" create-and-move.
+            // coverFor stays a lambda so :core:ui never depends on :core:thumbs — the feature layer
+            // supplies the model via Album.coverRequest().
+            MoveDestinationSheet(
+                verb = if (mode == PickerMode.COPY) AlbumOpVerb.COPY else AlbumOpVerb.MOVE,
+                itemCount = 1, // the viewer acts on the single item on screen
                 albums = destinations,
+                coverFor = { it.coverRequest() },
                 excludeBucketId = currentItem?.bucketId, // never offer the item's own album
                 onPick = { bucketId ->
                     val id = currentItem?.id
@@ -341,6 +354,21 @@ private fun ViewerPager(
                             PickerMode.MOVE -> handlers.onMoveTo(id, bucketId)
                         }
                     }
+                },
+                onCreateNew = { name ->
+                    val id = currentItem?.id
+                    picker = null
+                    if (id != null && name.isNotEmpty()) {
+                        when (mode) {
+                            PickerMode.COPY -> handlers.onCopyToNewAlbum(id, name)
+                            PickerMode.MOVE -> handlers.onMoveToNewAlbum(id, name)
+                        }
+                    }
+                },
+                onBrowseFolders = {
+                    // W2-04 device-folder picker isn't built yet; keep the affordance honest.
+                    picker = null
+                    scope.launch { snackbarHostState.showSnackbar("Browsing other folders arrives in a later phase") }
                 },
                 onDismiss = { picker = null },
             )

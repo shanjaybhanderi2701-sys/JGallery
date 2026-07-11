@@ -96,6 +96,14 @@ class ViewerViewModel @Inject constructor(
     fun moveTo(id: MediaId, destinationBucketId: String) =
         runStreamingOp(ViewerActionKind.MOVE) { operations.move(listOf(id), destinationBucketId) }
 
+    /** Create-and-fill: make a fresh album [name] and copy [id] into it (C6 item 12, §1.6 seam APP-422). */
+    fun copyToNewAlbum(id: MediaId, name: String) =
+        runStreamingOp(ViewerActionKind.COPY) { operations.copyToNewAlbum(listOf(id), name) }
+
+    /** Create-and-fill: make a fresh album [name] and move [id] into it (C6 item 12, §1.6 seam APP-422). */
+    fun moveToNewAlbum(id: MediaId, name: String) =
+        runStreamingOp(ViewerActionKind.MOVE) { operations.moveToNewAlbum(listOf(id), name) }
+
     fun delete(id: MediaId) =
         runStreamingOp(ViewerActionKind.TRASH) { operations.moveToTrash(listOf(id)) }
 

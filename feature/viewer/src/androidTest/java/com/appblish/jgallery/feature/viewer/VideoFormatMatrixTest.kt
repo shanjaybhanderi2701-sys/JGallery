@@ -91,6 +91,8 @@ class VideoFormatMatrixTest {
                 handlers = ViewerActionHandlers(
                     onCopyTo = { _, _ -> },
                     onMoveTo = { _, _ -> },
+                    onCopyToNewAlbum = { _, _ -> },
+                    onMoveToNewAlbum = { _, _ -> },
                     onRename = { _, _ -> },
                     onDelete = {},
                     onSetAs = {},

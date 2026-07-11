@@ -5,15 +5,18 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.doubleClick
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.swipeLeft
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.ByteArrayDataSource
 import androidx.media3.exoplayer.source.MediaSource
 import androidx.media3.exoplayer.source.ProgressiveMediaSource
+import androidx.test.espresso.Espresso
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
@@ -88,10 +91,23 @@ class ViewerScreenTest {
         mimeType = "video/mp4",
     )
 
+    private fun noopHandlers() = ViewerActionHandlers(
+        onCopyTo = { _, _ -> },
+        onMoveTo = { _, _ -> },
+        onCopyToNewAlbum = { _, _ -> },
+        onMoveToNewAlbum = { _, _ -> },
+        onRename = { _, _ -> },
+        onDelete = {},
+        onSetAs = {},
+        onOpenWith = {},
+        onResultShown = {},
+    )
+
     private fun setViewer(
         items: List<MediaItem>,
         initialIndex: Int = 0,
         playback: PlaybackSources = RecordingPlaybackSources(),
+        handlers: ViewerActionHandlers = noopHandlers(),
     ) {
         composeRule.setContent {
             ViewerScreen(
@@ -99,15 +115,7 @@ class ViewerScreenTest {
                 playback = playback,
                 destinations = emptyList(),
                 actionState = ViewerActionUiState.Idle,
-                handlers = ViewerActionHandlers(
-                    onCopyTo = { _, _ -> },
-                    onMoveTo = { _, _ -> },
-                    onRename = { _, _ -> },
-                    onDelete = {},
-                    onSetAs = {},
-                    onOpenWith = {},
-                    onResultShown = {},
-                ),
+                handlers = handlers,
                 onBack = {},
             )
         }
@@ -154,6 +162,32 @@ class ViewerScreenTest {
         composeRule.waitForIdle()
 
         composeRule.onNodeWithText("IMG_0.jpg").assertIsDisplayed()
+    }
+
+    @Test
+    fun moveTo_newAlbumTile_createsAndMovesTheCurrentItem() {
+        // C6 item 12: the bottom "Move to" opens the C1-03 cover-grid sheet; its dashed-green
+        // "New album" tile → name → "Create & move" must route the current item through the
+        // create-and-fill seam (onMoveToNewAlbum), proving the New-album wiring on device.
+        val moved = mutableListOf<Pair<MediaId, String>>()
+        setViewer(
+            items = listOf(imageItem(0)),
+            initialIndex = 0,
+            handlers = noopHandlers().copy(onMoveToNewAlbum = { id, name -> moved += id to name }),
+        )
+
+        composeRule.onNodeWithContentDescription("Move to").performClick()
+        composeRule.waitForIdle()
+        composeRule.onNodeWithTag("move_destination_sheet").assertIsDisplayed()
+
+        composeRule.onNodeWithTag("move_sheet_new_album").performClick()
+        composeRule.onNodeWithTag("move_sheet_name_field").performTextInput("Trip 2026")
+        // Drop the IME before committing, else its window keeps the host activity PAUSED at teardown.
+        Espresso.closeSoftKeyboard()
+        composeRule.onNodeWithTag("move_sheet_create_confirm").performClick()
+        composeRule.waitForIdle()
+
+        assertEquals(listOf(MediaId("img_0") to "Trip 2026"), moved)
     }
 
     @Test

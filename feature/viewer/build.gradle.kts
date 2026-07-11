@@ -16,4 +16,9 @@ dependencies {
     // The shared, app-agnostic video-player surface (APP-408): VideoPage delegates the ExoPlayer host
     // + gesture dispatcher + controls here and supplies only JGallery's poster/error chrome.
     implementation(project(":core:playerkit"))
+
+    // Instrumented-only: closeSoftKeyboard() so the create-and-move sheet test (item 12) drops the IME
+    // before teardown — otherwise the IME window keeps the host activity PAUSED and createComposeRule
+    // fails to reach DESTROYED. Test-scoped; ships in no APK.
+    androidTestImplementation(libs.androidx.test.espresso.core)
 }

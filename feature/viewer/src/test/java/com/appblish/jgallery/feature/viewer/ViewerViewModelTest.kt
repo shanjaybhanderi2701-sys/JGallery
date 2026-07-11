@@ -145,6 +145,39 @@ class ViewerViewModelTest {
     }
 
     @Test
+    fun `create-and-copy routes through the create-and-fill seam and reports success`() = runTest {
+        operations.result = OperationResult(succeeded = 1, failed = 0)
+        val vm = viewModel(mediaId = "a")
+
+        vm.copyToNewAlbum(MediaId("a"), name = "Trip 2026")
+        advanceUntilIdle()
+
+        assertThat(operations.newAlbumCalls).containsExactly(listOf(MediaId("a")) to "Trip 2026")
+        val finished = vm.action.value as ViewerActionUiState.Finished
+        assertThat(finished.kind).isEqualTo(ViewerActionKind.COPY)
+        assertThat(finished.result.failed).isEqualTo(0)
+    }
+
+    @Test
+    fun `create-and-move surfaces a create failure as a failed summary, not a silent no-op`() = runTest {
+        // The seam emits one failed Completed when the album folder can't be made (spec: APP-422).
+        operations.result = OperationResult(
+            succeeded = 0,
+            failed = 1,
+            failures = listOf(OperationResult.Failure(MediaId("a"), "Could not create the album folder")),
+        )
+        val vm = viewModel(mediaId = "a")
+
+        vm.moveToNewAlbum(MediaId("a"), name = "Trip 2026")
+        advanceUntilIdle()
+
+        assertThat(operations.newAlbumCalls).containsExactly(listOf(MediaId("a")) to "Trip 2026")
+        val finished = vm.action.value as ViewerActionUiState.Finished
+        assertThat(finished.kind).isEqualTo(ViewerActionKind.MOVE)
+        assertThat(finished.result.failed).isEqualTo(1)
+    }
+
+    @Test
     fun `rename surfaces the operation result`() = runTest {
         operations.result = OperationResult(
             succeeded = 0,
