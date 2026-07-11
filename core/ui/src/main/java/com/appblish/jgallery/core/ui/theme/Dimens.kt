@@ -11,6 +11,11 @@ object JGalleryDimens {
     val ButtonRadius = RoundedCornerShape(28.dp) // 56dp-high pills
     val ButtonHeight = 56.dp
     val NavHeight = 86.dp
+
+    /** OnePlus-modeled 2-tab bar (C1-01): 78dp bar, 25dp glyphs, 4dp active accent dot. */
+    val TabBarHeight = 78.dp
+    val TabBarIconSize = 25.dp
+    val TabBarActiveDotSize = 4.dp
     val PhotosGutter = 4.dp
     val AlbumsGutter = 12.dp
     val GrabHandleWidth = 44.dp
