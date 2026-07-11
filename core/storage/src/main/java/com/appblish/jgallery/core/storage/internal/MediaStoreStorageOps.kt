@@ -39,11 +39,19 @@ internal class MediaStoreStorageOps(
 
     override suspend fun namesInBucket(destinationBucketId: String): Set<String> = withContext(io) {
         val uri = MediaStore.Files.getContentUri(EXTERNAL_VOLUME)
+        // A create-and-move destination may be addressed by its concrete RELATIVE_PATH (a row-less new
+        // album has no bucket id yet — see [relativePathFor]); match on that column when so, else on
+        // BUCKET_ID. Keeping collision resolution correct even for an existing folder reached by path.
+        val (column, value) = if (isRelativePath(destinationBucketId)) {
+            MediaStore.Files.FileColumns.RELATIVE_PATH to destinationBucketId
+        } else {
+            MediaStore.Files.FileColumns.BUCKET_ID to destinationBucketId
+        }
         resolver.query(
             uri,
             arrayOf(MediaStore.Files.FileColumns.DISPLAY_NAME),
-            "${MediaStore.Files.FileColumns.BUCKET_ID} = ?",
-            arrayOf(destinationBucketId),
+            "$column = ?",
+            arrayOf(value),
             null,
         )?.use { cursor ->
             val nameCol = cursor.getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
@@ -227,8 +235,20 @@ internal class MediaStoreStorageOps(
      * NOTE (integration point for E7's destination picker): the picker should hand the operation a
      * concrete folder so this reverse lookup is unnecessary; until then this keeps the primitive
      * usable against existing device albums.
+     *
+     * That concrete-folder hand-off is now realised for create-and-move (C6 item 12): a freshly-created
+     * album has no rows to reverse-look-up, so the flow addresses it by its own RELATIVE_PATH. Such a
+     * handle always contains '/' (e.g. `"Pictures/Holiday/"`) whereas a real MediaStore BUCKET_ID is a
+     * hashed decimal that never does — so a '/' unambiguously means "use this folder verbatim".
      */
+    /**
+     * True when [handle] is a concrete RELATIVE_PATH (a create-and-move destination) rather than a
+     * MediaStore BUCKET_ID. Bucket ids are hashed decimals; only a folder path contains a '/'.
+     */
+    private fun isRelativePath(handle: String): Boolean = '/' in handle
+
     private fun relativePathFor(bucketId: String, mimeType: String): String {
+        if (isRelativePath(bucketId)) return bucketId
         val existing = resolver.query(
             MediaStore.Files.getContentUri(EXTERNAL_VOLUME),
             arrayOf(MediaStore.Files.FileColumns.RELATIVE_PATH),

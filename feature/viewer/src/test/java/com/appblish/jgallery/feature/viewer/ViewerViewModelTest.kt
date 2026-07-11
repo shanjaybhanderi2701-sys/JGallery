@@ -225,6 +225,7 @@ class ViewerViewModelTest {
         var result: OperationResult = OperationResult(succeeded = 1, failed = 0)
         var viewUriResult: android.net.Uri? = null
         val copyCalls = mutableListOf<Pair<List<MediaId>, String>>()
+        val newAlbumCalls = mutableListOf<Pair<List<MediaId>, String>>()
         val renamed = mutableListOf<Pair<MediaId, String>>()
 
         override suspend fun createAlbum(name: String) = result
@@ -239,6 +240,14 @@ class ViewerViewModelTest {
         }
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> =
             flowOf(FileOperationEvent.Completed(result))
+        override fun copyToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> {
+            newAlbumCalls += ids to name
+            return flowOf(FileOperationEvent.Completed(result))
+        }
+        override fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> {
+            newAlbumCalls += ids to name
+            return flowOf(FileOperationEvent.Completed(result))
+        }
         override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> =
             flowOf(FileOperationEvent.Completed(result))
         override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> =

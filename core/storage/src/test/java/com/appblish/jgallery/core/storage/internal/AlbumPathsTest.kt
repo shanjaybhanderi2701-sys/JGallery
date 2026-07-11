@@ -29,4 +29,17 @@ class AlbumPathsTest {
         assertThat(AlbumPaths.renameLeaf("Pictures", "Holiday")).isEqualTo("Holiday/")
         assertThat(AlbumPaths.renameLeaf("Pictures/", "Holiday")).isEqualTo("Holiday/")
     }
+
+    @Test
+    fun `newAlbumPath places the album under Pictures with a trailing slash`() {
+        // The create-and-move destination (C6 item 12) a row-less new album is addressed by.
+        assertThat(AlbumPaths.newAlbumPath("Holiday")).isEqualTo("Pictures/Holiday/")
+        assertThat(AlbumPaths.newAlbumPath("Trip 2026")).isEqualTo("Pictures/Trip 2026/")
+    }
+
+    @Test
+    fun `newAlbumPath output contains a slash so the boundary treats it as a concrete folder`() {
+        // Guards the '/' discriminator MediaStoreStorageOps uses to tell a path handle from a bucket id.
+        assertThat(AlbumPaths.newAlbumPath("Holiday")).contains("/")
+    }
 }

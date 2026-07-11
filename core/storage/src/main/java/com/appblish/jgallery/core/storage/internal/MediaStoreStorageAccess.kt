@@ -30,6 +30,8 @@ import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.conflate
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayInputStream
@@ -204,9 +206,50 @@ internal class MediaStoreStorageAccess(
      * enumerable album the moment a copy/move drops the first item into it (spec §7.1/§7.2). An
      * existing folder of the same name is treated as success (idempotent create). All IO is on [io].
      */
-    override suspend fun createAlbum(name: String): OperationResult = withContext(io) {
+    override suspend fun createAlbum(name: String): OperationResult =
+        when (val outcome = ensureAlbumFolder(name)) {
+            is AlbumFolder.Failed -> failedAlbum(name, outcome.reason)
+            is AlbumFolder.Ready -> OperationResult(succeeded = 1, failed = 0)
+        }
+
+    /**
+     * Create album [name] and copy [ids] into it in one flow (spec §7.1, C6 item 12 "New album" tile).
+     * The new album is row-less so it can't be a bucket-id destination; the flow creates the folder and
+     * hands the engine its concrete RELATIVE_PATH instead (resolved inside [MediaStoreStorageOps]).
+     */
+    override fun copyToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> =
+        intoNewAlbum(name) { relativePath -> fileOps.copy(ids, relativePath) }
+
+    /** As [copyToNewAlbum] but moves [ids] (removed from source) into the new album (spec §7.2). */
+    override fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> =
+        intoNewAlbum(name) { relativePath -> fileOps.move(ids, relativePath) }
+
+    /**
+     * Shared create-then-fill scaffold for [copyToNewAlbum] / [moveToNewAlbum]: create (or reuse) the
+     * album folder, then run [fill] with its concrete RELATIVE_PATH as the engine destination. If the
+     * folder can't be created the flow emits a single failed terminal event and fills nothing, so a
+     * collector always sees exactly one [FileOperationEvent.Completed].
+     */
+    private fun intoNewAlbum(
+        name: String,
+        fill: (relativePath: String) -> Flow<FileOperationEvent>,
+    ): Flow<FileOperationEvent> = flow {
+        when (val outcome = ensureAlbumFolder(name)) {
+            is AlbumFolder.Failed ->
+                emit(FileOperationEvent.Completed(failedAlbum(name, outcome.reason)))
+            is AlbumFolder.Ready -> emitAll(fill(outcome.relativePath))
+        }
+    }.flowOn(io)
+
+    /**
+     * Create the album folder [name] under the public Pictures root (idempotent — an existing folder of
+     * that name is reused) and return its RELATIVE_PATH, or a failure reason (invalid name, name taken
+     * by a file, IO failure). The one place album-folder IO happens; [createAlbum] and the
+     * create-and-move flows share it so the created folder and the fill destination can never drift.
+     */
+    private suspend fun ensureAlbumFolder(name: String): AlbumFolder = withContext(io) {
         when (val validation = AlbumNames.validate(name)) {
-            is AlbumNames.Result.Invalid -> failedAlbum(name, validation.reason)
+            is AlbumNames.Result.Invalid -> AlbumFolder.Failed(validation.reason)
             is AlbumNames.Result.Valid -> {
                 val picturesRoot = Environment.getExternalStoragePublicDirectory(
                     Environment.DIRECTORY_PICTURES,
@@ -218,12 +261,18 @@ internal class MediaStoreStorageAccess(
                     else -> dir.mkdirs()
                 }
                 if (created) {
-                    OperationResult(succeeded = 1, failed = 0)
+                    AlbumFolder.Ready(AlbumPaths.newAlbumPath(validation.name))
                 } else {
-                    failedAlbum(name, "Could not create the album folder")
+                    AlbumFolder.Failed("Could not create the album folder")
                 }
             }
         }
+    }
+
+    /** Outcome of [ensureAlbumFolder]: the created folder's RELATIVE_PATH, or why it couldn't be made. */
+    private sealed interface AlbumFolder {
+        data class Ready(val relativePath: String) : AlbumFolder
+        data class Failed(val reason: String) : AlbumFolder
     }
 
     /**

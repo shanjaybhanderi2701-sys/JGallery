@@ -136,6 +136,8 @@ class StorageBoundarySwapTest {
         override suspend fun viewUri(id: MediaId): android.net.Uri? = null
         override fun copy(ids: List<MediaId>, destinationBucketId: String) = done(ids.size)
         override fun move(ids: List<MediaId>, destinationBucketId: String) = done(ids.size)
+        override fun copyToNewAlbum(ids: List<MediaId>, name: String) = done(ids.size)
+        override fun moveToNewAlbum(ids: List<MediaId>, name: String) = done(ids.size)
         override fun moveToTrash(ids: List<MediaId>) = done(ids.size)
         override fun observeTrash() = flowOf(emptyList<com.appblish.jgallery.core.model.TrashEntry>())
         override fun restoreFromTrash(ids: List<MediaId>) = done(ids.size)

@@ -337,6 +337,10 @@ class AlbumsViewModelTest {
         override suspend fun viewUri(id: MediaId): android.net.Uri? = null
         override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
+        override fun copyToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> =
+            flowOf(FileOperationEvent.Completed(bulkResult))
+        override fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> =
+            flowOf(FileOperationEvent.Completed(bulkResult))
         override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
         override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
 

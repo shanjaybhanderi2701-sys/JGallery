@@ -46,6 +46,18 @@ interface MediaOperationsRepository {
     /** Move [ids] into [destinationBucketId]; removed from source, collisions handled (spec §7.2). */
     fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent>
 
+    /**
+     * Create album [name] and copy [ids] into it in one flow — the copy/move sheet's "New album" tile
+     * with a Copy verb (C6 item 12). The new album is born holding its contents (first item = cover).
+     * Only the album *name* crosses the boundary (APP-297); the row-less-new-album destination is
+     * resolved inside §1.6. Emits progress + a terminal summary like [copy]; a create failure emits one
+     * failed terminal event and copies nothing.
+     */
+    fun copyToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent>
+
+    /** Like [copyToNewAlbum] but moves [ids] into the new album (Move verb — spec §7.2). */
+    fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent>
+
     /** Move [ids] to the app-managed, restorable Trash (spec §7.5). */
     fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent>
 

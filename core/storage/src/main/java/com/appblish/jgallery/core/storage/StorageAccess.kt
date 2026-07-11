@@ -100,6 +100,24 @@ interface StorageAccess {
     fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent>
 
     /**
+     * Create album [name] (like [createAlbum]) and copy [ids] into it in one flow, so the new album is
+     * born already holding its contents — its first item becomes the cover. This backs the copy/move
+     * sheet's "New album" tile with a Copy verb (C6 item 12).
+     *
+     * A freshly-created album has no MediaStore rows, so it can't be addressed as a [copy] destination
+     * by bucket id; rather than leak a synthetic, row-less handle across the boundary, this owns the
+     * create-then-fill transaction internally. Only the album *name* — a domain concept already on this
+     * surface ([createAlbum]/[renameAlbum]) — crosses; no path or MediaStore concept does (APP-297).
+     * Emits a per-item [FileOperationEvent.InProgress] then one terminal [FileOperationEvent.Completed]
+     * like [copy]. If the album can't be created, emits a single failed terminal event and copies
+     * nothing, so a collector always sees exactly one Completed.
+     */
+    fun copyToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent>
+
+    /** Like [copyToNewAlbum] but moves [ids] (removed from source) into the new album (Move verb). */
+    fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent>
+
+    /**
      * Move to the app-managed Trash (restorable — spec §7.5). Each item's origin path + a trashed-at
      * timestamp are recorded as retention metadata so [restoreFromTrash] returns it to where it was
      * and the 30-day auto-purge is enforced from the app's own clock. Permanent delete is a separate,

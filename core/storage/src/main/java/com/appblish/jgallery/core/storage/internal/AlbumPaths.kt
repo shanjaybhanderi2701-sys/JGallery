@@ -27,4 +27,16 @@ internal object AlbumPaths {
         val rebuilt = if (parent.isEmpty()) newLeaf else "$parent/$newLeaf"
         return "$rebuilt/"
     }
+
+    /** The public Pictures root every newly-created album folder lives under (`Environment.DIRECTORY_PICTURES`). */
+    const val PICTURES_ROOT = "Pictures"
+
+    /**
+     * The `RELATIVE_PATH` a freshly-created album named [name] occupies. `createAlbum` makes the folder
+     * directly under the public Pictures root, so a new album's canonical destination is
+     * `"Pictures/<name>/"` (e.g. `"Pictures/Holiday/"`). The create-and-move flow (C6 item 12) hands
+     * this concrete path to the copy/move engine because a row-less new album has no member row to
+     * reverse-look-up a bucket id from. [name] is assumed already validated by [AlbumNames].
+     */
+    fun newAlbumPath(name: String): String = "$PICTURES_ROOT/$name/"
 }
