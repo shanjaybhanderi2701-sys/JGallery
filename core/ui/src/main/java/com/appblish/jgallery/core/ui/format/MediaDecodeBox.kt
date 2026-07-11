@@ -37,10 +37,6 @@ import coil3.compose.AsyncImagePainter
  * @param mimeType index mime (may be empty); helps classify non-media containers up front.
  * @param sizeBytes index size; `0` is treated as an unreadable/corrupt file.
  * @param onDecodeState invoked whenever the resolved [MediaDecodeState] changes (for Info/analytics).
- *   `null` (the grid default) drops the per-tile reporting `LaunchedEffect` entirely — a scrolling
- *   grid recomposes/recycles thousands of tiles and never consumes the callback, so launching an
- *   effect per tile is pure fling overhead (APP-391 R1 fix 2). The viewer/Info path passes a real
- *   callback to keep the state observable there.
  */
 @Composable
 fun MediaDecodeBox(
@@ -51,7 +47,7 @@ fun MediaDecodeBox(
     contentDescription: String?,
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
-    onDecodeState: ((MediaDecodeState) -> Unit)? = null,
+    onDecodeState: (MediaDecodeState) -> Unit = {},
     placeholder: @Composable (MediaDecodeState) -> Unit,
 ) {
     val extension = remember(displayName) { MediaFormatSupport.extensionOf(displayName) }
@@ -65,13 +61,7 @@ fun MediaDecodeBox(
     val state: MediaDecodeState = preState
         ?: if (decodeFailed) MediaDecodeState.Corrupt(extension) else MediaDecodeState.Rendered
 
-    // Only wire the reporting effect when a consumer actually exists (viewer/Info). The grid passes
-    // null, so a fling never pays for a per-tile coroutine launch (APP-391 R1 fix 2). The branch is
-    // stable per call site (a caller consistently passes null or a callback), so this is a legal
-    // conditional effect — it never appears then disappears across recompositions of the same tile.
-    if (onDecodeState != null) {
-        LaunchedEffect(state) { onDecodeState(state) }
-    }
+    LaunchedEffect(state) { onDecodeState(state) }
 
     Box(modifier) {
         if (state.isPlaceholder) {
