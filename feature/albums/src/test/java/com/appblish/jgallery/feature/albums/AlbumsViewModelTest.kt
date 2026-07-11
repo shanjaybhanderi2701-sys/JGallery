@@ -9,17 +9,22 @@ import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
+import com.appblish.jgallery.core.model.OperationProgress
 import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
+import com.appblish.jgallery.core.ui.selection.AlbumOpUiState
+import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.test.StandardTestDispatcher
@@ -213,7 +218,7 @@ class AlbumsViewModelTest {
     }
 
     @Test
-    fun `copyAlbum runs the bulk op against the chosen destination and reports Success`() =
+    fun `copyAlbum streams the bulk op into a clean-success dialog summary`() =
         runTest(dispatcher) {
             val operations = FakeOperations().apply {
                 bulkResult = OperationResult(succeeded = 4, failed = 0)
@@ -221,14 +226,20 @@ class AlbumsViewModelTest {
             val vm = viewModel(operations = operations)
 
             vm.copyAlbum(album("camera", count = 4, newest = 9), destinationBucketId = "shots")
-            val event = withTimeout(5_000) { vm.albumActionEvents.first() }
+            advanceUntilIdle()
 
             assertThat(operations.copied).containsExactly("camera" to "shots")
-            assertThat(event).isInstanceOf(AlbumActionResult.Success::class.java)
+            val state = vm.albumOp.value
+            assertThat(state).isInstanceOf(AlbumOpUiState.Finished::class.java)
+            state as AlbumOpUiState.Finished
+            assertThat(state.context.verb).isEqualTo(AlbumOpVerb.COPY)
+            assertThat(state.context.total).isEqualTo(4)
+            assertThat(state.cancelled).isFalse()
+            assertThat(state.summary.succeeded).isEqualTo(4)
         }
 
     @Test
-    fun `moveAlbum with partial failure surfaces a Failure`() = runTest(dispatcher) {
+    fun `moveAlbum with partial failure resolves to a partial dialog summary`() = runTest(dispatcher) {
         val operations = FakeOperations().apply {
             bulkResult = OperationResult(
                 succeeded = 2, failed = 1,
@@ -238,11 +249,53 @@ class AlbumsViewModelTest {
         val vm = viewModel(operations = operations)
 
         vm.moveAlbum(album("camera", count = 3, newest = 9), destinationBucketId = "shots")
-        val event = withTimeout(5_000) { vm.albumActionEvents.first() }
+        advanceUntilIdle()
 
         assertThat(operations.moved).containsExactly("camera" to "shots")
-        assertThat(event).isInstanceOf(AlbumActionResult.Failure::class.java)
+        val state = vm.albumOp.value
+        assertThat(state).isInstanceOf(AlbumOpUiState.Finished::class.java)
+        state as AlbumOpUiState.Finished
+        assertThat(state.context.verb).isEqualTo(AlbumOpVerb.MOVE)
+        assertThat(state.cancelled).isFalse()
+        assertThat(state.summary.failed).isEqualTo(1)
     }
+
+    @Test
+    fun `cancelling a running album op yields a cancelled summary from the last progress`() =
+        runTest(dispatcher) {
+            val operations = FakeOperations().apply {
+                // Emit one progress event, then hang so the op is still running when we cancel.
+                albumFlow = {
+                    flow {
+                        emit(
+                            FileOperationEvent.InProgress(
+                                OperationProgress(completed = 2, total = 5, currentName = "IMG_2.jpg"),
+                            ),
+                        )
+                        awaitCancellation()
+                    }
+                }
+            }
+            val vm = viewModel(operations = operations)
+
+            vm.moveAlbum(album("camera", count = 5, newest = 9), destinationBucketId = "shots")
+            advanceUntilIdle()
+            val running = vm.albumOp.value
+            assertThat(running).isInstanceOf(AlbumOpUiState.Running::class.java)
+            assertThat((running as AlbumOpUiState.Running).progress?.completed).isEqualTo(2)
+
+            vm.cancelAlbumOp()
+            advanceUntilIdle()
+
+            val done = vm.albumOp.value
+            assertThat(done).isInstanceOf(AlbumOpUiState.Finished::class.java)
+            done as AlbumOpUiState.Finished
+            assertThat(done.cancelled).isTrue()
+            assertThat(done.summary.succeeded).isEqualTo(2)
+
+            vm.dismissAlbumOp()
+            assertThat(vm.albumOp.value).isNull()
+        }
 
     @Test
     fun `deleteAlbum trashes the album members and reports Success`() = runTest(dispatcher) {
@@ -293,17 +346,20 @@ class AlbumsViewModelTest {
         val deleted = mutableListOf<String>()
         var bulkResult: OperationResult = OperationResult(succeeded = 1, failed = 0)
 
+        /** Overrides the copy/move album stream (e.g. to emit progress then hang for a cancel test). */
+        var albumFlow: (() -> Flow<FileOperationEvent>)? = null
+
         override suspend fun renameAlbum(bucketId: String, newName: String): OperationResult {
             renamed += bucketId to newName
             return result
         }
         override fun copyAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> {
             copied += bucketId to destinationBucketId
-            return flowOf(FileOperationEvent.Completed(bulkResult))
+            return albumFlow?.invoke() ?: flowOf(FileOperationEvent.Completed(bulkResult))
         }
         override fun moveAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> {
             moved += bucketId to destinationBucketId
-            return flowOf(FileOperationEvent.Completed(bulkResult))
+            return albumFlow?.invoke() ?: flowOf(FileOperationEvent.Completed(bulkResult))
         }
         override fun deleteAlbum(bucketId: String): Flow<FileOperationEvent> {
             deleted += bucketId

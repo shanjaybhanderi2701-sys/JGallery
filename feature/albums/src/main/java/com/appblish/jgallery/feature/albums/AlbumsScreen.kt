@@ -43,6 +43,8 @@ import com.appblish.jgallery.core.ui.component.FormatFilterChips
 import com.appblish.jgallery.core.ui.component.GalleryTabHeader
 import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
+import com.appblish.jgallery.core.ui.selection.AlbumOpProgressDialog
+import com.appblish.jgallery.core.ui.selection.AlbumOpUiState
 import com.appblish.jgallery.core.ui.selection.DestinationPickerSheet
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
@@ -65,6 +67,7 @@ fun AlbumsScreen(
     val sort by viewModel.sort.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
+    val albumOp by viewModel.albumOp.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Surface create-album outcomes (spec §6) as a toast while this tab is on screen.
@@ -78,7 +81,7 @@ fun AlbumsScreen(
         }
     }
 
-    // Surface rename/copy/move/delete-album outcomes (spec §7) as a toast.
+    // Surface rename/delete-album outcomes (spec §7) as a toast. Copy/Move use the progress dialog.
     androidx.compose.runtime.LaunchedEffect(viewModel) {
         viewModel.albumActionEvents.collect { result ->
             val message = when (result) {
@@ -95,6 +98,7 @@ fun AlbumsScreen(
         sort = sort,
         filter = filter,
         destinations = destinations,
+        albumOp = albumOp,
         onColumnsChange = viewModel::setColumns,
         onSortChange = viewModel::setSort,
         onFilterChange = viewModel::setFilter,
@@ -104,6 +108,8 @@ fun AlbumsScreen(
         onMoveAlbum = viewModel::moveAlbum,
         onDeleteAlbum = viewModel::deleteAlbum,
         onTogglePin = viewModel::togglePin,
+        onAlbumOpCancel = viewModel::cancelAlbumOp,
+        onAlbumOpDone = viewModel::dismissAlbumOp,
         onAlbumClick = onAlbumClick,
         modifier = modifier,
     )
@@ -122,11 +128,14 @@ fun AlbumsScreen(
     filter: MediaFilter = MediaFilter.ALL,
     onFilterChange: (MediaFilter) -> Unit = {},
     destinations: List<Album> = emptyList(),
+    albumOp: AlbumOpUiState? = null,
     onRenameAlbum: (Album, String) -> Unit = { _, _ -> },
     onCopyAlbum: (Album, String) -> Unit = { _, _ -> },
     onMoveAlbum: (Album, String) -> Unit = { _, _ -> },
     onDeleteAlbum: (Album) -> Unit = {},
     onTogglePin: (Album) -> Unit = {},
+    onAlbumOpCancel: () -> Unit = {},
+    onAlbumOpDone: () -> Unit = {},
     onAlbumClick: (Album) -> Unit = {},
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
@@ -249,6 +258,16 @@ fun AlbumsScreen(
                 showCreateDialog = false
             },
             onDismiss = { showCreateDialog = false },
+        )
+    }
+
+    // Item 13 (C1-04): a whole-album Copy/Move runs behind this determinate, cancellable progress
+    // dialog and resolves to a success/partial/cancelled summary — no fire-and-forget spinner.
+    albumOp?.let { op ->
+        AlbumOpProgressDialog(
+            state = op,
+            onCancel = onAlbumOpCancel,
+            onDone = onAlbumOpDone,
         )
     }
 }

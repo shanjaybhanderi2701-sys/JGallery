@@ -10,11 +10,17 @@ import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.MediaType
+import com.appblish.jgallery.core.model.OperationProgress
 import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
+import com.appblish.jgallery.core.ui.selection.AlbumOpUiState
+import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
+import com.appblish.jgallery.core.ui.selection.AlbumOperationContext
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -66,8 +72,15 @@ class AlbumsViewModel @Inject constructor(
 
     private val albumActionResults = Channel<AlbumActionResult>(Channel.BUFFERED)
 
-    /** One-shot rename/copy/move/delete-album outcomes for the UI to surface as a snackbar/toast. */
+    /** One-shot rename/delete-album outcomes for the UI to surface as a snackbar/toast. */
     val albumActionEvents: Flow<AlbumActionResult> = albumActionResults.receiveAsFlow()
+
+    // A whole-album Copy/Move (item 13, C1-04) streams into the determinate [AlbumOpProgressDialog]
+    // instead of a fire-and-forget toast: the op runs in the retained scope so it survives config
+    // changes, and this state re-attaches the dialog to the still-running job. Null = no dialog.
+    private val _albumOp = MutableStateFlow<AlbumOpUiState?>(null)
+    val albumOp: StateFlow<AlbumOpUiState?> = _albumOp.asStateFlow()
+    private var albumOpJob: Job? = null
 
     /**
      * Copy/Move destinations (spec §7.1/§7.2) — the current album list, straight from the index. The
@@ -164,18 +177,82 @@ class AlbumsViewModel @Inject constructor(
         }
     }
 
-    /** Copy a whole album into [destinationBucketId] (spec §7.1). Result on [albumActionEvents]. */
+    /** Copy a whole album into [destinationBucketId] (spec §7.1). Streams into [albumOp]. */
     fun copyAlbum(album: Album, destinationBucketId: String) {
-        viewModelScope.launch {
-            report(operations.copyAlbum(album.bucketId, destinationBucketId).summary(), "Album copied", "Couldn't copy album")
+        runAlbumOp(AlbumOpVerb.COPY, album, destinationBucketId) {
+            operations.copyAlbum(album.bucketId, destinationBucketId)
         }
     }
 
-    /** Move a whole album into [destinationBucketId] (spec §7.2). Result on [albumActionEvents]. */
+    /** Move a whole album into [destinationBucketId] (spec §7.2). Streams into [albumOp]. */
     fun moveAlbum(album: Album, destinationBucketId: String) {
-        viewModelScope.launch {
-            report(operations.moveAlbum(album.bucketId, destinationBucketId).summary(), "Album moved", "Couldn't move album")
+        runAlbumOp(AlbumOpVerb.MOVE, album, destinationBucketId) {
+            operations.moveAlbum(album.bucketId, destinationBucketId)
         }
+    }
+
+    /**
+     * Drive a whole-album Copy/Move through the determinate progress dialog (item 13, C1-04): open on
+     * [AlbumOpUiState.Running] (indeterminate until the first item lands), fold every `InProgress`
+     * event into a live fraction, and resolve to [AlbumOpUiState.Finished] with the terminal summary.
+     * A Cancel cancels the collecting job — the E8 engine then stops after the in-flight item with no
+     * `Completed` event (§7.2) — so [Job.invokeOnCompletion] synthesises the "moved N before cancel"
+     * summary from the last progress. Guarded by job identity so a superseding op never gets clobbered
+     * by a stale completion handler.
+     */
+    private fun runAlbumOp(
+        verb: AlbumOpVerb,
+        album: Album,
+        destinationBucketId: String,
+        op: () -> Flow<FileOperationEvent>,
+    ) {
+        albumOpJob?.cancel()
+        val destinationLabel = destinations.value.firstOrNull { it.bucketId == destinationBucketId }?.name
+            ?: "destination"
+        val context = AlbumOperationContext(
+            verb = verb,
+            albumName = album.name,
+            destinationLabel = destinationLabel,
+            total = album.itemCount,
+        )
+        _albumOp.value = AlbumOpUiState.Running(context, progress = null)
+
+        var lastProgress: OperationProgress? = null
+        var completed: OperationResult? = null
+        val job = viewModelScope.launch {
+            op().collect { event ->
+                when (event) {
+                    is FileOperationEvent.InProgress -> {
+                        lastProgress = event.progress
+                        val cancelling = (_albumOp.value as? AlbumOpUiState.Running)?.cancelling ?: false
+                        _albumOp.value = AlbumOpUiState.Running(context, event.progress, cancelling)
+                    }
+
+                    is FileOperationEvent.Completed -> completed = event.summary
+                }
+            }
+        }
+        albumOpJob = job
+        job.invokeOnCompletion { cause ->
+            if (albumOpJob !== job) return@invokeOnCompletion // superseded by a newer op
+            val cancelled = completed == null && cause is CancellationException
+            val summary = completed
+                ?: OperationResult(succeeded = lastProgress?.completed ?: 0, failed = 0)
+            _albumOp.value = AlbumOpUiState.Finished(context, summary, cancelled = cancelled)
+        }
+    }
+
+    /** Cooperatively cancel the running album op — the flip to "Cancelling…" then a synthesised summary. */
+    fun cancelAlbumOp() {
+        val running = _albumOp.value as? AlbumOpUiState.Running ?: return
+        _albumOp.value = running.copy(cancelling = true)
+        albumOpJob?.cancel()
+    }
+
+    /** Dismiss the terminal summary — closes the dialog. */
+    fun dismissAlbumOp() {
+        albumOpJob = null
+        _albumOp.value = null
     }
 
     /** Move a whole album to the restorable Trash — "delete album" (spec §7.5, §11). */
