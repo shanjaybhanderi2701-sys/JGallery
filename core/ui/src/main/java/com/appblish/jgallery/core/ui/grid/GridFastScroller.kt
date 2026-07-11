@@ -1,24 +1,24 @@
 package com.appblish.jgallery.core.ui.grid
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectVerticalDragGestures
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.LazyGridState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.UnfoldMore
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,7 +33,9 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
@@ -48,8 +50,18 @@ import kotlin.math.roundToInt
 
 /** How long the thumb lingers after the last scroll/drag activity (design §3: auto-hide 1.5s). */
 private const val AUTO_HIDE_MS = 1_500L
-private val ThumbSize = 38.dp // accent circle (design §3)
+
+// C1-05 (item 14) grabbable pill: the old 1-line thumb failed device testing (too thin to seize), so
+// the handle is a rounded pill big enough to hit — 34×56dp at rest, growing to 38×62dp accent-blue on
+// grab for unmistakable "you've got it" feedback.
+private val ThumbIdleWidth = 34.dp
+private val ThumbIdleHeight = 56.dp
+private val ThumbGrabbedWidth = 38.dp
+private val ThumbGrabbedHeight = 62.dp
 private val TouchTarget = 48.dp
+
+/** Dark date/position bubble (C1-05 callout #4): dark surface, white text, sits left of the handle. */
+private val BubbleSurface = Color(0xFF16181D)
 
 /**
  * Custom fast-scroll thumb + date bubble for a [LazyVerticalGrid] (design W1-07). Overlay this in a
@@ -159,8 +171,19 @@ fun BoxScope.GridFastScroller(
                     )
                 },
         ) {
+            // Hairline track the pill is parked on (C1-05 callout #1).
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 10.dp)
+                    .width(2.dp)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(1.dp))
+                    .background(JGalleryColors.TextSecondary.copy(alpha = 0.20f)),
+            )
             Thumb(
                 fraction = fraction,
+                grabbed = dragging,
                 trackHeightPx = trackHeightPx,
             )
             if (dragging) {
@@ -171,32 +194,53 @@ fun BoxScope.GridFastScroller(
     }
 }
 
-/** 38dp accent circle inside the 48dp touch column, vertically placed at [fraction] of the track. */
+/**
+ * Grabbable pill inside the 48dp touch column, vertically placed at [fraction] of the track (C1-05,
+ * item 14). At rest it's a 34×56dp white pill with a 3-line grip; on [grabbed] it grows to 38×62dp and
+ * fills accent-blue (grip flips to white). Sizes animate so the grab feedback reads as a smooth seize.
+ */
 @Composable
-private fun BoxScope.Thumb(fraction: Float, trackHeightPx: Int) {
+private fun BoxScope.Thumb(fraction: Float, grabbed: Boolean, trackHeightPx: Int) {
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val thumbPx = with(density) { ThumbSize.toPx() }
-    val y = (fraction * (trackHeightPx - thumbPx).coerceAtLeast(0f)).roundToInt()
+    val width by animateDpAsState(if (grabbed) ThumbGrabbedWidth else ThumbIdleWidth, label = "thumbWidth")
+    val height by animateDpAsState(if (grabbed) ThumbGrabbedHeight else ThumbIdleHeight, label = "thumbHeight")
+    val heightPx = with(density) { height.toPx() }
+    val y = (fraction * (trackHeightPx - heightPx).coerceAtLeast(0f)).roundToInt()
+    val container = if (grabbed) JGalleryColors.Accent else JGalleryColors.Background
+    val gripTint = if (grabbed) JGalleryColors.OnAccent else JGalleryColors.TextSecondary
     Box(
         modifier = Modifier
             .offset { IntOffset(0, y) }
-            .size(ThumbSize)
+            .size(width = width, height = height)
             .align(Alignment.TopCenter)
-            .shadow(3.dp, CircleShape)
-            .background(JGalleryColors.Accent, CircleShape)
+            .shadow(if (grabbed) 6.dp else 3.dp, RoundedCornerShape(percent = 50))
+            .background(container, RoundedCornerShape(percent = 50))
             .testTag("fast_scroll_thumb"),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(
-            imageVector = Icons.Filled.UnfoldMore,
-            contentDescription = null,
-            tint = JGalleryColors.OnAccent,
-            modifier = Modifier.size(22.dp),
-        )
+        // 3-line grip so the handle reads as something you can seize (device-test fix, C1-05 callout #1).
+        Column(
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            repeat(3) {
+                Box(
+                    modifier = Modifier
+                        .width(14.dp)
+                        .height(2.dp)
+                        .clip(RoundedCornerShape(1.dp))
+                        .background(gripTint),
+                )
+            }
+        }
     }
 }
 
-/** Pill to the left of the thumb showing "Month YYYY" (or "YYYY" when collapsed at speed). */
+/**
+ * Dark date/position bubble left of the handle while dragging (C1-05 callout #4): "Month YYYY" plus an
+ * absolute-position suffix at scale ("March 2024 · item 3,120 of 8,412"), or a terse "YYYY" at fling
+ * speed. Dark surface + white text so it stays legible over any grid content; fades on release.
+ */
 @Composable
 private fun BoxScope.DateBubble(label: String, fraction: Float, trackHeightPx: Int) {
     val density = androidx.compose.ui.platform.LocalDensity.current
@@ -208,18 +252,17 @@ private fun BoxScope.DateBubble(label: String, fraction: Float, trackHeightPx: I
             .align(Alignment.TopEnd)
             .padding(end = TouchTarget + 8.dp)
             .heightIn(min = 44.dp)
-            .shadow(6.dp, RoundedCornerShape(22.dp))
-            .background(JGalleryColors.Accent, RoundedCornerShape(22.dp))
-            .padding(horizontal = 20.dp, vertical = 8.dp)
+            .shadow(6.dp, RoundedCornerShape(14.dp))
+            .background(BubbleSurface, RoundedCornerShape(14.dp))
+            .padding(horizontal = 18.dp, vertical = 8.dp)
             .testTag("fast_scroll_bubble"),
         contentAlignment = Alignment.Center,
     ) {
-        // At scale the label carries an absolute-position suffix ("March 2024 · item 8,412 of 61,908",
-        // design W3-09); allow a second line so it never truncates. Terse "YYYY" fling labels stay one line.
+        // Allow a second line so the position suffix never truncates; terse "YYYY" fling labels stay one line.
         Text(
             text = label,
-            color = JGalleryColors.OnAccent,
-            fontSize = 16.sp,
+            color = Color.White,
+            fontSize = 15.sp,
             textAlign = TextAlign.Center,
             maxLines = 2,
         )

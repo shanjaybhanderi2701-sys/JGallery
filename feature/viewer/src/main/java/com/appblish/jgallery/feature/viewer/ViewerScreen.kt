@@ -1,8 +1,11 @@
 package com.appblish.jgallery.feature.viewer
 
+import android.app.Activity
 import android.content.Context
+import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import android.view.View
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -41,6 +44,7 @@ import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -55,9 +59,13 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.appblish.jgallery.core.model.Album
@@ -137,6 +145,9 @@ internal fun ViewerScreen(
     onBack: () -> Unit,
 ) {
     JGalleryViewerTheme {
+        // C1-02 (item 11): the viewer is an immersive, distraction-free canvas for as long as this
+        // route is on screen — dark status bar (light icons over media) + hidden system nav bar.
+        ImmersiveViewerEffect()
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -151,6 +162,44 @@ internal fun ViewerScreen(
             }
         }
     }
+}
+
+/**
+ * Immersive window setup for the viewer route (C1-02, item 11). Scoped to the viewer only via
+ * [DisposableEffect]: on enter it draws the media edge-to-edge behind a **dark status bar** (light
+ * icons, `isAppearanceLightStatusBars = false`) and **hides the system navigation bar** sticky-
+ * immersive (`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`); on exit it restores the app's light status bar
+ * and re-shows the nav bar in one step, no flicker. The redlines (callouts #1/#4) keep the status bar
+ * visible with light icons — only the nav bar is hidden — so every other screen keeps the light bar.
+ * Edge-to-edge itself is already on from `enableEdgeToEdge()` in the Activity.
+ */
+@Composable
+private fun ImmersiveViewerEffect() {
+    val view = LocalView.current
+    if (view.isInEditMode) return
+    val window = view.findActivity()?.window ?: return
+    DisposableEffect(Unit) {
+        val controller = WindowCompat.getInsetsController(window, view)
+        val previousLightStatusBars = controller.isAppearanceLightStatusBars
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.isAppearanceLightStatusBars = false // light (white) icons over the dark media
+        controller.hide(WindowInsetsCompat.Type.navigationBars())
+        onDispose {
+            controller.show(WindowInsetsCompat.Type.navigationBars())
+            controller.isAppearanceLightStatusBars = previousLightStatusBars
+        }
+    }
+}
+
+/** Walk the [ContextWrapper] chain to the hosting [Activity] (Compose's context may be wrapped). */
+private fun View.findActivity(): Activity? {
+    var ctx: Context? = context
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }
 
 /** Fire the system "Set as" chooser (wallpaper / contact photo). The receiver reads via a granted uri. */
