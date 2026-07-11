@@ -208,9 +208,15 @@ jobs:
           disable-animations: true
           # suppressErrors=EMULATOR: the DoD explicitly allows the emulator fallback; without it
           # macrobenchmark aborts on a non-physical device. The physical pass stays operator-assisted.
+          # corpusSize=3000 (APP-390): the harness seeds REAL image files into MediaStore so a fling
+          # exercises the true thumbnail decode/IO path (not the old id-miss placeholder). The full
+          # DoD floor of 10,000 is the DEFAULT for the authoritative physical/FTL run (R0-2); the
+          # hosted emulator has bounded disk/time, so this directional CI lane seeds a smaller — still
+          # at-scale — corpus. Seeding runs in the (unmeasured) setup block on the first iteration only.
           script: >-
             ./gradlew :macrobenchmark:connectedBenchmarkAndroidTest
             -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR
+            -Pandroid.testInstrumentationRunnerArguments.jgallery.bench.corpusSize=3000
 
       - name: Upload macrobenchmark results (frame-timing JSON + reports)
         if: always()

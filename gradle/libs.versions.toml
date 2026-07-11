@@ -43,6 +43,8 @@ lintTest = "31.7.0"
 androidx-core-ktx = { group = "androidx.core", name = "core-ktx", version.ref = "androidxCore" }
 androidx-collection = { group = "androidx.collection", name = "collection-ktx", version.ref = "androidxCollection" }
 androidx-datastore-preferences = { group = "androidx.datastore", name = "datastore-preferences", version.ref = "androidxDatastore" }
+# Real HEIC encoding for the benchmark corpus seeder (APP-390) — benchmark variant ONLY, best-effort.
+androidx-heifwriter = { group = "androidx.heifwriter", name = "heifwriter", version = "1.0.0" }
 
 # --- Persistence (Room) — the cached, incrementally-updated media index (:core:index) ---
 room-runtime = { group = "androidx.room", name = "room-runtime", version.ref = "room" }

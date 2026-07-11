@@ -36,6 +36,10 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.hilt.navigation.compose)
 
+    // Benchmark-variant ONLY: real HEIC encoding for the macrobenchmark corpus seeder (APP-390).
+    // Never on the shipped debug/release classpath, so the egress guard is unaffected.
+    "benchmarkImplementation"(libs.androidx.heifwriter)
+
     // Instrumented-test lane (Compose UI). BOM + ui-test-junit4 come from the compose convention.
     androidTestImplementation(libs.androidx.test.ext.junit)
     androidTestImplementation(libs.androidx.test.runner)

@@ -1,43 +1,53 @@
 package com.appblish.jgallery.benchmark
 
+import android.graphics.BitmapFactory
 import android.os.Bundle
+import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
 import com.appblish.jgallery.core.model.ColumnCount
-import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
-import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.ui.theme.JGalleryTheme
 import com.appblish.jgallery.feature.photos.PhotosScreen
 import com.appblish.jgallery.feature.photos.PhotosUiState
 import com.appblish.jgallery.feature.photos.buildPhotosTimeline
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.time.LocalDate
 import java.time.ZoneId
 
 /**
- * Headline-gate benchmark surface (spec §11: the operator-assisted 10 000+ item frame-time pass,
- * APP-342). Exists ONLY in the `benchmark` build variant — see app/src/benchmark/AndroidManifest.xml
- * — so it can never reach a shipped debug/release APK.
+ * Headline-gate benchmark surface (spec §11: the operator-assisted 10 000+ item frame-time pass).
+ * Exists ONLY in the `benchmark` build variant — see app/src/benchmark/AndroidManifest.xml — so it
+ * can never reach a shipped debug/release APK.
  *
- * It renders the real, stateless [PhotosScreen] body over a fixed [FIXTURE_ITEM_COUNT]-item fixture,
- * with no Hilt / onboarding gate / MediaStore in the path. That is deliberate: the 10k gate is about
- * the Photos scroll hot path (timeline cells → `LazyVerticalGrid` reuse + tile layout), and this
- * isolates exactly that path so `FrameTimingMetric` measures composition/layout/draw cost rather than
- * disk IO or thumbnail decode variance. It mirrors how PhotosGridTest already drives the same
- * stateless overload with a synthetic fixture.
+ * ## What changed for APP-390 (R0-1)
+ * It used to render synthetic [MediaItem]s whose ids resolved to nothing, so every tile MISSED the
+ * thumbnail fetcher and drew a placeholder — the benchmark measured list/layout only and gave a
+ * false ~1.9% jank pass. It now:
+ *   1. Seeds a corpus of ≥10,000 REAL image files into MediaStore ([BenchmarkCorpusSeeder]).
+ *   2. Renders the real, stateless [PhotosScreen] over tiles carrying REAL MediaStore row-ids, so a
+ *      fling drives the true `loadThumbnail` → decode → Coil path (the app's actual scroll hot path).
+ *
+ * Seeding runs OFF the main thread ([Dispatchers.IO]); the grid (`photos_grid` tag) only appears
+ * once the corpus is ready, so the macrobenchmark's grid-ready wait doubles as a seed barrier.
+ * Seeding is idempotent, so only the first (unmeasured, setup-time) iteration pays for it.
  *
  * The root sets [testTagsAsResourceId] so the out-of-process macrobenchmark can locate the
- * `photos_grid` list by resource-id via UiAutomator (`By.res(pkg, "photos_grid")`).
+ * `photos_grid` list by resource-id via UiAutomator.
  */
 @OptIn(ExperimentalComposeUiApi::class) // testTagsAsResourceId — the supported UiAutomator seam
 class PhotosBenchmarkActivity : ComponentActivity() {
@@ -45,59 +55,87 @@ class PhotosBenchmarkActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
-        val timeline = buildPhotosTimeline(
-            items = fixtureItems(FIXTURE_ITEM_COUNT),
-            zone = ZoneId.systemDefault(),
-            today = LocalDate.now(ZoneId.systemDefault()),
-        )
+        val corpusSize = intent.getIntExtra(EXTRA_CORPUS_SIZE, BenchmarkCorpusSeeder.DEFAULT_CORPUS_SIZE)
+        val appContext = applicationContext
+
         setContent {
             JGalleryTheme {
                 var columns by remember { mutableStateOf(ColumnCount.DEFAULT) }
-                PhotosScreen(
-                    state = PhotosUiState.Content(timeline),
-                    columns = columns,
-                    onColumnsChange = { columns = it },
-                    modifier = Modifier
-                        .fillMaxSize()
-                        // Expose Compose testTags as View resource-ids for UiAutomator.
-                        .semantics { testTagsAsResourceId = true },
-                )
+                // Seed + query on IO, then build the timeline. Loading until the corpus is ready.
+                val state by produceState<PhotosUiState>(initialValue = PhotosUiState.Loading, corpusSize) {
+                    val items = withContext(Dispatchers.IO) {
+                        val seeded = BenchmarkCorpusSeeder.seed(appContext, corpusSize)
+                        logDecodeSelfCheck(appContext, seeded)
+                        seeded
+                    }
+                    val zone = ZoneId.systemDefault()
+                    value = if (items.isEmpty()) {
+                        PhotosUiState.Empty
+                    } else {
+                        PhotosUiState.Content(
+                            buildPhotosTimeline(items = items, zone = zone, today = LocalDate.now(zone)),
+                        )
+                    }
+                }
+
+                when (val s = state) {
+                    is PhotosUiState.Content -> PhotosScreen(
+                        state = s,
+                        columns = columns,
+                        onColumnsChange = { columns = it },
+                        modifier = Modifier
+                            .fillMaxSize()
+                            // Expose Compose testTags as View resource-ids for UiAutomator.
+                            .semantics { testTagsAsResourceId = true },
+                    )
+                    // Before the corpus is ready (or if seeding produced nothing) show a tagged
+                    // placeholder — deliberately NOT `photos_grid`, so the macrobenchmark keeps
+                    // waiting through the one-time seed rather than measuring an empty screen.
+                    else -> Box(
+                        Modifier
+                            .fillMaxSize()
+                            .semantics {
+                                testTagsAsResourceId = true
+                                testTag = "bench_seeding"
+                            },
+                    )
+                }
             }
         }
     }
 
     private companion object {
-        /** Comfortably clears the ">= 15,000 items" perf-spec bar (APP-369) with date-header cells on top. */
-        const val FIXTURE_ITEM_COUNT = 15_500
+        /**
+         * Optional intent extra to override the corpus size (`am start … --ei corpus_size N`), so a
+         * CI smoke run can seed fewer files while the authoritative FTL/device run uses the full
+         * [BenchmarkCorpusSeeder.DEFAULT_CORPUS_SIZE]. Defaults to the DoD floor of 10,000.
+         */
+        const val EXTRA_CORPUS_SIZE = "corpus_size"
 
         /**
-         * Synthetic media spread across many capture days so the timeline builds realistic
-         * date-header sections (headers are full-width span cells the scroll must also lay out).
-         * The ids/paths intentionally resolve to nothing — thumbnails miss and draw the placeholder,
-         * which is the right signal: we are timing the list/tile machinery, not IO.
+         * Actively decode one seeded thumbnail and log the result, so the CI logcat carries a
+         * grep-able proof that the corpus exercises REAL decode (not the old id-miss placeholder),
+         * independent of the frame-timing metric. Line: `JGALLERY_BENCH_DECODE …`.
          */
-        fun fixtureItems(count: Int): List<MediaItem> {
-            val dayMillis = 24L * 60 * 60 * 1_000
-            // Anchor off a fixed epoch so the fixture is deterministic run-to-run.
-            val base = 1_700_000_000_000L // 2023-11-14T22:13:20Z
-            return List(count) { i ->
-                val takenAt = base - (i / 30L) * dayMillis - (i % 30L) * 60_000L
-                val video = i % 11 == 0
-                MediaItem(
-                    id = MediaId("bench-$i"),
-                    displayName = "IMG_%05d".format(i),
-                    type = if (video) MediaType.VIDEO else MediaType.IMAGE,
-                    bucketId = "bench-bucket-${i % 8}",
-                    bucketName = "Camera ${i % 8}",
-                    dateTakenMillis = takenAt,
-                    dateModifiedMillis = takenAt,
-                    sizeBytes = 2_500_000L,
-                    width = 4032,
-                    height = 3024,
-                    durationMillis = if (video) 15_000L else 0L,
-                    mimeType = if (video) "video/mp4" else "image/jpeg",
-                )
+        private fun logDecodeSelfCheck(context: android.content.Context, items: List<MediaItem>) {
+            val sample = items.firstOrNull() ?: run {
+                Log.w(BenchmarkCorpusSeeder.TAG, "JGALLERY_BENCH_DECODE decodeOk=false reason=empty_corpus")
+                return
             }
+            val ok = runCatching {
+                context.contentResolver.openInputStream(BenchmarkCorpusSeeder.contentUriFor(sample)).use { input ->
+                    val bmp = BitmapFactory.decodeStream(input)
+                    val dims = "${bmp?.width}x${bmp?.height}"
+                    bmp?.recycle()
+                    dims
+                }
+            }.getOrElse { "decode_error:${it.message}" }
+            Log.i(
+                BenchmarkCorpusSeeder.TAG,
+                "JGALLERY_BENCH_DECODE decodeOk=${!ok.startsWith("decode_error")} " +
+                    "seededCount=${items.size} firstId=${sample.id.value} " +
+                    "declaredDims=${sample.width}x${sample.height} decodedDims=$ok mime=${sample.mimeType}",
+            )
         }
     }
 }
