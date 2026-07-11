@@ -105,7 +105,7 @@ class VideoFormatMatrixTest {
             composeRule.waitForIdle()
             // The video-page path is reached for this container, and the poster's play affordance is up.
             composeRule.onNodeWithTag("viewer_video_page").assertIsDisplayed()
-            composeRule.onNodeWithTag("viewer_play_pause").assertIsDisplayed()
+            composeRule.onNodeWithTag("player_play_pause").assertIsDisplayed()
         }
     }
 

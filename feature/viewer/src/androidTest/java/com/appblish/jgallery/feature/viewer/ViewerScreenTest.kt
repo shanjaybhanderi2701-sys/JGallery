@@ -163,10 +163,10 @@ class ViewerScreenTest {
 
         // Poster state: the play control is up and nothing has been decoded yet.
         composeRule.onNodeWithTag("viewer_video_page").assertIsDisplayed()
-        composeRule.onNodeWithTag("viewer_play_pause").assertIsDisplayed()
+        composeRule.onNodeWithTag("player_play_pause").assertIsDisplayed()
         assertEquals("no source requested before the play tap", 0, playback.sourceRequests)
 
-        composeRule.onNodeWithTag("viewer_play_pause").performClick()
+        composeRule.onNodeWithTag("player_play_pause").performClick()
 
         // The play tap runs its handler synchronously during input dispatch → ExoPlayer is built
         // from the §1.6-routed Media3 source before any recomposition. This is the tap-to-play proof.

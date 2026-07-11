@@ -13,4 +13,7 @@ dependencies {
     implementation(project(":core:index"))
     implementation(project(":core:thumbs"))
     implementation(project(":core:playback"))
+    // The shared, app-agnostic video-player surface (APP-408): VideoPage delegates the ExoPlayer host
+    // + gesture dispatcher + controls here and supplies only JGallery's poster/error chrome.
+    implementation(project(":core:playerkit"))
 }
