@@ -12,7 +12,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
-import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -25,27 +24,20 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.SingletonImageLoader
-import coil3.request.Disposable
-import coil3.request.ImageRequest
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaId
@@ -66,7 +58,6 @@ import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.BulkOperationUiState
 import com.appblish.jgallery.core.ui.selection.SelectionCheckBadge
-import kotlinx.coroutines.flow.distinctUntilChanged
 import com.appblish.jgallery.core.ui.selection.SelectionScaffold
 import com.appblish.jgallery.core.ui.selection.SelectionState
 import com.appblish.jgallery.core.ui.selection.rememberTileSelectScale
@@ -224,10 +215,6 @@ private fun PhotosGrid(
     val gridState = rememberLazyGridState()
     val tileShape = JGalleryDimens.tileRadius(columns)
 
-    // Fix 4 — warm the next viewport ahead of the scroll so cold tiles are already decoded/cached by
-    // the time they enter view (renders nothing itself).
-    ThumbnailPrefetch(gridState = gridState, cells = timeline.cells)
-
     // Resolve a grid adapter index to the media id under it (null for date headers).
     val idAtCell: (Int) -> MediaId? = { index ->
         (timeline.cells.getOrNull(index) as? PhotosCell.Tile)?.item?.id
@@ -294,74 +281,6 @@ private fun PhotosGrid(
     }
 }
 
-/** The visible-viewport snapshot that drives [ThumbnailPrefetch]; deduped so only real scrolls fire. */
-private data class PrefetchWindow(
-    val firstVisible: Int,
-    val lastVisible: Int,
-    val visibleCount: Int,
-    val tilePx: Int,
-)
-
-/**
- * Fix 4 — directional prefetch. Watches [LazyGridState.layoutInfo], infers scroll direction from the
- * first-visible index delta, and enqueues the next viewport's [thumbnailRequest]s (at the visible
- * tiles' pixel size, so they warm the exact memory+disk keys the grid will ask for). The previous
- * batch is disposed on each new window — a direction flip or a fresh viewport makes those in-flight
- * decodes stale, freeing Fix 5's bounded decode slots for the tiles actually approaching view.
- *
- * Renders nothing. Enqueued requests only populate Coil's caches; they need no draw target.
- */
-@Composable
-private fun ThumbnailPrefetch(
-    gridState: LazyGridState,
-    cells: List<PhotosCell>,
-) {
-    val context = LocalContext.current
-    val imageLoader = remember(context) { SingletonImageLoader.get(context) }
-    val currentCells by rememberUpdatedState(cells)
-
-    LaunchedEffect(gridState, imageLoader) {
-        var lastFirstVisible = gridState.firstVisibleItemIndex
-        var inFlight: List<Disposable> = emptyList()
-
-        snapshotFlow {
-            val visible = gridState.layoutInfo.visibleItemsInfo
-            PrefetchWindow(
-                firstVisible = visible.firstOrNull()?.index ?: 0,
-                lastVisible = visible.lastOrNull()?.index ?: -1,
-                visibleCount = visible.size,
-                // Square tile edge — ignore full-span date headers (their min dimension is the row height).
-                tilePx = visible.maxOfOrNull { minOf(it.size.width, it.size.height) } ?: 0,
-            )
-        }
-            .distinctUntilChanged()
-            .collect { window ->
-                if (window.lastVisible < 0 || window.tilePx <= 0) return@collect
-                val goingDown = window.firstVisible >= lastFirstVisible
-                lastFirstVisible = window.firstVisible
-
-                // Cancel the prior batch; the tiles it was warming are now on-screen or behind us.
-                inFlight.forEach { it.dispose() }
-
-                val count = window.visibleCount.coerceAtLeast(1)
-                val cellList = currentCells
-                val indices = if (goingDown) {
-                    (window.lastVisible + 1)..(window.lastVisible + count)
-                } else {
-                    (window.firstVisible - 1) downTo (window.firstVisible - count)
-                }
-                inFlight = indices.mapNotNull { index ->
-                    val tile = cellList.getOrNull(index) as? PhotosCell.Tile ?: return@mapNotNull null
-                    val request = ImageRequest.Builder(context)
-                        .data(tile.item.thumbnailRequest())
-                        .size(window.tilePx, window.tilePx)
-                        .build()
-                    imageLoader.enqueue(request)
-                }
-            }
-    }
-}
-
 /**
  * One square grid tile. The model is a [thumbnailRequest] — never a raw uri/path — so the load is
  * boundary-routed, size-capped, and served from the E4 caches (memory hit = zero IO, zero decode).
@@ -404,8 +323,6 @@ private fun MediaTile(
                 // Panoramas letterbox the horizon (FillWidth) on the dark cell; all else crops (W3-03).
                 contentScale = if (isPano) ContentScale.FillWidth else ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
-                // Fix 3 — grid tiles pop in (no per-tile fade); the viewer keeps its crossfade.
-                crossfade = false,
                 placeholder = { MediaDecodeTilePlaceholder(it) },
             )
             if (badge != null) {

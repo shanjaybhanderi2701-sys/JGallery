@@ -12,9 +12,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
-import coil3.compose.LocalPlatformContext
-import coil3.request.ImageRequest
-import coil3.request.crossfade
 
 /**
  * The central graceful-degradation hook (APP-364, spec §8) shared by E13 (images) and E14 (video
@@ -44,10 +41,6 @@ import coil3.request.crossfade
  *   grid recomposes/recycles thousands of tiles and never consumes the callback, so launching an
  *   effect per tile is pure fling overhead (APP-391 R1 fix 2). The viewer/Info path passes a real
  *   callback to keep the state observable there.
- * @param crossfade whether a newly decoded image fades in. `true` keeps the loader-level fade (the
- *   viewer). The grid passes `false` (APP-391 R1 fix 3): a per-tile crossfade forces an extra
- *   alpha-animated draw pass per tile during a fling, and a popped-in tile reads as *faster*. The
- *   loader default is left on so the viewer's fade is untouched.
  */
 @Composable
 fun MediaDecodeBox(
@@ -59,7 +52,6 @@ fun MediaDecodeBox(
     modifier: Modifier = Modifier,
     contentScale: ContentScale = ContentScale.Crop,
     onDecodeState: ((MediaDecodeState) -> Unit)? = null,
-    crossfade: Boolean = true,
     placeholder: @Composable (MediaDecodeState) -> Unit,
 ) {
     val extension = remember(displayName) { MediaFormatSupport.extensionOf(displayName) }
@@ -81,26 +73,12 @@ fun MediaDecodeBox(
         LaunchedEffect(state) { onDecodeState(state) }
     }
 
-    // Opt this call site out of the loader-level crossfade by wrapping the model in a request that
-    // sets `crossfade(false)`; the default keeps whatever the loader configured. The Coil fetcher +
-    // keyer still resolve off the request's `data` (the ThumbnailRequest), so cache keys are
-    // identical — only the fade differs. Left unwrapped when `crossfade` is true to avoid allocating
-    // a request per tile needlessly.
-    val platformContext = LocalPlatformContext.current
-    val resolvedModel: Any? = if (crossfade || model == null) {
-        model
-    } else {
-        remember(model, platformContext) {
-            ImageRequest.Builder(platformContext).data(model).crossfade(false).build()
-        }
-    }
-
     Box(modifier) {
         if (state.isPlaceholder) {
             placeholder(state)
         } else {
             AsyncImage(
-                model = resolvedModel,
+                model = model,
                 contentDescription = contentDescription,
                 contentScale = contentScale,
                 modifier = Modifier.fillMaxSize(),
