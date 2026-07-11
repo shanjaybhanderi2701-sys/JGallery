@@ -37,7 +37,10 @@ import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
+import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
+import com.appblish.jgallery.core.ui.component.VideoOverlay
+import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.grid.rememberGridZoomState
@@ -225,9 +228,17 @@ private fun AlbumDetailGrid(
                         modifier = Modifier.fillMaxSize().tileSelectScale(scale).clip(tileShape)
                             .background(JGalleryColors.TilePlaceholder),
                     )
+                    // Item 8 (design C1-08): shared video play-icon overlay so videos are distinguishable
+                    // in the album grid too — same disc/scrim/duration pill as the Photos tab.
+                    if (item.type == MediaType.VIDEO) {
+                        VideoOverlay(durationMillis = item.durationMillis, columns = zoom.columns.value)
+                    }
                     SelectionCheckBadge(selected = selection.isSelected(item.id), active = selection.isActive)
                 }
             }
         }
+
+        // Item 2 (design C1-07): back-to-top FAB; hidden while a selection is active.
+        ScrollToTopFab(gridState = gridState, enabled = !selection.isActive)
     }
 }

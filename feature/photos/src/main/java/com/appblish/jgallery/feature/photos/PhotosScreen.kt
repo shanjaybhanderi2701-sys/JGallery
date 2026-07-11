@@ -5,11 +5,9 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyGridState
@@ -17,7 +15,6 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material3.Icon
@@ -40,7 +37,6 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.SingletonImageLoader
@@ -48,6 +44,7 @@ import coil3.request.Disposable
 import coil3.request.ImageRequest
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
@@ -59,8 +56,11 @@ import com.appblish.jgallery.core.ui.format.MediaDecodeTilePlaceholder
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.FormatBadgeChip
 import com.appblish.jgallery.core.ui.component.EmptyTabState
+import com.appblish.jgallery.core.ui.component.FormatFilterChips
 import com.appblish.jgallery.core.ui.component.GalleryTabHeader
+import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
+import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.selection.BulkAction
@@ -96,16 +96,19 @@ fun PhotosScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val columns by viewModel.columns.collectAsStateWithLifecycle()
+    val filter by viewModel.filter.collectAsStateWithLifecycle()
     val selection by viewModel.selection.collectAsStateWithLifecycle()
     val bulk by viewModel.bulk.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     PhotosScreen(
         state = state,
         columns = columns,
+        filter = filter,
         selection = selection,
         bulk = bulk,
         destinations = destinations,
         onColumnsChange = viewModel::setColumns,
+        onFilterChange = viewModel::setFilter,
         onMediaClick = onMediaClick,
         onToggle = viewModel::toggleSelection,
         onBeginSelect = viewModel::beginSelection,
@@ -126,6 +129,8 @@ fun PhotosScreen(
     columns: ColumnCount,
     onColumnsChange: (ColumnCount) -> Unit,
     modifier: Modifier = Modifier,
+    filter: MediaFilter = MediaFilter.ALL,
+    onFilterChange: (MediaFilter) -> Unit = {},
     selection: SelectionState<MediaId> = SelectionState(),
     bulk: BulkOperationUiState = BulkOperationUiState.Idle,
     destinations: List<Album> = emptyList(),
@@ -185,17 +190,33 @@ fun PhotosScreen(
                 onDismissResult = onDismissResult,
                 modifier = modifier.testTag("photos_screen"),
             ) {
-                PhotosGrid(
-                    timeline = state.timeline,
-                    columns = columns,
-                    selection = selection,
-                    orderedIds = tileIds,
-                    onColumnsChange = onColumnsChange,
-                    onMediaClick = onMediaClick,
-                    onToggle = onToggle,
-                    onBeginSelect = onBeginSelect,
-                    onDragSelect = onDragSelect,
-                )
+                Column(Modifier.fillMaxSize()) {
+                    // Item 3 (design C1-06): the format filter row, directly under the header. Hidden
+                    // while selecting (the selection top bar owns that space).
+                    if (!selection.isActive) {
+                        FormatFilterChips(selected = state.filter, onSelect = onFilterChange)
+                    }
+                    if (tileIds.isEmpty()) {
+                        // Non-empty library, empty filtered result → filter-scoped empty state (callout 5).
+                        EmptyTabState(
+                            icon = Icons.Outlined.Photo,
+                            title = state.filter.emptyTitle(),
+                            caption = "Nothing here for this filter. Switch to All to see everything.",
+                        )
+                    } else {
+                        PhotosGrid(
+                            timeline = state.timeline,
+                            columns = columns,
+                            selection = selection,
+                            orderedIds = tileIds,
+                            onColumnsChange = onColumnsChange,
+                            onMediaClick = onMediaClick,
+                            onToggle = onToggle,
+                            onBeginSelect = onBeginSelect,
+                            onDragSelect = onDragSelect,
+                        )
+                    }
+                }
             }
         }
     }
@@ -207,6 +228,14 @@ fun PhotosScreen(
             onDismiss = { showColumnSheet = false },
         )
     }
+}
+
+/** Title for the filter-scoped empty state (design C1-06 callout 5). */
+private fun MediaFilter.emptyTitle(): String = when (this) {
+    MediaFilter.ALL -> "No photos yet"
+    MediaFilter.PHOTOS -> "No photos"
+    MediaFilter.VIDEOS -> "No videos"
+    MediaFilter.GIFS -> "No GIFs"
 }
 
 @Composable
@@ -276,6 +305,7 @@ private fun PhotosGrid(
                     is PhotosCell.Tile -> MediaTile(
                         item = cell.item,
                         shape = tileShape,
+                        columns = columns.value,
                         selectionActive = selection.isActive,
                         selected = selection.isSelected(cell.item.id),
                         onClick = {
@@ -291,6 +321,9 @@ private fun PhotosGrid(
             sectionStarts = timeline.sectionStarts,
             bubbleLabel = timeline::bubbleLabel,
         )
+
+        // Item 2 (design C1-07): back-to-top FAB. Yields the corner to selection mode's bulk bar.
+        ScrollToTopFab(gridState = gridState, enabled = !selection.isActive)
     }
 }
 
@@ -371,6 +404,7 @@ private fun ThumbnailPrefetch(
 private fun MediaTile(
     item: MediaItem,
     shape: RoundedCornerShape,
+    columns: Int,
     selectionActive: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
@@ -416,28 +450,10 @@ private fun MediaTile(
                         .padding(6.dp),
                 )
             }
+            // Item 8 (design C1-08): the shared centred play disc + radial scrim + duration pill,
+            // drawn over the thumbnail so a video is unmistakable in the grid. Replaces the flat W1 pill.
             if (item.type == MediaType.VIDEO) {
-                Row(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(6.dp)
-                        .background(Color(0x99000000), RoundedCornerShape(10.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.PlayArrow,
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(12.dp),
-                    )
-                    Text(
-                        text = formatDuration(item.durationMillis),
-                        color = Color.White,
-                        fontSize = 11.sp,
-                        maxLines = 1,
-                    )
-                }
+                VideoOverlay(durationMillis = item.durationMillis, columns = columns)
             }
         }
         SelectionCheckBadge(selected = selected, active = selectionActive)

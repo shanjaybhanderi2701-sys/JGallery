@@ -7,6 +7,7 @@ import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.FileOperationEvent
+import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.OperationResult
@@ -16,8 +17,10 @@ import com.appblish.jgallery.core.model.SortSpec
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -31,6 +34,17 @@ sealed interface AlbumsUiState {
     data object Empty : AlbumsUiState
     data class Content(val albums: List<Album>) : AlbumsUiState
 }
+
+/**
+ * The ordered Albums tab plus the per-bucket format presence that powers the C1-06 filter row, carried
+ * together so the (expensive) catalog assembly runs only on index/pref changes — switching the format
+ * chip just re-filters this cached data.
+ */
+private data class AlbumsCatalogData(
+    val albums: List<Album>,
+    val bucketFormats: Map<String, Set<MediaFilter>>,
+    val libraryEmpty: Boolean,
+)
 
 /**
  * Albums tab (spec §3, design a04): device folders with cover + count, served straight from the
@@ -63,25 +77,50 @@ class AlbumsViewModel @Inject constructor(
         repository.observeAlbums()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
 
+    /** The top-bar format filter (design C1-06), shared mental model with the Photos tab. */
+    private val filterState = MutableStateFlow(MediaFilter.ALL)
+    val filter: StateFlow<MediaFilter> = filterState.asStateFlow()
+
     /**
-     * The Albums tab (spec C4). Assembled by [AlbumsCatalog] from three cache-backed inputs: the
-     * device folders, the video subset (for the Video smart album + its folder-wise grouping), and the
-     * persisted pin/sort preferences. Recent/Video are synthesized on top and the whole list is ordered
-     * deterministically (pinned → Recent → Camera → Screenshots → Video → other folders by sort).
+     * The Albums tab (spec C4) plus per-bucket format presence for the filter row. Assembled by
+     * [AlbumsCatalog] from cache-backed inputs: the device folders, the whole media set (for the Video
+     * smart album + the C1-06 filter's format presence), and the persisted pin/sort preferences.
+     * Recent/Video are synthesized on top and the whole list is ordered deterministically
+     * (pinned → Recent → Camera → Screenshots → Video → other folders by sort).
      */
-    val state: StateFlow<AlbumsUiState> =
+    private val catalog: Flow<AlbumsCatalogData> =
         combine(
             repository.observeAlbums(),
-            repository.observeMedia(MediaQuery(types = setOf(MediaType.VIDEO))),
+            repository.observeMedia(MediaQuery()),
             preferences.pinnedBucketIds,
             preferences.sort,
-        ) { albums, videos, pinned, sort ->
+        ) { albums, media, pinned, sort ->
             if (albums.isEmpty()) {
+                AlbumsCatalogData(emptyList(), emptyMap(), libraryEmpty = true)
+            } else {
+                val videos = media.filter { it.type == MediaType.VIDEO }
+                AlbumsCatalogData(
+                    albums = AlbumsCatalog.buildAlbumsTab(albums, videos, pinned, sort),
+                    bucketFormats = AlbumsCatalog.bucketFormats(media),
+                    libraryEmpty = false,
+                )
+            }
+        }
+
+    val state: StateFlow<AlbumsUiState> =
+        combine(catalog, filterState) { data, filter ->
+            if (data.libraryEmpty) {
                 AlbumsUiState.Empty
             } else {
-                AlbumsUiState.Content(AlbumsCatalog.buildAlbumsTab(albums, videos, pinned, sort))
+                AlbumsUiState.Content(
+                    AlbumsCatalog.applyFormatFilter(data.albums, filter, data.bucketFormats),
+                )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AlbumsUiState.Loading)
+
+    fun setFilter(filter: MediaFilter) {
+        filterState.value = filter
+    }
 
     val columns: StateFlow<ColumnCount> =
         preferences.columns

@@ -2,6 +2,7 @@ package com.appblish.jgallery.feature.albums
 
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.AlbumKind
+import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
@@ -171,6 +172,85 @@ class AlbumsCatalogTest {
         val two = AlbumsCatalog.buildAlbumsTab(shuffled, videos, setOf("m"), defaultSort).map { it.kindOrBucket() }
         assertThat(one).isEqualTo(two)
     }
+
+    // --- Format filter (design C1-06, item 3) -----------------------------------------------------
+
+    @Test
+    fun `bucketFormats reports the formats each folder actually holds`() {
+        val media = listOf(
+            image("p1", bucket = "camera", mime = "image/jpeg"),
+            video("v1", bucket = "camera", name = "Camera", taken = 1),
+            image("g1", bucket = "downloads", mime = "image/gif"),
+        )
+        val formats = AlbumsCatalog.bucketFormats(media)
+        assertThat(formats["camera"]).containsExactly(MediaFilter.PHOTOS, MediaFilter.VIDEOS)
+        assertThat(formats["downloads"]).containsExactly(MediaFilter.GIFS)
+    }
+
+    @Test
+    fun `ALL filter is the identity`() {
+        val tab = AlbumsCatalog.buildAlbumsTab(
+            listOf(folder("camera", "Camera", 2, 10, "c")),
+            listOf(video("v1", "camera", "Camera", 5)),
+            emptySet(),
+            defaultSort,
+        )
+        assertThat(AlbumsCatalog.applyFormatFilter(tab, MediaFilter.ALL, emptyMap())).isEqualTo(tab)
+    }
+
+    @Test
+    fun `Videos filter keeps video folders, the Video album and Recent, drops photo-only folders`() {
+        val albums = listOf(
+            folder("camera", "Camera", 2, 50, "c"),   // has a video below
+            folder("shots", "Screenshots", 3, 40, "c"), // photos only
+        )
+        val videos = listOf(video("v1", "camera", "Camera", 7))
+        val tab = AlbumsCatalog.buildAlbumsTab(albums, videos, emptySet(), defaultSort)
+        val bucketFormats = mapOf(
+            "camera" to setOf(MediaFilter.PHOTOS, MediaFilter.VIDEOS),
+            "shots" to setOf(MediaFilter.PHOTOS),
+        )
+
+        val filtered = AlbumsCatalog.applyFormatFilter(tab, MediaFilter.VIDEOS, bucketFormats)
+
+        assertThat(filtered.map { it.kindOrBucket() })
+            .containsExactly("RECENT", "camera", "VIDEO").inOrder()
+        assertThat(filtered.none { it.kindOrBucket() == "shots" }).isTrue()
+    }
+
+    @Test
+    fun `GIFs filter keeps only GIF-bearing folders and drops the Video album`() {
+        val albums = listOf(
+            folder("downloads", "Downloads", 4, 30, "c"),
+            folder("camera", "Camera", 2, 50, "c"),
+        )
+        val videos = listOf(video("v1", "camera", "Camera", 7))
+        val tab = AlbumsCatalog.buildAlbumsTab(albums, videos, emptySet(), defaultSort)
+        val bucketFormats = mapOf(
+            "downloads" to setOf(MediaFilter.GIFS),
+            "camera" to setOf(MediaFilter.PHOTOS, MediaFilter.VIDEOS),
+        )
+
+        val filtered = AlbumsCatalog.applyFormatFilter(tab, MediaFilter.GIFS, bucketFormats)
+
+        // Recent stays (library has a GIF somewhere); the Video smart album and camera drop.
+        assertThat(filtered.map { it.kindOrBucket() }).containsExactly("RECENT", "downloads").inOrder()
+    }
+
+    private fun image(id: String, bucket: String, mime: String) = MediaItem(
+        id = MediaId(id),
+        displayName = "$id.${mime.substringAfterLast('/')}",
+        type = MediaType.IMAGE,
+        bucketId = bucket,
+        bucketName = bucket,
+        dateTakenMillis = 0,
+        dateModifiedMillis = 0,
+        sizeBytes = 0,
+        width = 100,
+        height = 100,
+        durationMillis = 0,
+        mimeType = mime,
+    )
 
     private fun Album.kindOrBucket(): String = when (kind) {
         AlbumKind.RECENT -> "RECENT"

@@ -6,17 +6,21 @@ import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaQuery
+import com.appblish.jgallery.core.model.filteredBy
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.MediaSelectionController
 import com.appblish.jgallery.feature.photos.di.TimelineDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
-import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -27,7 +31,16 @@ import javax.inject.Inject
 sealed interface PhotosUiState {
     data object Loading : PhotosUiState
     data object Empty : PhotosUiState
-    data class Content(val timeline: PhotosTimeline) : PhotosUiState
+
+    /**
+     * The time-grouped stream for the active [filter] (design C1-06). [timeline] is already filtered;
+     * an empty [timeline] here means the library is non-empty but nothing matches the filter, which the
+     * screen renders as a filter-scoped empty state (keeping the chip row visible).
+     */
+    data class Content(
+        val timeline: PhotosTimeline,
+        val filter: MediaFilter = MediaFilter.ALL,
+    ) : PhotosUiState
 }
 
 /**
@@ -44,20 +57,35 @@ class PhotosViewModel @Inject constructor(
     @TimelineDispatcher timelineDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
 
+    // The top-bar format filter (design C1-06). In-session state, All by default; re-filters the
+    // in-memory index with no rescan. A truly empty library still shows the whole-library empty state;
+    // a non-empty library with an empty *filtered* result yields a Content with an empty timeline so
+    // the screen can keep the chip row and show a filter-scoped empty state.
+    private val filterState = MutableStateFlow(MediaFilter.ALL)
+    val filter: StateFlow<MediaFilter> = filterState.asStateFlow()
+
     val state: StateFlow<PhotosUiState> =
-        repository.observeMedia(MediaQuery())
-            .map { items ->
-                if (items.isEmpty()) {
-                    PhotosUiState.Empty
-                } else {
-                    val zone = ZoneId.systemDefault()
-                    PhotosUiState.Content(
-                        buildPhotosTimeline(items = items, zone = zone, today = LocalDate.now(zone)),
-                    )
-                }
+        combine(repository.observeMedia(MediaQuery()), filterState) { items, filter ->
+            if (items.isEmpty()) {
+                PhotosUiState.Empty
+            } else {
+                val zone = ZoneId.systemDefault()
+                PhotosUiState.Content(
+                    timeline = buildPhotosTimeline(
+                        items = items.filteredBy(filter),
+                        zone = zone,
+                        today = LocalDate.now(zone),
+                    ),
+                    filter = filter,
+                )
             }
+        }
             .flowOn(timelineDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PhotosUiState.Loading)
+
+    fun setFilter(filter: MediaFilter) {
+        filterState.value = filter
+    }
 
     val columns: StateFlow<ColumnCount> =
         preferences.columns

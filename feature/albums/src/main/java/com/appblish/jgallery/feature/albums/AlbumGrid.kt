@@ -34,6 +34,7 @@ import coil3.compose.AsyncImage
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.thumbs.coverRequest
+import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
@@ -56,24 +57,29 @@ internal fun AlbumCoverGrid(
 ) {
     val gridState = rememberLazyGridState()
 
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(columns.value),
-        state = gridState,
-        horizontalArrangement = Arrangement.spacedBy(JGalleryDimens.AlbumsGutter),
-        verticalArrangement = Arrangement.spacedBy(JGalleryDimens.AlbumsGutter),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
-        modifier = modifier
-            .fillMaxSize()
-            .gridPinchColumns(currentColumns = { columns }, onColumnsChange = onColumnsChange)
-            .testTag(gridTestTag),
-    ) {
-        items(albums, key = { it.bucketId }) { album ->
-            AlbumCoverCard(
-                album = album,
-                onClick = { onAlbumClick(album) },
-                onLongClick = onAlbumLongClick?.let { { it(album) } },
-            )
+    Box(modifier = modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(columns.value),
+            state = gridState,
+            horizontalArrangement = Arrangement.spacedBy(JGalleryDimens.AlbumsGutter),
+            verticalArrangement = Arrangement.spacedBy(JGalleryDimens.AlbumsGutter),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .gridPinchColumns(currentColumns = { columns }, onColumnsChange = onColumnsChange)
+                .testTag(gridTestTag),
+        ) {
+            items(albums, key = { it.bucketId }) { album ->
+                AlbumCoverCard(
+                    album = album,
+                    onClick = { onAlbumClick(album) },
+                    onLongClick = onAlbumLongClick?.let { { it(album) } },
+                )
+            }
         }
+
+        // Item 2 (design C1-07): back-to-top FAB on the album grid (Collections + folder-wise Video grid).
+        ScrollToTopFab(gridState = gridState)
     }
 }
 

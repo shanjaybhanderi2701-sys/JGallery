@@ -35,9 +35,11 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.AlbumKind
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.EmptyTabState
+import com.appblish.jgallery.core.ui.component.FormatFilterChips
 import com.appblish.jgallery.core.ui.component.GalleryTabHeader
 import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
@@ -61,6 +63,7 @@ fun AlbumsScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val columns by viewModel.columns.collectAsStateWithLifecycle()
     val sort by viewModel.sort.collectAsStateWithLifecycle()
+    val filter by viewModel.filter.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
@@ -90,9 +93,11 @@ fun AlbumsScreen(
         state = state,
         columns = columns,
         sort = sort,
+        filter = filter,
         destinations = destinations,
         onColumnsChange = viewModel::setColumns,
         onSortChange = viewModel::setSort,
+        onFilterChange = viewModel::setFilter,
         onCreateAlbum = viewModel::createAlbum,
         onRenameAlbum = viewModel::renameAlbum,
         onCopyAlbum = viewModel::copyAlbum,
@@ -114,6 +119,8 @@ fun AlbumsScreen(
     onSortChange: (SortSpec) -> Unit,
     onCreateAlbum: (String) -> Unit,
     modifier: Modifier = Modifier,
+    filter: MediaFilter = MediaFilter.ALL,
+    onFilterChange: (MediaFilter) -> Unit = {},
     destinations: List<Album> = emptyList(),
     onRenameAlbum: (Album, String) -> Unit = { _, _ -> },
     onCopyAlbum: (Album, String) -> Unit = { _, _ -> },
@@ -138,6 +145,12 @@ fun AlbumsScreen(
             )
         }
 
+        // Item 3 (design C1-06): the same format filter row as the Photos tab — one mental model
+        // across both. Shown once the library has albums; filters which albums surface.
+        if (state is AlbumsUiState.Content) {
+            FormatFilterChips(selected = filter, onSelect = onFilterChange)
+        }
+
         when (state) {
             AlbumsUiState.Loading -> SkeletonGrid(columns = columns)
             AlbumsUiState.Empty -> EmptyTabState(
@@ -145,13 +158,22 @@ fun AlbumsScreen(
                 title = "No albums yet",
                 caption = "Folders with photos or videos will show up here.",
             )
-            is AlbumsUiState.Content -> AlbumCoverGrid(
-                albums = state.albums,
-                columns = columns,
-                onColumnsChange = onColumnsChange,
-                onAlbumClick = onAlbumClick,
-                onAlbumLongClick = { actionTarget = it },
-            )
+            is AlbumsUiState.Content -> if (state.albums.isEmpty()) {
+                // Non-empty library, no albums match the active filter (design C1-06 callout 5).
+                EmptyTabState(
+                    icon = Icons.Outlined.PhotoLibrary,
+                    title = filter.albumsEmptyTitle(),
+                    caption = "No albums have this kind of media. Switch to All to see everything.",
+                )
+            } else {
+                AlbumCoverGrid(
+                    albums = state.albums,
+                    columns = columns,
+                    onColumnsChange = onColumnsChange,
+                    onAlbumClick = onAlbumClick,
+                    onAlbumLongClick = { actionTarget = it },
+                )
+            }
         }
     }
 
@@ -268,6 +290,14 @@ private fun AlbumsOverflowMenu(
             )
         }
     }
+}
+
+/** Title for the filter-scoped empty Albums state (design C1-06 callout 5). */
+private fun MediaFilter.albumsEmptyTitle(): String = when (this) {
+    MediaFilter.ALL -> "No albums yet"
+    MediaFilter.PHOTOS -> "No photo albums"
+    MediaFilter.VIDEOS -> "No video albums"
+    MediaFilter.GIFS -> "No GIF albums"
 }
 
 /** Which per-album dialog is open (spec §7, §11 album-entity ops). */

@@ -2,9 +2,11 @@ package com.appblish.jgallery.feature.albums
 
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.AlbumKind
+import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.SortSpec
+import com.appblish.jgallery.core.model.formatsPresentIn
 
 /**
  * Pure, platform-free assembly of the Albums tab (spec C4). Kept out of the ViewModel so the whole of
@@ -69,6 +71,36 @@ internal object AlbumsCatalog {
         val smart = listOfNotNull(recent, video).map { it.copy(pinned = it.bucketId in pinnedBucketIds) }
 
         return (smart + enrichedFolders).sortedWith(comparator(sort))
+    }
+
+    /**
+     * Per-bucket format presence (design C1-06): for each device folder, which of the non-`ALL` format
+     * filters it holds at least one member of. Powers the Collections filter row — filtering *which*
+     * albums show. Computed off the same cached media the tab is already built from (no rescan).
+     */
+    fun bucketFormats(media: List<MediaItem>): Map<String, Set<MediaFilter>> =
+        media.groupBy { it.bucketId }.mapValues { (_, items) -> formatsPresentIn(items) }
+
+    /**
+     * Filter the Albums-tab list by the active format chip (design C1-06 callout 4): "Videos" surfaces
+     * video-bearing albums, etc. [MediaFilter.ALL] is the identity. A device folder is kept when it
+     * holds that format ([bucketFormats]); the Recent smart album is kept when the library holds it
+     * anywhere; the Video smart album is a videos-only entry. Ordering is preserved.
+     */
+    fun applyFormatFilter(
+        albums: List<Album>,
+        filter: MediaFilter,
+        bucketFormats: Map<String, Set<MediaFilter>>,
+    ): List<Album> {
+        if (filter == MediaFilter.ALL) return albums
+        val presentAnywhere = bucketFormats.values.any { filter in it }
+        return albums.filter { album ->
+            when (album.kind) {
+                AlbumKind.RECENT -> presentAnywhere
+                AlbumKind.VIDEO -> filter == MediaFilter.VIDEOS
+                AlbumKind.DEVICE_FOLDER -> filter in (bucketFormats[album.bucketId] ?: emptySet())
+            }
+        }
     }
 
     /**
