@@ -7,15 +7,33 @@ This is the harness the DoD's *"operator-assisted physical-device 10k+ item fram
 ## What it measures
 
 `PhotosScrollBenchmark.scrollPhotosGrid10k` launches **`PhotosBenchmarkActivity`** (a
-`benchmark`-variant-only Activity in `:app`) which renders the **real, stateless `PhotosScreen`**
-over a fixed **10,500-item** fixture — no Hilt, no onboarding gate, no MediaStore. It then flings the
-`photos_grid` `LazyVerticalGrid` and records `FrameTimingMetric`
-(`frameDurationCpuMs` **P50 / P90 / P99**).
+`benchmark`-variant-only Activity in `:app`) which **seeds ≥10,000 REAL image files into MediaStore**
+(`BenchmarkCorpusSeeder`) and renders the **real, stateless `PhotosScreen`** over tiles carrying
+**REAL MediaStore row-ids**. It then flings the `photos_grid` `LazyVerticalGrid` and records
+`FrameTimingMetric` (`frameDurationCpuMs` **P50 / P90 / P99**) plus a per-iteration **jank%** parsed
+from `dumpsys gfxinfo` (logged as `JGALLERY_BENCH_JANK …`).
 
-Isolating the stateless screen + synthetic fixture is deliberate: the gate is about the scroll hot
-path (timeline cells → grid tile reuse + layout), so this measures composition/layout/draw cost
-rather than disk-IO or thumbnail-decode variance. It mirrors how `PhotosGridTest` already drives the
-same overload.
+### Why real files now (APP-390 / R0-1 — the measurement fix)
+
+The original harness rendered synthetic `MediaItem`s whose ids resolved to nothing (`bench-$i`), so
+**every grid tile missed the thumbnail fetcher and drew a placeholder** — zero decode, zero IO. That
+measured pure list/layout machinery and produced a **false ~1.9% jank pass**. A real scroll on a
+device with 10k photos decodes thumbnails on the fly
+(`ContentResolver.loadThumbnail` → JPEG re-encode → Coil decode, see `MediaStoreStorageAccess`),
+which is where the jank actually lives.
+
+`BenchmarkCorpusSeeder` writes ≥10,000 real, decodable files (varied **JPEG / PNG / HEIC / WebP**
+across resolutions up to full **camera-res 4032×3024**) into `Pictures/JGalleryBench`, then queries
+them back so tiles carry the real numeric row-ids the app's fetcher resolves to
+`content://media/external/…/<id>`. Seeding is **idempotent** and runs off the main thread in the
+(unmeasured) setup phase, so only the first iteration pays for it. A launch-time self-check decodes
+one seeded thumbnail and logs `JGALLERY_BENCH_DECODE decodeOk=true …` as grep-able proof that the
+corpus exercises real decode (not the old id-miss).
+
+**Corpus size** defaults to the DoD floor of **10,000** and is overridable with
+`-Pandroid.testInstrumentationRunnerArguments.jgallery.bench.corpusSize=N` (the CI lane uses a
+smaller, still at-scale corpus to fit the hosted emulator's bounded disk/time; the full 10,000 is for
+the authoritative physical/FTL run, R0-2).
 
 ## How the pieces fit
 
@@ -23,7 +41,8 @@ same overload.
 |-------|-------|-----|
 | `benchmark` build type | `AndroidApplicationConventionPlugin` | release-like, **non-debuggable**, debug-signed — macrobenchmark rejects debuggable builds (JIT/debug hooks distort timing) |
 | `<profileable shell="true"/>` | `app/src/benchmark/AndroidManifest.xml` | lets macrobenchmark profile the non-debuggable APK |
-| `PhotosBenchmarkActivity` | `app/src/benchmark/…` | benchmark-variant-only 10.5k fixture surface; sets `testTagsAsResourceId` so UiAutomator finds `photos_grid` |
+| `PhotosBenchmarkActivity` | `app/src/benchmark/…` | benchmark-variant-only surface; seeds the real corpus then renders `PhotosScreen`; sets `testTagsAsResourceId` so UiAutomator finds `photos_grid` |
+| `BenchmarkCorpusSeeder` | `app/src/benchmark/…` | seeds ≥10k real JPEG/PNG/HEIC/WebP files into MediaStore (idempotent) so a fling drives real decode/IO |
 | `:macrobenchmark` | this module (`com.android.test`) | separate test APK; `targetProjectPath = ":app"`, `testBuildType = "benchmark"` |
 
 ## Run it
@@ -46,8 +65,9 @@ regression signal, not the authoritative physical measurement.
 
 ## CI
 
-The `macrobenchmark` lane in `.github/workflows/ci.yml` runs the emulator fallback (API 30, pixel_5)
-and uploads the frame-timing JSON as the `macrobenchmark-results` artifact.
+The `macrobenchmark` lane in `.github/workflows/ci.yml` runs the emulator fallback (API 34, pixel_5,
+`corpusSize=3000`) and uploads the frame-timing JSON as the `macrobenchmark-results` artifact. The
+per-iteration jank% is in the run's logcat (`JGALLERY_BENCH_JANK …`).
 
 ### COLD launch display/focus race (APP-382)
 
