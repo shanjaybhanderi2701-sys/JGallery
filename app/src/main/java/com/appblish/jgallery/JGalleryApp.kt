@@ -29,10 +29,16 @@ import androidx.navigation.compose.rememberNavController
 import com.appblish.jgallery.core.ui.nav.GalleryTab
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
+import com.appblish.jgallery.feature.albums.ADD_TO_ALBUM_ROUTE
 import com.appblish.jgallery.feature.albums.ALBUM_DETAIL_ROUTE
 import com.appblish.jgallery.feature.albums.AlbumsScreen
+import com.appblish.jgallery.feature.albums.NEW_ALBUM_ROUTE
 import com.appblish.jgallery.feature.albums.VIDEO_ALBUMS_ROUTE
+import com.appblish.jgallery.feature.albums.addToAlbumScreen
 import com.appblish.jgallery.feature.albums.albumDetailScreen
+import com.appblish.jgallery.feature.albums.navigateToAddToAlbum
+import com.appblish.jgallery.feature.albums.navigateToNewAlbum
+import com.appblish.jgallery.feature.albums.newAlbumScreen
 import com.appblish.jgallery.feature.albums.openAlbum
 import com.appblish.jgallery.feature.albums.openVideoMemberAlbum
 import com.appblish.jgallery.feature.albums.videoAlbumsScreen
@@ -69,6 +75,9 @@ fun JGalleryApp(
                 // Tapping an album routes by kind (spec C4): Video → folder-wise grouping, Recent/folder
                 // → the media grid, where E11 multi-select works.
                 onAlbumClick = { album -> navController.openAlbum(album) },
+                // Create-album (design C1-09): route into the new album's empty "Add photos" prompt so
+                // it gets a cover and appears on the Albums home once the first item is added (APP-416).
+                onAlbumCreated = { name -> navController.navigateToNewAlbum(name) },
             )
             // Tapping a tile opens the E7 full-screen viewer, paged across the whole Photos stream.
             GalleryTab.PHOTOS -> PhotosScreen(
@@ -88,7 +97,8 @@ fun JGalleryApp(
             // The full-screen viewer and the Recycle Bin own the whole canvas (their own chrome) —
             // the tab bar disappears for them and returns on pop.
             if (currentRoute == VIEWER_ROUTE || currentRoute == TRASH_ROUTE ||
-                currentRoute == ALBUM_DETAIL_ROUTE || currentRoute == VIDEO_ALBUMS_ROUTE
+                currentRoute == ALBUM_DETAIL_ROUTE || currentRoute == VIDEO_ALBUMS_ROUTE ||
+                currentRoute == NEW_ALBUM_ROUTE || currentRoute == ADD_TO_ALBUM_ROUTE
             ) return@Scaffold
             NavigationBar(
                 modifier = Modifier.height(JGalleryDimens.NavHeight),
@@ -137,6 +147,21 @@ fun JGalleryApp(
             albumDetailScreen(
                 onBack = { navController.popBackStack() },
                 onMediaClick = { item -> navController.navigateToViewer(item.id, item.bucketId) },
+            )
+            // New-album empty prompt (design C1-09): after Create album, land here to add first photos.
+            newAlbumScreen(
+                onAddPhotos = { name -> navController.navigateToAddToAlbum(name) },
+                onBack = { navController.popBackStack() },
+            )
+            // Add-photos picker (design C1-09): copies the selection into the new album, then pops back.
+            addToAlbumScreen(
+                onDone = {
+                    // Pop past the picker AND the emptyNew prompt back to the Albums tab, where the new
+                    // album now renders with a cover. Falls back to a single pop if the prompt is gone.
+                    if (!navController.popBackStack(NEW_ALBUM_ROUTE, inclusive = true)) {
+                        navController.popBackStack()
+                    }
+                },
             )
             // Video smart album (spec C4): All Videos + folder-wise grouping; each opens a video-scoped grid.
             videoAlbumsScreen(

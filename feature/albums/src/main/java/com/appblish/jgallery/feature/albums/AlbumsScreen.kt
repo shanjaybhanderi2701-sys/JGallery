@@ -60,6 +60,7 @@ import com.appblish.jgallery.core.ui.theme.JGalleryColors
 fun AlbumsScreen(
     modifier: Modifier = Modifier,
     onAlbumClick: (Album) -> Unit = {},
+    onAlbumCreated: (name: String) -> Unit = {},
     viewModel: AlbumsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -70,14 +71,16 @@ fun AlbumsScreen(
     val albumOp by viewModel.albumOp.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
-    // Surface create-album outcomes (spec §6) as a toast while this tab is on screen.
+    // Create-album outcomes (spec §6, design C1-09): on success route straight into the new album's
+    // empty "Add photos" prompt so a fresh album gets a cover and appears on the Albums home once it
+    // holds >=1 item (APP-416). Failures stay a toast.
     androidx.compose.runtime.LaunchedEffect(viewModel) {
         viewModel.createAlbumEvents.collect { result ->
-            val message = when (result) {
-                is CreateAlbumResult.Success -> "Album “${result.name}” created"
-                is CreateAlbumResult.Failure -> result.reason
+            when (result) {
+                is CreateAlbumResult.Success -> onAlbumCreated(result.name)
+                is CreateAlbumResult.Failure ->
+                    Toast.makeText(context, result.reason, Toast.LENGTH_SHORT).show()
             }
-            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
         }
     }
 
