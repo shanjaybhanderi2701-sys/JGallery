@@ -281,6 +281,11 @@ class ViewerViewModelTest {
             newAlbumCalls += ids to name
             return flowOf(FileOperationEvent.Completed(result))
         }
+        override suspend fun beginCapture(
+            albumName: String,
+            kind: com.appblish.jgallery.core.model.CaptureKind,
+        ): com.appblish.jgallery.core.index.AlbumCapture? = null
+        override suspend fun sweepOrphanedCaptures(): Int = 0
         override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> =
             flowOf(FileOperationEvent.Completed(result))
         override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> =

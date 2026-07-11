@@ -42,4 +42,13 @@ class AlbumPathsTest {
         // Guards the '/' discriminator MediaStoreStorageOps uses to tell a path handle from a bucket id.
         assertThat(AlbumPaths.newAlbumPath("Holiday")).contains("/")
     }
+
+    @Test
+    fun `newCapturePath routes a photo under Pictures and a video under Movies`() {
+        // A captured photo shares the album-folder root (Pictures); a captured video lands under the
+        // MediaStore-conventional Movies root, so either kind materialises the album on first capture (APP-424).
+        assertThat(AlbumPaths.newCapturePath("Holiday", video = false)).isEqualTo("Pictures/Holiday/")
+        assertThat(AlbumPaths.newCapturePath("Holiday", video = true)).isEqualTo("Movies/Holiday/")
+        assertThat(AlbumPaths.newCapturePath("Trip 2026", video = false)).isEqualTo("Pictures/Trip 2026/")
+    }
 }

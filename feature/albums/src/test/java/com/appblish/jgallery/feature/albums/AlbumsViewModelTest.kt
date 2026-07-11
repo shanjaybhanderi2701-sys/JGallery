@@ -343,6 +343,11 @@ class AlbumsViewModelTest {
             flowOf(FileOperationEvent.Completed(bulkResult))
         override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
         override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
+        override suspend fun beginCapture(
+            albumName: String,
+            kind: com.appblish.jgallery.core.model.CaptureKind,
+        ): com.appblish.jgallery.core.index.AlbumCapture? = null
+        override suspend fun sweepOrphanedCaptures(): Int = 0
 
         val renamed = mutableListOf<Pair<String, String>>()
         val copied = mutableListOf<Pair<String, String>>()

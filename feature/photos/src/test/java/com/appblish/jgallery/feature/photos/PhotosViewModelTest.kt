@@ -116,6 +116,11 @@ class PhotosViewModelTest {
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun copyToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> = emptyFlow()
         override fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> = emptyFlow()
+        override suspend fun beginCapture(
+            albumName: String,
+            kind: com.appblish.jgallery.core.model.CaptureKind,
+        ): com.appblish.jgallery.core.index.AlbumCapture? = null
+        override suspend fun sweepOrphanedCaptures(): Int = 0
         override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
         override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
         override suspend fun renameAlbum(bucketId: String, newName: String) = OperationResult(succeeded = 1, failed = 0)

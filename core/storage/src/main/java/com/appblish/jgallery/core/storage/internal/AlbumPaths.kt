@@ -31,6 +31,19 @@ internal object AlbumPaths {
     /** The public Pictures root every newly-created album folder lives under (`Environment.DIRECTORY_PICTURES`). */
     const val PICTURES_ROOT = "Pictures"
 
+    /** The public Movies root captured videos live under (`Environment.DIRECTORY_MOVIES`). */
+    const val MOVIES_ROOT = "Movies"
+
+    /**
+     * The `RELATIVE_PATH` a freshly-*captured* item lands in for the album named [name]. A captured photo
+     * goes to `"Pictures/<name>/"` (the same root as [newAlbumPath]); a captured [video] to
+     * `"Movies/<name>/"`, the MediaStore-conventional video root — so either way the album materialises
+     * the moment the camera writes its first item (create-on-first-item, APP-424). [name] is assumed
+     * already validated by [AlbumNames].
+     */
+    fun newCapturePath(name: String, video: Boolean): String =
+        if (video) "$MOVIES_ROOT/$name/" else "$PICTURES_ROOT/$name/"
+
     /**
      * The `RELATIVE_PATH` a freshly-created album named [name] occupies. `createAlbum` makes the folder
      * directly under the public Pictures root, so a new album's canonical destination is

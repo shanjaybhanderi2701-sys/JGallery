@@ -3,9 +3,11 @@ package com.appblish.jgallery.feature.albums
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.appblish.jgallery.core.index.AlbumCapture
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.CaptureKind
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
@@ -16,10 +18,14 @@ import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.MediaSelectionController
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 /** View state for one album's media grid. */
@@ -39,7 +45,7 @@ sealed interface AlbumDetailUiState {
 class AlbumDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     repository: MediaIndexRepository,
-    operations: MediaOperationsRepository,
+    private val operations: MediaOperationsRepository,
 ) : ViewModel() {
 
     /** The bucket being viewed; excluded from Copy/Move destinations so you can't target the source. */
@@ -97,4 +103,58 @@ class AlbumDetailViewModel @Inject constructor(
         selectionController.run(action, destinationBucketId)
     fun cancelBulk() = selectionController.cancel()
     fun dismissBulkResult() = selectionController.dismissResult()
+
+    // --- Capture straight into album (spec C1-09 item 9, APP-424) ---------------------------------
+
+    /** Only a real device folder is a valid capture target; the smart-album sentinels never are. */
+    private val isRealFolder: Boolean =
+        bucketId != AlbumsCatalog.RECENT_BUCKET_ID && bucketId != AlbumsCatalog.ALL_VIDEOS_BUCKET_ID
+
+    /** The pending capture awaiting its camera result; held across the activity-result round-trip. */
+    private var pendingCapture: AlbumCapture? = null
+
+    private val _launchCapture = MutableSharedFlow<AlbumCapture>(extraBufferCapacity = 1)
+
+    /**
+     * Emits when a capture Uri is ready to hand to the system camera. The screen collects this and fires
+     * the `ACTION_IMAGE_CAPTURE` launcher with [AlbumCapture.outputUri]; the ViewModel keeps the handle
+     * so it can [commit][AlbumCapture.commit]/[abort][AlbumCapture.abort] once the result lands.
+     */
+    val launchCapture: SharedFlow<AlbumCapture> = _launchCapture.asSharedFlow()
+
+    init {
+        // Startup housekeeping: clear our own orphaned pending capture rows from a prior crashed capture
+        // (Security gate APP-426). Best-effort; a real device folder screen is a natural trigger point.
+        if (isRealFolder) {
+            viewModelScope.launch { runCatching { operations.sweepOrphanedCaptures() } }
+        }
+    }
+
+    /**
+     * Mint a pending capture into *this* album (by [title], name-scoped like create) and, when ready,
+     * emit its handle so the screen can launch the system camera. A no-op for smart albums or an invalid
+     * name (nothing is minted). The captured item lands in the folder, so the album appears holding its
+     * cover once the result is committed.
+     */
+    fun requestCapture(kind: CaptureKind) {
+        if (!isRealFolder) return
+        viewModelScope.launch {
+            val capture = runCatching { operations.beginCapture(title, kind) }.getOrNull() ?: return@launch
+            pendingCapture = capture
+            _launchCapture.emit(capture)
+        }
+    }
+
+    /**
+     * Resolve the pending capture once the camera returns: [success] (`RESULT_OK`) publishes the captured
+     * item (the index refreshes reactively off the MediaStore change, so the album surfaces on its own);
+     * otherwise it is aborted, leaving no orphan album or row (acceptance: "Cancel leaves no orphan").
+     */
+    fun onCaptureResult(success: Boolean) {
+        val capture = pendingCapture ?: return
+        pendingCapture = null
+        viewModelScope.launch {
+            runCatching { if (success) capture.commit() else capture.abort() }
+        }
+    }
 }

@@ -13,6 +13,20 @@
         android:name="android.permission.ACCESS_NETWORK_STATE"
         tools:node="remove" />
 
+    <!-- Delegated capture straight into an album (APP-424): JGallery hands a MediaStore EXTRA_OUTPUT
+         uri to the *system camera* so the camera app writes the bytes. JGallery therefore declares NO
+         CAMERA permission (declaring-but-ungranted would break ACTION_IMAGE_CAPTURE — Security gate
+         APP-426). These <queries> give the capture intents package visibility on Android 11+ so the
+         launcher resolves a camera app; absence is handled gracefully (ActivityNotFoundException → no-op). -->
+    <queries>
+        <intent>
+            <action android:name="android.media.action.IMAGE_CAPTURE" />
+        </intent>
+        <intent>
+            <action android:name="android.media.action.VIDEO_CAPTURE" />
+        </intent>
+    </queries>
+
     <application
         android:name=".JGalleryApplication"
         android:allowBackup="true"

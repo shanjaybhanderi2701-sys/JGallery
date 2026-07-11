@@ -3,6 +3,7 @@ package com.appblish.jgallery.core.storage.internal
 import android.annotation.SuppressLint
 import android.content.ContentResolver
 import android.content.ContentUris
+import android.content.ContentValues
 import android.database.ContentObserver
 import android.database.Cursor
 import android.graphics.Bitmap
@@ -12,6 +13,7 @@ import android.os.Environment
 import android.provider.MediaStore
 import android.util.Size
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.CaptureKind
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
@@ -22,10 +24,12 @@ import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.storage.DecodeTarget
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.storage.MediaSignature
+import com.appblish.jgallery.core.storage.PendingCapture
 import com.appblish.jgallery.core.storage.StorageAccess
 import com.appblish.jgallery.core.storage.StorageBackend
 import com.appblish.jgallery.core.storage.ThumbnailBitmapSource
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
@@ -53,7 +57,7 @@ internal class MediaStoreStorageAccess(
     private val resolver: ContentResolver,
     private val io: CoroutineDispatcher,
     trashStore: TrashMetadataStore,
-    now: () -> Long = System::currentTimeMillis,
+    private val now: () -> Long = System::currentTimeMillis,
 ) : StorageAccess, ThumbnailBitmapSource {
 
     // The single platform SPI (copy/move/rename/trash/restore/delete primitives) — the only part that
@@ -223,6 +227,111 @@ internal class MediaStoreStorageAccess(
     /** As [copyToNewAlbum] but moves [ids] (removed from source) into the new album (spec §7.2). */
     override fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> =
         intoNewAlbum(name) { relativePath -> fileOps.move(ids, relativePath) }
+
+    /**
+     * Mint a still-pending capture destination inside the album named [albumName] (APP-424). Delegated
+     * capture: we only *insert the row and hand its Uri* to the system camera (`EXTRA_OUTPUT`); the
+     * camera writes the bytes, so JGallery declares no `CAMERA` permission (Security gate APP-426). The
+     * row is `IS_PENDING` (invisible) until [PendingCapture.commit]/[PendingCapture.abort]. The name runs
+     * the same [AlbumNames] validation as [createAlbum]; an invalid name mints nothing and returns null.
+     * We address the *typed* Images/Video collection (not `Files`) so the RELATIVE_PATH insert lands and
+     * the album materialises on first capture, exactly like the copy path.
+     */
+    override suspend fun beginCapture(albumName: String, kind: CaptureKind): PendingCapture? =
+        withContext(io) {
+            val validated = when (val validation = AlbumNames.validate(albumName)) {
+                is AlbumNames.Result.Invalid -> return@withContext null
+                is AlbumNames.Result.Valid -> validation.name
+            }
+            val isVideo = kind == CaptureKind.VIDEO
+            val collection = if (isVideo) {
+                MediaStore.Video.Media.getContentUri(EXTERNAL_VOLUME)
+            } else {
+                MediaStore.Images.Media.getContentUri(EXTERNAL_VOLUME)
+            }
+            val stamp = now()
+            val values = ContentValues().apply {
+                put(
+                    MediaStore.MediaColumns.DISPLAY_NAME,
+                    if (isVideo) "VID_$stamp.mp4" else "IMG_$stamp.jpg",
+                )
+                put(MediaStore.MediaColumns.MIME_TYPE, if (isVideo) "video/mp4" else "image/jpeg")
+                put(MediaStore.MediaColumns.RELATIVE_PATH, AlbumPaths.newCapturePath(validated, isVideo))
+                put(MediaStore.MediaColumns.IS_PENDING, 1) // invisible until commit()
+            }
+            val uri = resolver.insert(collection, values) ?: return@withContext null
+            MediaStoreCapture(uri)
+        }
+
+    /**
+     * Sweep this app's own stale `IS_PENDING` capture rows — orphans from a process death between
+     * [beginCapture] and its commit/abort (Security gate APP-426). Only rows older than
+     * [ORPHAN_STALE_SECONDS] are swept, so a live in-flight capture is never deleted. Best-effort:
+     * `IS_PENDING` rows are owner-visible, and a delete of a row we do not own fails harmlessly.
+     */
+    @SuppressLint("Recycle")
+    override suspend fun sweepOrphanedCaptures(): Int = withContext(io) {
+        val cutoffSeconds = (now() / 1000L) - ORPHAN_STALE_SECONDS
+        var swept = 0
+        for (collection in listOf(
+            MediaStore.Images.Media.getContentUri(EXTERNAL_VOLUME),
+            MediaStore.Video.Media.getContentUri(EXTERNAL_VOLUME),
+        )) {
+            val orphanIds = resolver.query(
+                collection,
+                arrayOf(MediaStore.MediaColumns._ID),
+                "${MediaStore.MediaColumns.IS_PENDING} = 1 AND ${MediaStore.MediaColumns.DATE_ADDED} < ?",
+                arrayOf(cutoffSeconds.toString()),
+                null,
+            )?.use { cursor ->
+                val idCol = cursor.getColumnIndexOrThrow(MediaStore.MediaColumns._ID)
+                buildList { while (cursor.moveToNext()) add(cursor.getLong(idCol)) }
+            }.orEmpty()
+            for (rowId in orphanIds) {
+                val uri = ContentUris.withAppendedId(collection, rowId)
+                swept += runCatching { resolver.delete(uri, null, null) }.getOrDefault(0)
+            }
+        }
+        swept
+    }
+
+    /**
+     * A [PendingCapture] over a still-`IS_PENDING` MediaStore row the *camera* writes to. [commit]
+     * publishes only after confirming bytes were written (a cancelled-but-`RESULT_OK` camera leaves a
+     * zero-byte row — publishing it would create a corrupt item and a phantom album); [abort] deletes the
+     * pending row. Exactly one is called, mirroring the internal `Sink.commit()/abort()` lifecycle.
+     */
+    private inner class MediaStoreCapture(private val uri: Uri) : PendingCapture {
+        override val outputUri: Uri = uri
+
+        override suspend fun commit(): OperationResult = withContext(io) {
+            val bytesWritten = runCatching {
+                resolver.openFileDescriptor(uri, "r")?.use { it.statSize } ?: 0L
+            }.getOrDefault(0L)
+            if (bytesWritten <= 0L) {
+                runCatching { resolver.delete(uri, null, null) } // don't publish an empty capture
+                return@withContext OperationResult(
+                    succeeded = 0,
+                    failed = 1,
+                    failures = listOf(OperationResult.Failure(MediaId(uri.toString()), "Capture produced no data")),
+                )
+            }
+            resolver.update(
+                uri,
+                ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) },
+                null,
+                null,
+            )
+            OperationResult(succeeded = 1, failed = 0)
+        }
+
+        override suspend fun abort() = withContext(NonCancellable + io) {
+            // NonCancellable: abort is the cancel-cleanup path, so the caller's Job may already be
+            // cancelled; a plain withContext(io) would skip the delete and orphan the IS_PENDING row.
+            runCatching { resolver.delete(uri, null, null) }
+            Unit
+        }
+    }
 
     /**
      * Shared create-then-fill scaffold for [copyToNewAlbum] / [moveToNewAlbum]: create (or reuse) the
@@ -429,6 +538,10 @@ internal class MediaStoreStorageAccess(
 
         // Tile-sized re-encode quality: visually lossless at grid scale, ~½ the bytes of q95.
         const val THUMBNAIL_JPEG_QUALITY = 85
+
+        // A capture's IS_PENDING row is live only for the brief camera-foreground window; anything of
+        // ours still pending an hour later is a crash orphan safe to sweep (APP-426).
+        const val ORPHAN_STALE_SECONDS = 60L * 60L
 
         val PROJECTION = arrayOf(
             MediaStore.Files.FileColumns._ID,

@@ -1,6 +1,7 @@
 package com.appblish.jgallery.core.storage
 
 import android.net.Uri
+import com.appblish.jgallery.core.model.CaptureKind
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
@@ -116,6 +117,27 @@ interface StorageAccess {
 
     /** Like [copyToNewAlbum] but moves [ids] (removed from source) into the new album (Move verb). */
     fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent>
+
+    /**
+     * Begin a "capture straight into album" for the album named [albumName] (APP-424, C1-09 item 9).
+     * Mints a still-pending MediaStore row under `Pictures/<albumName>/` (photo) or `Movies/<albumName>/`
+     * (video) and returns a [PendingCapture] whose [PendingCapture.outputUri] is handed to the *system
+     * camera* as `EXTRA_OUTPUT` — delegated capture, so JGallery holds no `CAMERA` permission (Security
+     * gate APP-426). Name-scoped like [createAlbum] (no synthetic bucket handle crosses — APP-297); the
+     * name runs the same [AlbumNames][com.appblish.jgallery.core.storage.internal.AlbumNames] validation,
+     * and an invalid name returns null (nothing is minted). The captured item lands *in* the folder, so
+     * the album materialises holding its cover on [PendingCapture.commit] — the same create-on-first-item
+     * principle as [copyToNewAlbum]. Off-thread.
+     */
+    suspend fun beginCapture(albumName: String, kind: CaptureKind): PendingCapture?
+
+    /**
+     * Delete this app's own stale, still-pending capture rows left by a process death between
+     * [beginCapture] and its [PendingCapture.commit] / [PendingCapture.abort] (Security gate APP-426).
+     * Best-effort; returns how many orphans were swept. A live in-flight capture is never touched — only
+     * rows older than the capture-session window are swept. Off-thread.
+     */
+    suspend fun sweepOrphanedCaptures(): Int
 
     /**
      * Move to the app-managed Trash (restorable — spec §7.5). Each item's origin path + a trashed-at

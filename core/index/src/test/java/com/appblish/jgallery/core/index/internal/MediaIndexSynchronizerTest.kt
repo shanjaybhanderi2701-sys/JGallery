@@ -126,6 +126,8 @@ private class FakeStorageAccess(val device: MutableList<MediaItem>) : StorageAcc
     override fun move(ids: List<MediaId>, destinationBucketId: String) = error("unused")
     override fun copyToNewAlbum(ids: List<MediaId>, name: String) = error("unused")
     override fun moveToNewAlbum(ids: List<MediaId>, name: String) = error("unused")
+    override suspend fun beginCapture(albumName: String, kind: com.appblish.jgallery.core.model.CaptureKind) = error("unused")
+    override suspend fun sweepOrphanedCaptures() = error("unused")
     override fun moveToTrash(ids: List<MediaId>) = error("unused")
     override fun observeTrash() = error("unused")
     override fun restoreFromTrash(ids: List<MediaId>) = error("unused")

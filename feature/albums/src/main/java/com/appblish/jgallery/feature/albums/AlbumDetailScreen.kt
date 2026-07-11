@@ -1,5 +1,8 @@
 package com.appblish.jgallery.feature.albums
 
+import android.content.ActivityNotFoundException
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -20,6 +23,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -34,6 +38,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.CaptureKind
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
@@ -74,6 +79,25 @@ fun AlbumDetailScreen(
     val selection by viewModel.selection.collectAsStateWithLifecycle()
     val bulk by viewModel.bulk.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
+
+    // Delegated capture (APP-424): the system camera writes the photo into this album's folder via the
+    // EXTRA_OUTPUT uri the ViewModel mints — TakePicture returns only a success Boolean and ignores the
+    // camera's echoed result payload, and JGallery declares no CAMERA permission (Security gate APP-426).
+    val takePicture = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture()) { success ->
+        viewModel.onCaptureResult(success)
+    }
+    LaunchedEffect(viewModel) {
+        viewModel.launchCapture.collect { capture ->
+            try {
+                takePicture.launch(capture.outputUri)
+            } catch (_: ActivityNotFoundException) {
+                // No camera app to handle the intent → discard the pending row and no-op gracefully
+                // (never request CAMERA to "recover" — Security gate APP-426).
+                viewModel.onCaptureResult(false)
+            }
+        }
+    }
+
     AlbumDetailScreen(
         title = viewModel.title,
         sourceBucketId = viewModel.bucketId,
@@ -91,6 +115,7 @@ fun AlbumDetailScreen(
         onRunBulk = viewModel::runBulk,
         onCancelBulk = viewModel::cancelBulk,
         onDismissResult = viewModel::dismissBulkResult,
+        onOpenCamera = { viewModel.requestCapture(CaptureKind.PHOTO) },
         modifier = modifier,
     )
 }

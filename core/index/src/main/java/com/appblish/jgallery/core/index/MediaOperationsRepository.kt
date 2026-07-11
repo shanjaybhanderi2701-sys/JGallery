@@ -1,6 +1,7 @@
 package com.appblish.jgallery.core.index
 
 import android.net.Uri
+import com.appblish.jgallery.core.model.CaptureKind
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.OperationResult
@@ -57,6 +58,21 @@ interface MediaOperationsRepository {
 
     /** Like [copyToNewAlbum] but moves [ids] into the new album (Move verb — spec §7.2). */
     fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent>
+
+    /**
+     * Begin a "capture straight into album" for the album named [albumName] (APP-424, C1-09 item 9),
+     * returning an [AlbumCapture] whose [AlbumCapture.outputUri] the caller hands to the system camera
+     * (`EXTRA_OUTPUT`) — delegated capture, no `CAMERA` permission (Security gate APP-426). Name-scoped
+     * like [createAlbum]; returns null when the name is invalid (nothing is minted). On `RESULT_OK` call
+     * [AlbumCapture.commit] (the album materialises holding the captured cover); on cancel, [AlbumCapture.abort].
+     */
+    suspend fun beginCapture(albumName: String, kind: CaptureKind): AlbumCapture?
+
+    /**
+     * Sweep this app's orphaned pending capture rows from an interrupted capture — a crash between
+     * [beginCapture] and its commit/abort (APP-424 / Security gate APP-426). Returns how many were swept.
+     */
+    suspend fun sweepOrphanedCaptures(): Int
 
     /** Move [ids] to the app-managed, restorable Trash (spec §7.5). */
     fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent>

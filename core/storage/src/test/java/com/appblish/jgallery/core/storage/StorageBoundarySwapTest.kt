@@ -138,6 +138,11 @@ class StorageBoundarySwapTest {
         override fun move(ids: List<MediaId>, destinationBucketId: String) = done(ids.size)
         override fun copyToNewAlbum(ids: List<MediaId>, name: String) = done(ids.size)
         override fun moveToNewAlbum(ids: List<MediaId>, name: String) = done(ids.size)
+        override suspend fun beginCapture(
+            albumName: String,
+            kind: com.appblish.jgallery.core.model.CaptureKind,
+        ): com.appblish.jgallery.core.storage.PendingCapture? = null
+        override suspend fun sweepOrphanedCaptures(): Int = 0
         override fun moveToTrash(ids: List<MediaId>) = done(ids.size)
         override fun observeTrash() = flowOf(emptyList<com.appblish.jgallery.core.model.TrashEntry>())
         override fun restoreFromTrash(ids: List<MediaId>) = done(ids.size)

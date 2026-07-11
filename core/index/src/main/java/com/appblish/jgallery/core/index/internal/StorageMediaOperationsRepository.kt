@@ -1,7 +1,9 @@
 package com.appblish.jgallery.core.index.internal
 
 import android.net.Uri
+import com.appblish.jgallery.core.index.AlbumCapture
 import com.appblish.jgallery.core.index.MediaOperationsRepository
+import com.appblish.jgallery.core.model.CaptureKind
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaQuery
@@ -42,6 +44,11 @@ internal class StorageMediaOperationsRepository @Inject constructor(
 
     override fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> =
         storage.moveToNewAlbum(ids, name)
+
+    override suspend fun beginCapture(albumName: String, kind: CaptureKind): AlbumCapture? =
+        storage.beginCapture(albumName, kind)?.let(::StorageAlbumCapture)
+
+    override suspend fun sweepOrphanedCaptures(): Int = storage.sweepOrphanedCaptures()
 
     override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> =
         storage.moveToTrash(ids)
