@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -61,6 +62,8 @@ fun AlbumsScreen(
     modifier: Modifier = Modifier,
     onAlbumClick: (Album) -> Unit = {},
     onAlbumCreated: (name: String) -> Unit = {},
+    onOpenSearch: () -> Unit = {},
+    onOpenTrash: () -> Unit = {},
     viewModel: AlbumsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -114,6 +117,8 @@ fun AlbumsScreen(
         onAlbumOpCancel = viewModel::cancelAlbumOp,
         onAlbumOpDone = viewModel::dismissAlbumOp,
         onAlbumClick = onAlbumClick,
+        onOpenSearch = onOpenSearch,
+        onOpenTrash = onOpenTrash,
         modifier = modifier,
     )
 }
@@ -140,6 +145,8 @@ fun AlbumsScreen(
     onAlbumOpCancel: () -> Unit = {},
     onAlbumOpDone: () -> Unit = {},
     onAlbumClick: (Album) -> Unit = {},
+    onOpenSearch: () -> Unit = {},
+    onOpenTrash: () -> Unit = {},
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
@@ -150,10 +157,22 @@ fun AlbumsScreen(
 
     Column(modifier = modifier.fillMaxSize().testTag("albums_screen")) {
         GalleryTabHeader(title = "Albums") {
+            // Search moved off the tab bar (C1-01 item 10) → header action on both tabs.
+            IconButton(
+                onClick = onOpenSearch,
+                modifier = Modifier.testTag("albums_search_action"),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = "Search",
+                    tint = JGalleryColors.Text,
+                )
+            }
             AlbumsOverflowMenu(
                 onSortBy = { showSortSheet = true },
                 onColumnCount = { showColumnSheet = true },
                 onCreateAlbum = { showCreateDialog = true },
+                onOpenTrash = onOpenTrash,
             )
         }
 
@@ -281,6 +300,7 @@ private fun AlbumsOverflowMenu(
     onSortBy: () -> Unit,
     onColumnCount: () -> Unit,
     onCreateAlbum: () -> Unit,
+    onOpenTrash: () -> Unit = {},
 ) {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -309,6 +329,13 @@ private fun AlbumsOverflowMenu(
                 text = { Text("Create album") },
                 onClick = { expanded = false; onCreateAlbum() },
                 modifier = Modifier.testTag("albums_menu_create_album"),
+            )
+            // Recycle Bin re-homed here (C1-01 item 10): the Collections tab is now the Albums grid, so
+            // the retired CollectionsScreen's only live utility (Trash) moves to this overflow.
+            DropdownMenuItem(
+                text = { Text("Recycle Bin") },
+                onClick = { expanded = false; onOpenTrash() },
+                modifier = Modifier.testTag("albums_menu_recycle_bin"),
             )
         }
     }

@@ -1,34 +1,22 @@
 package com.appblish.jgallery
 
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Category
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.outlined.Category
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
-import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.appblish.jgallery.core.ui.nav.GalleryTab
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
-import com.appblish.jgallery.core.ui.theme.JGalleryDimens
+import com.appblish.jgallery.core.ui.nav.GalleryTabBar
+import com.appblish.jgallery.core.ui.nav.GalleryTabBarItem
 import com.appblish.jgallery.feature.albums.ADD_TO_ALBUM_ROUTE
 import com.appblish.jgallery.feature.albums.ALBUM_DETAIL_ROUTE
 import com.appblish.jgallery.feature.albums.AlbumsScreen
@@ -42,9 +30,10 @@ import com.appblish.jgallery.feature.albums.newAlbumScreen
 import com.appblish.jgallery.feature.albums.openAlbum
 import com.appblish.jgallery.feature.albums.openVideoMemberAlbum
 import com.appblish.jgallery.feature.albums.videoAlbumsScreen
-import com.appblish.jgallery.feature.collections.CollectionsScreen
 import com.appblish.jgallery.feature.photos.PhotosScreen
-import com.appblish.jgallery.feature.search.SearchScreen
+import com.appblish.jgallery.feature.search.SEARCH_ROUTE
+import com.appblish.jgallery.feature.search.navigateToSearch
+import com.appblish.jgallery.feature.search.searchScreen
 import com.appblish.jgallery.feature.trash.TRASH_ROUTE
 import com.appblish.jgallery.feature.trash.navigateToTrash
 import com.appblish.jgallery.feature.trash.trashScreen
@@ -53,11 +42,17 @@ import com.appblish.jgallery.feature.viewer.navigateToViewer
 import com.appblish.jgallery.feature.viewer.viewerScreen
 
 /**
- * The 4-tab navigation shell (spec §2): Albums | Photos | Collections | Search, Albums default.
- * Tab state is preserved on switch (`saveState`/`restoreState`). The bottom bar follows the signed-off
- * Wave 1 design (`w1-design-spec` §1): 86dp tall, white container, the active tab a filled accent
- * glyph in an accent-soft pill with an accent label. Feature screens are supplied by their modules;
- * this shell only knows the tab set and routing — it has no data or storage dependencies.
+ * The 2-tab navigation shell (design C1-01, item 10 — OnePlus-modeled): **Photos · Collections**,
+ * Photos default. The old 4-tab bar (Albums/Photos/Collections/Search) collapses:
+ *  - **Collections** hosts the Albums grid (AlbumsCatalog: Recent/Video/folders/pin, spec C4).
+ *  - **Search** is a header action on both tabs → a full-screen route (tab bar hides, like the viewer).
+ *  - **Recycle Bin** re-homes to the Collections (Albums) header overflow (the placeholder
+ *    `CollectionsScreen` is retired from the shell).
+ *
+ * The bottom bar is [GalleryTabBar] (78dp, 25dp glyphs, 13sp/600 labels, active = accent icon+label +
+ * a 4dp accent dot; no center FAB, no badges). Tab state is preserved on switch
+ * (`saveState`/`restoreState`). Feature screens are supplied by their modules; this shell only knows
+ * the tab set and routing — it has no data or storage dependencies.
  *
  * [tabContent] (null = the real Hilt-backed feature screens, with grid taps wired to the viewer).
  * Shell tests pass tagged stubs so tab routing stays verifiable without DI (the grid screens have
@@ -71,22 +66,22 @@ fun JGalleryApp(
 
     val resolvedTabContent: @Composable (GalleryTab) -> Unit = tabContent ?: { tab ->
         when (tab) {
-            GalleryTab.ALBUMS -> AlbumsScreen(
-                // Tapping an album routes by kind (spec C4): Video → folder-wise grouping, Recent/folder
-                // → the media grid, where E11 multi-select works.
+            // Tapping a tile opens the E7 full-screen viewer, paged across the whole Photos stream.
+            // Search is a header action → the full-screen search route.
+            GalleryTab.PHOTOS -> PhotosScreen(
+                onMediaClick = { item -> navController.navigateToViewer(item.id) },
+                onOpenSearch = { navController.navigateToSearch() },
+            )
+            // Collections tab body = the Albums grid (spec C4). Album taps route by kind; Search is a
+            // header action; the overflow's "Recycle Bin" re-homes the retired Collections utility.
+            GalleryTab.COLLECTIONS -> AlbumsScreen(
                 onAlbumClick = { album -> navController.openAlbum(album) },
                 // Create-album (design C1-09): route into the new album's empty "Add photos" prompt so
                 // it gets a cover and appears on the Albums home once the first item is added (APP-416).
                 onAlbumCreated = { name -> navController.navigateToNewAlbum(name) },
-            )
-            // Tapping a tile opens the E7 full-screen viewer, paged across the whole Photos stream.
-            GalleryTab.PHOTOS -> PhotosScreen(
-                onMediaClick = { item -> navController.navigateToViewer(item.id) },
-            )
-            GalleryTab.COLLECTIONS -> CollectionsScreen(
+                onOpenSearch = { navController.navigateToSearch() },
                 onOpenTrash = { navController.navigateToTrash() },
             )
-            GalleryTab.SEARCH -> SearchScreen()
         }
     }
 
@@ -94,45 +89,25 @@ fun JGalleryApp(
         bottomBar = {
             val currentRoute = navController.currentBackStackEntryAsState()
                 .value?.destination?.hierarchy?.firstOrNull()?.route
-            // The full-screen viewer and the Recycle Bin own the whole canvas (their own chrome) —
-            // the tab bar disappears for them and returns on pop.
+            // Full-screen destinations own the whole canvas (their own chrome) — the tab bar hides for
+            // them and returns on pop: the viewer, Recycle Bin, Search, album detail, and the album
+            // create/add-photos flow.
             if (currentRoute == VIEWER_ROUTE || currentRoute == TRASH_ROUTE ||
-                currentRoute == ALBUM_DETAIL_ROUTE || currentRoute == VIDEO_ALBUMS_ROUTE ||
-                currentRoute == NEW_ALBUM_ROUTE || currentRoute == ADD_TO_ALBUM_ROUTE
+                currentRoute == SEARCH_ROUTE || currentRoute == ALBUM_DETAIL_ROUTE ||
+                currentRoute == VIDEO_ALBUMS_ROUTE || currentRoute == NEW_ALBUM_ROUTE ||
+                currentRoute == ADD_TO_ALBUM_ROUTE
             ) return@Scaffold
-            NavigationBar(
-                modifier = Modifier.height(JGalleryDimens.NavHeight),
-                containerColor = JGalleryColors.Background,
-                tonalElevation = 0.dp,
-            ) {
-                GalleryTab.entries.forEach { tab ->
-                    val selected = currentRoute == tab.route
-                    NavigationBarItem(
-                        selected = selected,
-                        onClick = {
-                            navController.navigate(tab.route) {
-                                popUpTo(GalleryTab.Default.route) { saveState = true }
-                                launchSingleTop = true
-                                restoreState = true
-                            }
-                        },
-                        icon = {
-                            Icon(
-                                imageVector = if (selected) tab.selectedIcon else tab.unselectedIcon,
-                                contentDescription = tab.label,
-                            )
-                        },
-                        label = { Text(tab.label) },
-                        colors = NavigationBarItemDefaults.colors(
-                            selectedIconColor = JGalleryColors.Accent,
-                            selectedTextColor = JGalleryColors.Accent,
-                            indicatorColor = JGalleryColors.AccentSoft,
-                            unselectedIconColor = JGalleryColors.TextSecondary,
-                            unselectedTextColor = JGalleryColors.TextSecondary,
-                        ),
-                    )
-                }
-            }
+            GalleryTabBar(
+                items = GalleryTab.entries.map { it.tabBarItem },
+                selectedRoute = currentRoute,
+                onSelect = { item ->
+                    navController.navigate(item.route) {
+                        popUpTo(GalleryTab.Default.route) { saveState = true }
+                        launchSingleTop = true
+                        restoreState = true
+                    }
+                },
+            )
         },
     ) { innerPadding ->
         NavHost(
@@ -170,26 +145,31 @@ fun JGalleryApp(
             )
             // Full-screen viewer (E7). Grids open it via NavController.navigateToViewer(id, bucketId).
             viewerScreen(onBack = { navController.popBackStack() })
-            // Recycle Bin (E9, spec §7.5). Opened from Collections → Utilities "Recover".
+            // Full-screen Search (C1-01 item 10): opened from the Photos/Collections header search action.
+            searchScreen(onBack = { navController.popBackStack() })
+            // Recycle Bin (E9, spec §7.5). Opened from the Collections (Albums) header overflow.
             trashScreen(onBack = { navController.popBackStack() })
         }
     }
 }
 
-/** Filled glyph for the active tab (design §1: active = filled accent icon). */
-private val GalleryTab.selectedIcon: ImageVector
+/**
+ * The [GalleryTabBar] item for each tab: route + label from the enum, with the filled/outlined glyph
+ * pair (design §1: active = filled accent icon). Photos = a single photo; Collections = the stacked
+ * album-library glyph (it hosts the Albums grid).
+ */
+private val GalleryTab.tabBarItem: GalleryTabBarItem
     get() = when (this) {
-        GalleryTab.ALBUMS -> Icons.Filled.PhotoLibrary
-        GalleryTab.PHOTOS -> Icons.Filled.Photo
-        GalleryTab.COLLECTIONS -> Icons.Filled.Category
-        GalleryTab.SEARCH -> Icons.Filled.Search
-    }
-
-/** Outlined glyph for inactive tabs. */
-private val GalleryTab.unselectedIcon: ImageVector
-    get() = when (this) {
-        GalleryTab.ALBUMS -> Icons.Outlined.PhotoLibrary
-        GalleryTab.PHOTOS -> Icons.Outlined.Photo
-        GalleryTab.COLLECTIONS -> Icons.Outlined.Category
-        GalleryTab.SEARCH -> Icons.Outlined.Search
+        GalleryTab.PHOTOS -> GalleryTabBarItem(
+            route = route,
+            label = label,
+            selectedIcon = Icons.Filled.Photo,
+            unselectedIcon = Icons.Outlined.Photo,
+        )
+        GalleryTab.COLLECTIONS -> GalleryTabBarItem(
+            route = route,
+            label = label,
+            selectedIcon = Icons.Filled.PhotoLibrary,
+            unselectedIcon = Icons.Outlined.PhotoLibrary,
+        )
     }

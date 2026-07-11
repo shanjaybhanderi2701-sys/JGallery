@@ -17,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Photo
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -92,6 +93,7 @@ import com.appblish.jgallery.core.ui.theme.JGalleryDimens
 fun PhotosScreen(
     modifier: Modifier = Modifier,
     onMediaClick: (MediaItem) -> Unit = {},
+    onOpenSearch: () -> Unit = {},
     viewModel: PhotosViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -110,6 +112,7 @@ fun PhotosScreen(
         onColumnsChange = viewModel::setColumns,
         onFilterChange = viewModel::setFilter,
         onMediaClick = onMediaClick,
+        onOpenSearch = onOpenSearch,
         onToggle = viewModel::toggleSelection,
         onBeginSelect = viewModel::beginSelection,
         onDragSelect = viewModel::dragSelectTo,
@@ -135,6 +138,7 @@ fun PhotosScreen(
     bulk: BulkOperationUiState = BulkOperationUiState.Idle,
     destinations: List<Album> = emptyList(),
     onMediaClick: (MediaItem) -> Unit = {},
+    onOpenSearch: () -> Unit = {},
     onToggle: (MediaId) -> Unit = {},
     onBeginSelect: (MediaId) -> Unit = {},
     onDragSelect: (MediaId, List<MediaId>) -> Unit = { _, _ -> },
@@ -148,6 +152,17 @@ fun PhotosScreen(
 
     val header: @Composable () -> Unit = {
         GalleryTabHeader(title = "Photos") {
+            // Search moved off the tab bar (C1-01 item 10) → header action on both tabs.
+            IconButton(
+                onClick = onOpenSearch,
+                modifier = Modifier.testTag("photos_search_action"),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.Search,
+                    contentDescription = "Search",
+                    tint = JGalleryColors.Text,
+                )
+            }
             IconButton(
                 onClick = { showColumnSheet = true },
                 modifier = Modifier.testTag("photos_column_count_action"),

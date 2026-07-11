@@ -51,11 +51,16 @@ private val SectionTitleWeight = FontWeight.Bold
 /**
  * Root of a placeholder tab: the 32sp tab title (design §1/§3) over a vertically scrollable body of
  * preview sections. The caller supplies the screen [Modifier] (and its `testTag`).
+ *
+ * [navigation] is an optional leading slot on the title row — used when the placeholder is opened as
+ * a **full-screen route** (e.g. Search, now reached from the tab header per C1-01 item 10) so it can
+ * show a back affordance. Left null it renders exactly the old title-only tab header.
  */
 @Composable
 fun PlaceholderScreenScaffold(
     title: String,
     modifier: Modifier = Modifier,
+    navigation: (@Composable () -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
@@ -66,7 +71,13 @@ fun PlaceholderScreenScaffold(
             .padding(top = 28.dp, bottom = 40.dp),
         verticalArrangement = Arrangement.spacedBy(28.dp),
     ) {
-        Text(text = title, style = MaterialTheme.typography.displaySmall)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            if (navigation != null) {
+                navigation()
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+            Text(text = title, style = MaterialTheme.typography.displaySmall)
+        }
         content()
     }
 }

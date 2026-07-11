@@ -15,11 +15,11 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Instrumented DoD check for the Wave-1 shell (spec §11): the 4-tab structure exists, Albums is the
- * default, and every tab is reachable. Since E6 the Albums/Photos tabs are Hilt-backed grids, so the
- * shell is exercised through its DI-free [JGalleryApp] `tabContent` seam with tagged stubs — routing
- * is what this test owns. The real grid screens are covered by their feature-module tests against
- * the stateless overloads (e.g. `PhotosGridTest`'s 10k-item fixture).
+ * Instrumented DoD check for the 2-tab shell (design C1-01 item 10): the bar is **Photos · Collections**,
+ * Photos is the default, both tabs are reachable, and the retired Albums/Search tabs are gone (Albums
+ * is now the Collections body; Search is a header action). The shell is exercised through its DI-free
+ * [JGalleryApp] `tabContent` seam with tagged stubs — routing is what this test owns. The real grid
+ * screens are covered by their feature-module tests against the stateless overloads.
  */
 @RunWith(AndroidJUnit4::class)
 class GalleryShellTest {
@@ -28,7 +28,7 @@ class GalleryShellTest {
     val composeRule = createComposeRule()
 
     @Test
-    fun fourTabShell_defaultsToAlbums_andEveryTabIsReachable() {
+    fun twoTabShell_defaultsToPhotos_andBothTabsReachable_noRetiredTabs() {
         composeRule.setContent {
             JGalleryTheme {
                 JGalleryApp { tab ->
@@ -40,19 +40,17 @@ class GalleryShellTest {
             }
         }
 
-        // Albums is the default tab.
-        composeRule.onNodeWithTag("albums_screen").assertIsDisplayed()
-
-        composeRule.onNodeWithText("Photos").performClick()
+        // Photos is the default tab.
         composeRule.onNodeWithTag("photos_screen").assertIsDisplayed()
 
         composeRule.onNodeWithText("Collections").performClick()
         composeRule.onNodeWithTag("collections_screen").assertIsDisplayed()
 
-        composeRule.onNodeWithText("Search").performClick()
-        composeRule.onNodeWithTag("search_screen").assertIsDisplayed()
+        composeRule.onNodeWithText("Photos").performClick()
+        composeRule.onNodeWithTag("photos_screen").assertIsDisplayed()
 
-        composeRule.onNodeWithText("Albums").performClick()
-        composeRule.onNodeWithTag("albums_screen").assertIsDisplayed()
+        // Retired tabs: Albums (now the Collections body) and Search (now a header action) are gone.
+        composeRule.onNodeWithTag("tab_albums").assertDoesNotExist()
+        composeRule.onNodeWithTag("tab_search").assertDoesNotExist()
     }
 }
