@@ -9,6 +9,7 @@ import coil3.request.crossfade
 import coil3.svg.SvgDecoder
 import coil3.video.VideoFrameDecoder
 import com.appblish.jgallery.core.storage.StorageAccess
+import com.appblish.jgallery.core.storage.ThumbnailBitmapSource
 import com.appblish.jgallery.core.thumbs.internal.CoilDiskThumbnailCache
 import com.appblish.jgallery.core.thumbs.internal.FullImageFetcher
 import com.appblish.jgallery.core.thumbs.internal.FullImageKeyer
@@ -20,6 +21,10 @@ import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.SupervisorJob
 import javax.inject.Singleton
 import okio.Path.Companion.toOkioPath
 
@@ -48,14 +53,23 @@ object ThumbnailModule {
             .maxSizeBytes(DISK_CACHE_BYTES)
             .build()
 
+    @OptIn(ExperimentalCoroutinesApi::class)
     @Provides
     @Singleton
     fun provideImageLoader(
         @ApplicationContext context: Context,
         diskCache: DiskCache,
         storage: StorageAccess,
-    ): ImageLoader =
-        ImageLoader.Builder(context)
+        thumbnailSource: ThumbnailBitmapSource,
+    ): ImageLoader {
+        // Fix 5 — bounded decode concurrency: a fling must not flood IO with parallel decodes. Cap
+        // Coil's fetch/decode parallelism to ~cores so decodes queue instead of thrashing. A separate,
+        // smaller bounded scope backs the Fix-1c off-path JPEG write-through so encodes can't pile up
+        // either. Both draw from Dispatchers.IO's shared thread pool (no new threads).
+        val decodeParallelism = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
+        val decodeContext = Dispatchers.IO.limitedParallelism(decodeParallelism)
+        val writeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(WRITE_PARALLELISM))
+        return ImageLoader.Builder(context)
             .memoryCache {
                 MemoryCache.Builder()
                     // In-memory LRU sized to ~25% of available app memory — the hot thumbnail set.
@@ -63,11 +77,13 @@ object ThumbnailModule {
                     .build()
             }
             .diskCache(diskCache)
+            .fetcherCoroutineContext(decodeContext)
+            .decoderCoroutineContext(decodeContext)
             // Memory + disk cache policies default to ENABLED in Coil 3.
             .components {
                 add(ThumbnailKeyer())
                 add(FullImageKeyer())
-                add(ThumbnailFetcher.Factory(storage, CoilDiskThumbnailCache(diskCache)))
+                add(ThumbnailFetcher.Factory(storage, thumbnailSource, CoilDiskThumbnailCache(diskCache), writeScope))
                 add(FullImageFetcher.Factory(storage))
                 // Format breadth (W3-E13 §8). Each decoder content-sniffs and DECLINES sources it does
                 // not own, so ordinary JPEG/PNG/HEIF/WEBP/BMP flow untouched to the platform decoder;
@@ -81,9 +97,14 @@ object ThumbnailModule {
                 // this — the thumbnail fetcher already served downsized frame bytes from the boundary.
                 add(VideoFrameDecoder.Factory())
             }
-            .crossfade(CROSSFADE_MS) // thumbnails fade in progressively (spec §1 rule 3)
+            .crossfade(CROSSFADE_MS) // viewer thumbnails fade in progressively (grid opts out — Fix 3)
             .build()
+    }
 
     private const val DISK_CACHE_BYTES = 256L * 1024 * 1024 // 256 MB on-disk thumbnail cache
     private const val CROSSFADE_MS = 120
+
+    // A couple of IO threads is plenty to drain the off-path JPEG write-through without competing
+    // with foreground decodes for the whole pool.
+    private const val WRITE_PARALLELISM = 2
 }

@@ -24,6 +24,7 @@ import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.storage.MediaSignature
 import com.appblish.jgallery.core.storage.StorageAccess
 import com.appblish.jgallery.core.storage.StorageBackend
+import com.appblish.jgallery.core.storage.ThumbnailBitmapSource
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
@@ -51,7 +52,7 @@ internal class MediaStoreStorageAccess(
     private val io: CoroutineDispatcher,
     trashStore: TrashMetadataStore,
     now: () -> Long = System::currentTimeMillis,
-) : StorageAccess {
+) : StorageAccess, ThumbnailBitmapSource {
 
     // The single platform SPI (copy/move/rename/trash/restore/delete primitives) — the only part that
     // talks to MediaStore. Both engines share it so there is exactly one MediaStore surface.
@@ -140,6 +141,22 @@ internal class MediaStoreStorageAccess(
             ByteArrayInputStream(bytes)
         } catch (_: Exception) {
             null // IOException for un-thumbnailable rows; caller streams the original instead
+        }
+
+    /**
+     * The APP-391 R1 decode-once seam: the SAME [ContentResolver.loadThumbnail] call as
+     * [thumbnailStream] but WITHOUT the `bitmap.compress(...)` re-encode — that JPEG round-trip is the
+     * pixel op we are deleting from the fling-critical path. The fetcher hands this decoded [Bitmap]
+     * straight to Coil (one decode total) and re-encodes for the disk cache off the hot path. Null =
+     * un-thumbnailable, so the fetcher falls back to the full-size stream.
+     */
+    override suspend fun loadThumbnailBitmap(id: MediaId, maxEdgePx: Int): Bitmap? =
+        withContext(io) {
+            try {
+                resolver.loadThumbnail(idToUri(id), Size(maxEdgePx, maxEdgePx), null)
+            } catch (_: Exception) {
+                null // corrupt/unsupported/un-downsizable → caller streams the original instead
+            }
         }
 
     override suspend fun queryMediaSignatures(query: MediaQuery): List<MediaSignature> =

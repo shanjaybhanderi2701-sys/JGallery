@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
 import com.appblish.jgallery.core.storage.StorageAccess
 import com.appblish.jgallery.core.storage.StoragePermissionController
+import com.appblish.jgallery.core.storage.ThumbnailBitmapSource
 import com.appblish.jgallery.core.storage.internal.AllFilesAccessPermissionController
 import com.appblish.jgallery.core.storage.internal.DataStoreTrashMetadataStore
 import com.appblish.jgallery.core.storage.internal.MediaStoreStorageAccess
@@ -60,6 +61,17 @@ object StorageModule {
         val trashStore: TrashMetadataStore = DataStoreTrashMetadataStore(context.trashDataStore)
         return MediaStoreStorageAccess(resolver, io, trashStore)
     }
+
+    /**
+     * The APP-391 R1 decode-once SPI (`:core:thumbs` consumer only). The singleton [StorageAccess]
+     * already implements [ThumbnailBitmapSource] — bind the SAME instance rather than a second one, so
+     * there is still exactly one MediaStore surface (spec §1.6). Kept out of [StorageAccess] so the
+     * JVM fakes never have to implement an Android `Bitmap` method.
+     */
+    @Provides
+    @Singleton
+    fun provideThumbnailBitmapSource(storage: StorageAccess): ThumbnailBitmapSource =
+        storage as ThumbnailBitmapSource
 
     /**
      * The permission half of the boundary. Swapping to media permissions / SAF means returning a
