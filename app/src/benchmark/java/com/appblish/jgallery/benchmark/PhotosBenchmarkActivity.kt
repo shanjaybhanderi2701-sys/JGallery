@@ -1,5 +1,6 @@
 package com.appblish.jgallery.benchmark
 
+import android.content.Context
 import android.graphics.BitmapFactory
 import android.os.Bundle
 import android.util.Log
@@ -22,10 +23,14 @@ import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.ui.theme.JGalleryTheme
 import com.appblish.jgallery.feature.photos.PhotosScreen
+import com.appblish.jgallery.feature.photos.PhotosTimeline
 import com.appblish.jgallery.feature.photos.PhotosUiState
 import com.appblish.jgallery.feature.photos.buildPhotosTimeline
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -37,14 +42,16 @@ import java.time.ZoneId
  * ## What changed for APP-390 (R0-1)
  * It used to render synthetic [MediaItem]s whose ids resolved to nothing, so every tile MISSED the
  * thumbnail fetcher and drew a placeholder — the benchmark measured list/layout only and gave a
- * false ~1.9% jank pass. It now:
- *   1. Seeds a corpus of ≥10,000 REAL image files into MediaStore ([BenchmarkCorpusSeeder]).
- *   2. Renders the real, stateless [PhotosScreen] over tiles carrying REAL MediaStore row-ids, so a
- *      fling drives the true `loadThumbnail` → decode → Coil path (the app's actual scroll hot path).
+ * false ~1.9% jank pass. It now renders tiles carrying REAL MediaStore row-ids (seeded by
+ * [BenchmarkCorpusSeeder]) so a fling drives the true `loadThumbnail` → decode → Coil path.
  *
- * Seeding runs OFF the main thread ([Dispatchers.IO]); the grid (`photos_grid` tag) only appears
- * once the corpus is ready, so the macrobenchmark's grid-ready wait doubles as a seed barrier.
- * Seeding is idempotent, so only the first (unmeasured, setup-time) iteration pays for it.
+ * ## Seed ONCE, render instantly (CI reliability)
+ * The corpus is seeded + queried exactly once per process into [BenchmarkCorpusHolder]; every later
+ * activity recreation (the WARM macrobenchmark relaunches each iteration, see APP-382) awaits the
+ * SAME cached result and renders the grid immediately. That keeps WARM relaunches as fast as the old
+ * synthetic fixture — critical on the CI emulator, whose display/focus race trips when a relaunch is
+ * slow — while now measuring real decode. The grid (`photos_grid` tag) only appears once the corpus
+ * is ready, so the macrobenchmark's grid-ready wait doubles as a one-time seed barrier.
  *
  * The root sets [testTagsAsResourceId] so the out-of-process macrobenchmark can locate the
  * `photos_grid` list by resource-id via UiAutomator.
@@ -61,26 +68,16 @@ class PhotosBenchmarkActivity : ComponentActivity() {
         setContent {
             JGalleryTheme {
                 var columns by remember { mutableStateOf(ColumnCount.DEFAULT) }
-                // Seed + query on IO, then build the timeline. Loading until the corpus is ready.
-                val state by produceState<PhotosUiState>(initialValue = PhotosUiState.Loading, corpusSize) {
-                    val items = withContext(Dispatchers.IO) {
-                        val seeded = BenchmarkCorpusSeeder.seed(appContext, corpusSize)
-                        logDecodeSelfCheck(appContext, seeded)
-                        seeded
-                    }
-                    val zone = ZoneId.systemDefault()
-                    value = if (items.isEmpty()) {
-                        PhotosUiState.Empty
-                    } else {
-                        PhotosUiState.Content(
-                            buildPhotosTimeline(items = items, zone = zone, today = LocalDate.now(zone)),
-                        )
-                    }
+                // Await the process-wide, seed-once timeline. First launch seeds; recreations resolve
+                // instantly from the cached Deferred.
+                val timeline by produceState<PhotosTimeline?>(initialValue = null, corpusSize) {
+                    value = BenchmarkCorpusHolder.timelineAsync(appContext, corpusSize).await()
                 }
 
-                when (val s = state) {
-                    is PhotosUiState.Content -> PhotosScreen(
-                        state = s,
+                val t = timeline
+                if (t != null) {
+                    PhotosScreen(
+                        state = PhotosUiState.Content(t),
                         columns = columns,
                         onColumnsChange = { columns = it },
                         modifier = Modifier
@@ -88,10 +85,11 @@ class PhotosBenchmarkActivity : ComponentActivity() {
                             // Expose Compose testTags as View resource-ids for UiAutomator.
                             .semantics { testTagsAsResourceId = true },
                     )
-                    // Before the corpus is ready (or if seeding produced nothing) show a tagged
-                    // placeholder — deliberately NOT `photos_grid`, so the macrobenchmark keeps
-                    // waiting through the one-time seed rather than measuring an empty screen.
-                    else -> Box(
+                } else {
+                    // Before the one-time corpus seed completes, show a tagged placeholder —
+                    // deliberately NOT `photos_grid`, so the macrobenchmark keeps waiting through the
+                    // seed rather than measuring an empty screen.
+                    Box(
                         Modifier
                             .fillMaxSize()
                             .semantics {
@@ -111,31 +109,59 @@ class PhotosBenchmarkActivity : ComponentActivity() {
          * [BenchmarkCorpusSeeder.DEFAULT_CORPUS_SIZE]. Defaults to the DoD floor of 10,000.
          */
         const val EXTRA_CORPUS_SIZE = "corpus_size"
+    }
+}
 
-        /**
-         * Actively decode one seeded thumbnail and log the result, so the CI logcat carries a
-         * grep-able proof that the corpus exercises REAL decode (not the old id-miss placeholder),
-         * independent of the frame-timing metric. Line: `JGALLERY_BENCH_DECODE …`.
-         */
-        private fun logDecodeSelfCheck(context: android.content.Context, items: List<MediaItem>) {
-            val sample = items.firstOrNull() ?: run {
-                Log.w(BenchmarkCorpusSeeder.TAG, "JGALLERY_BENCH_DECODE decodeOk=false reason=empty_corpus")
-                return
-            }
-            val ok = runCatching {
-                context.contentResolver.openInputStream(BenchmarkCorpusSeeder.contentUriFor(sample)).use { input ->
-                    val bmp = BitmapFactory.decodeStream(input)
-                    val dims = "${bmp?.width}x${bmp?.height}"
-                    bmp?.recycle()
-                    dims
+/**
+ * Process-wide, seed-once cache of the benchmark corpus timeline. The first caller kicks off the
+ * (idempotent) seed + query on [Dispatchers.IO]; every later caller awaits the same [Deferred], so
+ * the seed never restarts even when the activity is recreated between WARM benchmark iterations.
+ */
+private object BenchmarkCorpusHolder {
+
+    @Volatile
+    private var deferred: Deferred<PhotosTimeline?>? = null
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    fun timelineAsync(context: Context, corpusSize: Int): Deferred<PhotosTimeline?> {
+        deferred?.let { return it }
+        return synchronized(this) {
+            deferred ?: scope.async {
+                val items = BenchmarkCorpusSeeder.seed(context.applicationContext, corpusSize)
+                logDecodeSelfCheck(context, items)
+                if (items.isEmpty()) {
+                    null
+                } else {
+                    val zone = ZoneId.systemDefault()
+                    buildPhotosTimeline(items = items, zone = zone, today = LocalDate.now(zone))
                 }
-            }.getOrElse { "decode_error:${it.message}" }
-            Log.i(
-                BenchmarkCorpusSeeder.TAG,
-                "JGALLERY_BENCH_DECODE decodeOk=${!ok.startsWith("decode_error")} " +
-                    "seededCount=${items.size} firstId=${sample.id.value} " +
-                    "declaredDims=${sample.width}x${sample.height} decodedDims=$ok mime=${sample.mimeType}",
-            )
+            }.also { deferred = it }
         }
+    }
+
+    /**
+     * Actively decode one seeded thumbnail and log the result, so the CI logcat carries a grep-able
+     * proof that the corpus exercises REAL decode (not the old id-miss placeholder), independent of
+     * the frame-timing metric. Line: `JGALLERY_BENCH_DECODE …`.
+     */
+    private fun logDecodeSelfCheck(context: Context, items: List<MediaItem>) {
+        val sample = items.firstOrNull() ?: run {
+            Log.w(BenchmarkCorpusSeeder.TAG, "JGALLERY_BENCH_DECODE decodeOk=false reason=empty_corpus")
+            return
+        }
+        val decoded = runCatching {
+            context.contentResolver.openInputStream(BenchmarkCorpusSeeder.contentUriFor(sample)).use { input ->
+                val bmp = BitmapFactory.decodeStream(input)
+                val dims = if (bmp != null) "${bmp.width}x${bmp.height}" else "null"
+                bmp?.recycle()
+                dims
+            }
+        }.getOrElse { "decode_error:${it.message}" }
+        Log.i(
+            BenchmarkCorpusSeeder.TAG,
+            "JGALLERY_BENCH_DECODE decodeOk=${decoded[0].isDigit()} seededCount=${items.size} " +
+                "firstId=${sample.id.value} declaredDims=${sample.width}x${sample.height} " +
+                "decodedDims=$decoded mime=${sample.mimeType}",
+        )
     }
 }
