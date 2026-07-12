@@ -1,5 +1,6 @@
 package com.appblish.jgallery.core.ui.format
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -9,12 +10,14 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
 import coil3.compose.LocalPlatformContext
 import coil3.request.ImageRequest
 import coil3.request.crossfade
+import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * The central graceful-degradation hook (APP-364, spec §8) shared by E13 (images) and E14 (video
@@ -48,6 +51,12 @@ import coil3.request.crossfade
  *   viewer). The grid passes `false` (APP-391 R1 fix 3): a per-tile crossfade forces an extra
  *   alpha-animated draw pass per tile during a fling, and a popped-in tile reads as *faster*. The
  *   loader default is left on so the viewer's fade is untouched.
+ * @param loadingColor the flat fill drawn *under* the decode while the thumbnail is still loading
+ *   (Coil's Loading state paints nothing). The hook owns this so a plain neutral surface is
+ *   guaranteed at every call site — never a transparent/checkered gap that shows through to whatever
+ *   is behind (APP-457, JD device-test finding 3). Defaults to the design-system neutral
+ *   [JGalleryColors.TilePlaceholder]; callers that letterbox on a dark cell (panoramas) pass
+ *   [Color.Black] so the fill matches their frame rather than the neutral.
  */
 @Composable
 fun MediaDecodeBox(
@@ -60,6 +69,7 @@ fun MediaDecodeBox(
     contentScale: ContentScale = ContentScale.Crop,
     onDecodeState: ((MediaDecodeState) -> Unit)? = null,
     crossfade: Boolean = true,
+    loadingColor: Color = JGalleryColors.TilePlaceholder,
     placeholder: @Composable (MediaDecodeState) -> Unit,
 ) {
     val extension = remember(displayName) { MediaFormatSupport.extensionOf(displayName) }
@@ -103,7 +113,10 @@ fun MediaDecodeBox(
                 model = resolvedModel,
                 contentDescription = contentDescription,
                 contentScale = contentScale,
-                modifier = Modifier.fillMaxSize(),
+                // Flat neutral fill under the decode: while Coil is loading it paints nothing, so this
+                // is the placeholder the user sees — a plain design-system surface, never a gap that
+                // shows through to a checkered/transparent backdrop (APP-457).
+                modifier = Modifier.fillMaxSize().background(loadingColor),
                 onState = { s -> if (s is AsyncImagePainter.State.Error) decodeFailed = true },
             )
         }

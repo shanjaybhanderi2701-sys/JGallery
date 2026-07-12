@@ -463,6 +463,9 @@ private fun MediaTile(
                 modifier = Modifier.fillMaxSize(),
                 // Fix 3 — grid tiles pop in (no per-tile fade); the viewer keeps its crossfade.
                 crossfade = false,
+                // Plain neutral load surface (APP-457); panoramas letterbox on black so the fill
+                // matches their dark cell instead of the neutral grey.
+                loadingColor = if (isPano) Color.Black else JGalleryColors.TilePlaceholder,
                 placeholder = { MediaDecodeTilePlaceholder(it) },
             )
             if (badge != null) {
