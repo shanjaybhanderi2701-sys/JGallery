@@ -51,8 +51,9 @@ class GalleryTabBarTest {
         composeRule.onNodeWithTag("tab_photos").assertIsSelected()
         composeRule.onNodeWithTag("tab_collections").assertIsNotSelected()
 
-        // The accent dot follows the active tab.
-        composeRule.onNodeWithTag("tab_active_dot").assertExists()
+        // The accent dot follows the active tab. Each tab's clickable Column merges its descendants,
+        // so the dot's tag lives on the unmerged tree — query it there (see APP-446).
+        composeRule.onNodeWithTag("tab_active_dot", useUnmergedTree = true).assertExists()
 
         // Tap Collections → selection moves.
         composeRule.onNodeWithTag("tab_collections").performClick()
