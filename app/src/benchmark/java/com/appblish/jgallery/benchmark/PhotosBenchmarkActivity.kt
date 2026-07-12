@@ -7,18 +7,28 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
+import androidx.compose.material3.Surface
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.testTag
 import androidx.compose.ui.semantics.testTagsAsResourceId
+import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.withContext
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.ui.theme.JGalleryTheme
@@ -63,41 +73,129 @@ class PhotosBenchmarkActivity : ComponentActivity() {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
         val corpusSize = intent.getIntExtra(EXTRA_CORPUS_SIZE, BenchmarkCorpusSeeder.DEFAULT_CORPUS_SIZE)
+        val optedIn = intent.getBooleanExtra(EXTRA_OPT_IN, false)
+        val cleanupMode = intent.getBooleanExtra(EXTRA_CLEANUP, false)
         val appContext = applicationContext
 
         setContent {
             JGalleryTheme {
-                var columns by remember { mutableStateOf(ColumnCount.DEFAULT) }
-                // Await the process-wide, seed-once timeline. First launch seeds; recreations resolve
-                // instantly from the cached Deferred.
-                val timeline by produceState<PhotosTimeline?>(initialValue = null, corpusSize) {
-                    value = BenchmarkCorpusHolder.timelineAsync(appContext, corpusSize).await()
-                }
+                when {
+                    // (1) One-shot cleanup path (`--ez bench_cleanup true`): the macrobenchmark's
+                    // post-run teardown and the operator's "purge the leaked assets" button both land
+                    // here. Deletes every synthetic asset, then shows a UiAutomator-visible done tag.
+                    cleanupMode -> CleanupScreen(appContext)
 
-                val t = timeline
-                if (t != null) {
-                    PhotosScreen(
-                        state = PhotosUiState.Content(t),
-                        columns = columns,
-                        onColumnsChange = { columns = it },
-                        modifier = Modifier
-                            .fillMaxSize()
-                            // Expose Compose testTags as View resource-ids for UiAutomator.
-                            .semantics { testTagsAsResourceId = true },
-                    )
-                } else {
-                    // Before the one-time corpus seed completes, show a tagged placeholder —
-                    // deliberately NOT `photos_grid`, so the macrobenchmark keeps waiting through the
-                    // seed rather than measuring an empty screen.
-                    Box(
-                        Modifier
-                            .fillMaxSize()
-                            .semantics {
-                                testTagsAsResourceId = true
-                                testTag = "bench_seeding"
-                            },
-                    )
+                    // (2) Explicit opt-in (`--ez bench_opt_in true`, passed only by the macrobenchmark
+                    // or a deliberate adb launch): the real seed-and-scroll benchmark surface.
+                    optedIn -> BenchmarkGrid(appContext, corpusSize)
+
+                    // (3) Casual tap-launch / no opt-in: NEVER seed (that is what polluted JD's real
+                    // library, APP-458). Show a guard screen that explains how to run it and offers a
+                    // one-tap cleanup for any assets already leaked onto this device.
+                    else -> GuardScreen(appContext)
                 }
+            }
+        }
+    }
+
+    /** The real benchmark surface: seed-once (opted-in) then render the 10k+ tile grid. */
+    @Composable
+    private fun BenchmarkGrid(appContext: Context, corpusSize: Int) {
+        var columns by remember { mutableStateOf(ColumnCount.DEFAULT) }
+        // Await the process-wide, seed-once timeline. First launch seeds; recreations resolve
+        // instantly from the cached Deferred.
+        val timeline by produceState<PhotosTimeline?>(initialValue = null, corpusSize) {
+            value = BenchmarkCorpusHolder.timelineAsync(appContext, corpusSize).await()
+        }
+
+        val t = timeline
+        if (t != null) {
+            PhotosScreen(
+                state = PhotosUiState.Content(t),
+                columns = columns,
+                onColumnsChange = { columns = it },
+                modifier = Modifier
+                    .fillMaxSize()
+                    // Expose Compose testTags as View resource-ids for UiAutomator.
+                    .semantics { testTagsAsResourceId = true },
+            )
+        } else {
+            // Before the one-time corpus seed completes, show a tagged placeholder — deliberately NOT
+            // `photos_grid`, so the macrobenchmark keeps waiting through the seed rather than
+            // measuring an empty screen.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .semantics {
+                        testTagsAsResourceId = true
+                        testTag = "bench_seeding"
+                    },
+            )
+        }
+    }
+
+    /**
+     * Delete every synthetic bench asset, then surface a UiAutomator-visible `bench_cleanup_done` tag
+     * so [PhotosScrollBenchmark]'s teardown can confirm the purge finished. Runs the delete off the
+     * main thread.
+     */
+    @Composable
+    private fun CleanupScreen(appContext: Context) {
+        val deleted by produceState<Int?>(initialValue = null) {
+            value = withContext(kotlinx.coroutines.Dispatchers.IO) {
+                BenchmarkCorpusSeeder.cleanup(appContext)
+            }
+        }
+        val done = deleted != null
+        Box(
+            Modifier
+                .fillMaxSize()
+                .semantics {
+                    testTagsAsResourceId = true
+                    testTag = if (done) "bench_cleanup_done" else "bench_cleanup_running"
+                },
+            contentAlignment = Alignment.Center,
+        ) {
+            Text(
+                if (done) "Removed $deleted benchmark asset(s)." else "Removing benchmark assets…",
+            )
+        }
+    }
+
+    /**
+     * Shown on a plain tap-launch (no opt-in). Never seeds. Explains how to run the benchmark
+     * deliberately and offers a one-tap purge of any assets already leaked onto this device.
+     */
+    @Composable
+    private fun GuardScreen(appContext: Context) {
+        var cleaning by remember { mutableStateOf(false) }
+        if (cleaning) {
+            CleanupScreen(appContext)
+            return
+        }
+        Surface(Modifier.fillMaxSize()) {
+            Column(
+                Modifier
+                    .fillMaxSize()
+                    .padding(24.dp)
+                    .semantics {
+                        testTagsAsResourceId = true
+                        testTag = "bench_guard"
+                    },
+                verticalArrangement = Arrangement.spacedBy(16.dp, Alignment.CenterVertically),
+            ) {
+                Text("JGallery benchmark fixture")
+                Text(
+                    "This screen will NOT seed synthetic photos on a plain launch — seeding pollutes " +
+                        "your real photo library. Run it deliberately via the macrobenchmark, or with " +
+                        "adb: am start -n $packageName/$BENCH_ACTIVITY --ez $EXTRA_OPT_IN true",
+                )
+                Text(
+                    "Remove any leaked benchmark assets from this device",
+                    modifier = Modifier
+                        .clickable { cleaning = true }
+                        .semantics { testTag = "bench_cleanup_action" },
+                )
             }
         }
     }
@@ -109,6 +207,21 @@ class PhotosBenchmarkActivity : ComponentActivity() {
          * [BenchmarkCorpusSeeder.DEFAULT_CORPUS_SIZE]. Defaults to the DoD floor of 10,000.
          */
         const val EXTRA_CORPUS_SIZE = "corpus_size"
+
+        /**
+         * Hard opt-in gate (APP-458): only when this boolean extra is `true` does the activity seed.
+         * The macrobenchmark passes it; a casual tap-launch does not, so the fixture can never pollute
+         * a real library by accident.
+         */
+        const val EXTRA_OPT_IN = "bench_opt_in"
+
+        /**
+         * When `true` the activity deletes every synthetic bench asset and exits — the fixture
+         * teardown and the one-shot "purge leaked assets" path (APP-458).
+         */
+        const val EXTRA_CLEANUP = "bench_cleanup"
+
+        const val BENCH_ACTIVITY = "com.appblish.jgallery.benchmark.PhotosBenchmarkActivity"
     }
 }
 
@@ -127,7 +240,13 @@ private object BenchmarkCorpusHolder {
         deferred?.let { return it }
         return synchronized(this) {
             deferred ?: scope.async {
-                val items = BenchmarkCorpusSeeder.seed(context.applicationContext, corpusSize)
+                // Only ever reached from the opted-in benchmark path (PhotosBenchmarkActivity gates on
+                // EXTRA_OPT_IN before calling this), so seeding here is the deliberate, guarded case.
+                val items = BenchmarkCorpusSeeder.seed(
+                    context.applicationContext,
+                    corpusSize,
+                    optedIn = true,
+                )
                 logDecodeSelfCheck(context, items)
                 if (items.isEmpty()) {
                     null

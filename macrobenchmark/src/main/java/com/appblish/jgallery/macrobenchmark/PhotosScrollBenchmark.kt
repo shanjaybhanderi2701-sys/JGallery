@@ -7,7 +7,9 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.test.uiautomator.By
 import androidx.test.uiautomator.Direction
+import androidx.test.uiautomator.UiDevice
 import androidx.test.uiautomator.Until
+import org.junit.After
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -37,6 +39,29 @@ class PhotosScrollBenchmark {
     @get:Rule
     val benchmarkRule = MacrobenchmarkRule()
 
+    /**
+     * Fixture teardown (APP-458): delete every synthetic file the seed wrote so the benchmark leaves
+     * the device's photo library exactly as it found it. As an `@After`, JUnit runs this after the
+     * test whether it PASSED or FAILED/aborted, so a crashed run cleans up too. It drives the target
+     * app's cleanup mode out-of-process (the seeder lives in the app's benchmark variant, unreachable
+     * from this test process) and waits for the `bench_cleanup_done` tag as proof the purge finished.
+     * If the process is hard-killed before this runs, the same `--ez bench_cleanup true` launch (or
+     * the guard screen's cleanup button) is the manual one-shot recovery path.
+     */
+    @After
+    fun tearDownCorpus() {
+        val device = UiDevice.getInstance(InstrumentationRegistry.getInstrumentation())
+        device.executeShellCommand(
+            "am start-activity -W -n $TARGET_PACKAGE/$TARGET_ACTIVITY " +
+                "--ez bench_cleanup true --display 0 --activity-clear-task",
+        )
+        val cleaned = device.wait(Until.hasObject(By.res("bench_cleanup_done")), CLEANUP_WAIT_MS)
+        android.util.Log.i(
+            "JGalleryBench",
+            "JGALLERY_BENCH_TEARDOWN cleanupConfirmed=${cleaned == true}",
+        )
+    }
+
     @Test
     fun scrollPhotosGrid10k() = benchmarkRule.measureRepeated(
         packageName = TARGET_PACKAGE,
@@ -55,7 +80,11 @@ class PhotosScrollBenchmark {
             for (attempt in 0 until LAUNCH_ATTEMPTS) {
                 val status = device.executeShellCommand(
                     "am start-activity -W -n $TARGET_PACKAGE/$TARGET_ACTIVITY " +
-                        "--ei corpus_size $corpusSize --display 0 --activity-clear-task",
+                        // --ez bench_opt_in true is the REQUIRED seed gate (APP-458): the activity only
+                        // seeds when explicitly opted in, so a stray tap-launch can never pollute a
+                        // real library. Cleanup afterwards is handled by @After tearDownCorpus().
+                        "--ei corpus_size $corpusSize --ez bench_opt_in true " +
+                        "--display 0 --activity-clear-task",
                 )
                 check(!status.contains("Error:", ignoreCase = true)) {
                     "am start-activity of PhotosBenchmarkActivity on display 0 failed " +
@@ -144,6 +173,9 @@ class PhotosScrollBenchmark {
 
         /** Extra wait for any scrollable node once the tagged lookup misses. */
         const val SCROLLABLE_FALLBACK_MS = 10_000L
+
+        /** Teardown wait: deleting up to 10k rows from MediaStore takes a moment. */
+        const val CLEANUP_WAIT_MS = 120_000L
 
         /**
          * Parse `dumpsys gfxinfo` into a compact `jankyFramePercent=… totalFrames=…` string. The

@@ -45,6 +45,29 @@ the authoritative physical/FTL run, R0-2).
 | `BenchmarkCorpusSeeder` | `app/src/benchmark/…` | seeds ≥10k real JPEG/PNG/HEIC/WebP files into MediaStore (idempotent) so a fling drives real decode/IO |
 | `:macrobenchmark` | this module (`com.android.test`) | separate test APK; `targetProjectPath = ":app"`, `testBuildType = "benchmark"` |
 
+## Self-cleaning fixture (APP-458)
+
+The seeder writes thousands of real files into MediaStore, so the fixture is built to **leave the
+device's photo library exactly as it found it** and to **never seed by accident**:
+
+- **Opt-in gate.** `PhotosBenchmarkActivity` seeds **only** when launched with `--ez bench_opt_in
+  true` (the macrobenchmark passes it). A plain tap-launch of the sideloaded benchmark APK shows a
+  **guard screen** and seeds nothing — a stray tap can no longer pollute a real library (this was the
+  APP-400 finding-6 leak: 1,316 synthetic files stranded in JD's library).
+- **Automatic teardown.** `PhotosScrollBenchmark.tearDownCorpus()` (`@After`, so it runs on
+  **success and on failure/abort**) drives the app into cleanup mode and deletes every seeded row.
+- **One-shot purge** (recover assets already leaked onto a device):
+  ```bash
+  adb shell am start -n com.appblish.jgallery/.benchmark.PhotosBenchmarkActivity --ez bench_cleanup true
+  ```
+  or tap **"Remove any leaked benchmark assets from this device"** on the guard screen. Cleanup is
+  idempotent and safe on a clean device.
+- **Bounded deletion.** Every count/query/delete is scoped by a single selection —
+  `RELATIVE_PATH LIKE 'Pictures/JGalleryBench/%'` — so cleanup can **never** touch real user media,
+  and a defensive `check()` refuses to run if that sentinel namespace is ever weakened.
+- **Proof of a clean library.** Cleanup logs `JGALLERY_BENCH_CLEANUP deleted=N remaining=M`; a clean
+  run ends with `remaining=0`. The teardown logs `JGALLERY_BENCH_TEARDOWN cleanupConfirmed=true`.
+
 ## Run it
 
 **Physical device (authoritative — DoD headline pass):**

@@ -56,6 +56,16 @@ object BenchmarkCorpusSeeder {
     const val BUCKET_NAME = "JGalleryBench"
     private const val RELATIVE_DIR = "Pictures/$BUCKET_NAME"
 
+    /**
+     * The ONE selection every count/query/delete uses — strictly scoped to files INSIDE the bench
+     * directory (`Pictures/JGalleryBench/…`). The trailing `/%` (not a bare `%`) is deliberate: it can
+     * only ever match rows under this exact dir, never a real sibling folder that merely shares the
+     * prefix (e.g. `Pictures/JGalleryBenchmark`). This single source of truth is what makes cleanup
+     * provably unable to touch real user media — see [cleanup].
+     */
+    private const val BENCH_SELECTION = "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?"
+    private val BENCH_SELECTION_ARGS = arrayOf("$RELATIVE_DIR/%")
+
     /** DoD floor: the corpus must be at least 10,000 real files (APP-386 plan §Wave R0). */
     const val DEFAULT_CORPUS_SIZE = 10_000
 
@@ -105,8 +115,21 @@ object BenchmarkCorpusSeeder {
      * Ensure the corpus exists (seeding if needed) and return the seeded [MediaItem]s ordered
      * newest-first, exactly as the Photos grid would receive them. Runs on the caller's thread —
      * call it OFF the main thread (it does thousands of file writes on first run).
+     *
+     * [optedIn] is a hard safety gate (APP-458): seeding writes thousands of files into the shared
+     * MediaStore, so it must NEVER happen without an explicit, deliberate opt-in from the caller. A
+     * casual tap-launch of the benchmark APK (no opt-in) must not pollute a real photo library — the
+     * caller is responsible for only passing `true` from the macrobenchmark / an explicit adb extra.
      */
-    fun seed(context: Context, targetCount: Int = DEFAULT_CORPUS_SIZE): List<MediaItem> {
+    fun seed(
+        context: Context,
+        targetCount: Int = DEFAULT_CORPUS_SIZE,
+        optedIn: Boolean,
+    ): List<MediaItem> {
+        check(optedIn) {
+            "refusing to seed $BUCKET_NAME corpus without explicit opt-in — seeding pollutes the " +
+                "device MediaStore and must be launched deliberately (see APP-458)"
+        }
         val resolver = context.contentResolver
         val existing = countExisting(resolver)
         if (existing >= targetCount) {
@@ -134,10 +157,43 @@ object BenchmarkCorpusSeeder {
         resolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             arrayOf(MediaStore.Images.Media._ID),
-            "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?",
-            arrayOf("$RELATIVE_DIR%"),
+            BENCH_SELECTION,
+            BENCH_SELECTION_ARGS,
             null,
         )?.use { it.count } ?: 0
+
+    /**
+     * Delete every synthetic asset this fixture ever created and return the number of rows removed
+     * (APP-458). The delete is scoped by [BENCH_SELECTION] — strictly `Pictures/JGalleryBench/…` — so
+     * it can NEVER touch real user media. Idempotent and safe on a clean device (returns 0), so it
+     * doubles as:
+     *   1. the fixture TEARDOWN the macrobenchmark runs after a run (on success AND on failure/abort);
+     *   2. the ONE-SHOT purge for any assets already leaked onto a test device (e.g. JD's library).
+     *
+     * Emits a grep-able `JGALLERY_BENCH_CLEANUP deleted=N remaining=M` line so a run can prove the
+     * library is clean (`remaining=0`) afterwards. Call OFF the main thread.
+     */
+    fun cleanup(context: Context): Int {
+        val resolver = context.contentResolver
+        // Defence-in-depth: if the sentinel namespace is ever weakened to something non-specific,
+        // refuse to delete rather than risk a broad match against real media.
+        check(BUCKET_NAME == "JGalleryBench" && RELATIVE_DIR == "Pictures/JGalleryBench") {
+            "refusing to clean up: bench namespace '$RELATIVE_DIR' is not the dedicated sentinel dir"
+        }
+        val deleted = try {
+            resolver.delete(
+                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
+                BENCH_SELECTION,
+                BENCH_SELECTION_ARGS,
+            )
+        } catch (t: Throwable) {
+            Log.w(TAG, "cleanup delete failed: ${t.message}")
+            0
+        }
+        val remaining = countExisting(resolver)
+        Log.i(TAG, "JGALLERY_BENCH_CLEANUP deleted=$deleted remaining=$remaining")
+        return deleted
+    }
 
     /** Encode one distinct real image per palette spec, reused across all corpus files. */
     private fun encodePalette(): List<ByteArray> = PALETTE.mapIndexed { idx, spec ->
@@ -279,8 +335,8 @@ object BenchmarkCorpusSeeder {
         resolver.query(
             MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
             projection,
-            "${MediaStore.Images.Media.RELATIVE_PATH} LIKE ?",
-            arrayOf("$RELATIVE_DIR%"),
+            BENCH_SELECTION,
+            BENCH_SELECTION_ARGS,
             "${MediaStore.Images.Media.DATE_TAKEN} DESC",
         )?.use { cursor ->
             val idCol = cursor.getColumnIndexOrThrow(MediaStore.Images.Media._ID)
