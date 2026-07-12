@@ -69,7 +69,9 @@ import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.BulkOperationUiState
 import com.appblish.jgallery.core.ui.selection.SelectionCheckBadge
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.launch
 import com.appblish.jgallery.core.ui.selection.SelectionScaffold
 import com.appblish.jgallery.core.ui.selection.SelectionState
 import com.appblish.jgallery.core.ui.selection.rememberTileSelectScale
@@ -353,13 +355,23 @@ private data class PrefetchWindow(
 )
 
 /**
- * Fix 4 — directional prefetch. Watches [LazyGridState.layoutInfo], infers scroll direction from the
- * first-visible index delta, and enqueues the next viewport's [thumbnailRequest]s (at the visible
- * tiles' pixel size, so they warm the exact memory+disk keys the grid will ask for). The previous
- * batch is disposed on each new window — a direction flip or a fresh viewport makes those in-flight
- * decodes stale, freeing Fix 5's bounded decode slots for the tiles actually approaching view.
+ * Cold-cache first-load prefetch (APP-456, from JD device finding 2). Warms Coil's memory+disk caches
+ * ahead of the grid so a large library's first pass is not decode-bound, while keeping visible tiles
+ * ahead of prefetch on Fix 5's bounded, no-priority decode dispatcher. Two phases, driven off
+ * [LazyGridState] and split by scroll state:
  *
- * Renders nothing. Enqueued requests only populate Coil's caches; they need no draw target.
+ * - **During a scroll** — a bounded, direction-aware, nearest-first lookahead ([PrefetchPlanner.ahead])
+ *   in the scroll direction. It stays modest ([PREFETCH_AHEAD_MAX]) so tiles actually entering view
+ *   keep winning decode slots, and the prior batch is disposed on every new window, so decodes for
+ *   tiles flung past are cancelled (a direction flip or a fresh viewport makes them stale).
+ * - **Once the scroll settles** — a wider symmetric warm ([PrefetchPlanner.idleWarm]) in both
+ *   directions. Aggressive is safe when idle because no visible tile competes for slots; the warm is
+ *   disposed the instant scrolling resumes, so it never steals a decode from the next fling.
+ *
+ * Requests carry the visible tile pixel size so they hit the exact bucketed cache keys the grid asks
+ * for. Renders nothing — enqueued requests only populate Coil's caches; they need no draw target. The
+ * disk cache itself persists across launches (Coil `DiskCache` in `cacheDir`, 256 MB LRU), so this
+ * cold pass is paid once per library, not once per launch.
  */
 @Composable
 private fun ThumbnailPrefetch(
@@ -371,46 +383,92 @@ private fun ThumbnailPrefetch(
     val currentCells by rememberUpdatedState(cells)
 
     LaunchedEffect(gridState, imageLoader) {
-        var lastFirstVisible = gridState.firstVisibleItemIndex
-        var inFlight: List<Disposable> = emptyList()
-
-        snapshotFlow {
-            val visible = gridState.layoutInfo.visibleItemsInfo
-            PrefetchWindow(
-                firstVisible = visible.firstOrNull()?.index ?: 0,
-                lastVisible = visible.lastOrNull()?.index ?: -1,
-                visibleCount = visible.size,
-                // Square tile edge — ignore full-span date headers (their min dimension is the row height).
-                tilePx = visible.maxOfOrNull { minOf(it.size.width, it.size.height) } ?: 0,
-            )
-        }
-            .distinctUntilChanged()
-            .collect { window ->
-                if (window.lastVisible < 0 || window.tilePx <= 0) return@collect
-                val goingDown = window.firstVisible >= lastFirstVisible
-                lastFirstVisible = window.firstVisible
-
-                // Cancel the prior batch; the tiles it was warming are now on-screen or behind us.
-                inFlight.forEach { it.dispose() }
-
-                val count = window.visibleCount.coerceAtLeast(1)
-                val cellList = currentCells
-                val indices = if (goingDown) {
-                    (window.lastVisible + 1)..(window.lastVisible + count)
-                } else {
-                    (window.firstVisible - 1) downTo (window.firstVisible - count)
-                }
-                inFlight = indices.mapNotNull { index ->
-                    val tile = cellList.getOrNull(index) as? PhotosCell.Tile ?: return@mapNotNull null
-                    val request = ImageRequest.Builder(context)
-                        .data(tile.item.thumbnailRequest())
-                        .size(window.tilePx, window.tilePx)
-                        .build()
-                    imageLoader.enqueue(request)
-                }
+        fun enqueueTiles(indices: List<Int>, tilePx: Int): List<Disposable> {
+            val cellList = currentCells
+            return indices.mapNotNull { index ->
+                val tile = cellList.getOrNull(index) as? PhotosCell.Tile ?: return@mapNotNull null
+                val request = ImageRequest.Builder(context)
+                    .data(tile.item.thumbnailRequest())
+                    .size(tilePx, tilePx)
+                    .build()
+                imageLoader.enqueue(request)
             }
+        }
+
+        coroutineScope {
+            // Phase 1 — bounded directional lookahead while scrolling.
+            launch {
+                var lastFirstVisible = gridState.firstVisibleItemIndex
+                var inFlight: List<Disposable> = emptyList()
+                snapshotFlow {
+                    val visible = gridState.layoutInfo.visibleItemsInfo
+                    PrefetchWindow(
+                        firstVisible = visible.firstOrNull()?.index ?: 0,
+                        lastVisible = visible.lastOrNull()?.index ?: -1,
+                        visibleCount = visible.size,
+                        // Square tile edge — ignore full-span headers (their min dimension is row height).
+                        tilePx = visible.maxOfOrNull { minOf(it.size.width, it.size.height) } ?: 0,
+                    )
+                }
+                    .distinctUntilChanged()
+                    .collect { window ->
+                        if (window.lastVisible < 0 || window.tilePx <= 0) return@collect
+                        val goingDown = window.firstVisible >= lastFirstVisible
+                        lastFirstVisible = window.firstVisible
+
+                        // Cancel the prior batch; those tiles are now on-screen or flung past.
+                        inFlight.forEach { it.dispose() }
+
+                        // ~1.5 viewports ahead, bounded — aggressive enough to stay ahead of a steady
+                        // scroll without saturating the decode pool the visible tiles need.
+                        val aheadCount = (window.visibleCount * 3 / 2)
+                            .coerceIn(1, PREFETCH_AHEAD_MAX)
+                        val indices = PrefetchPlanner.ahead(
+                            firstVisible = window.firstVisible,
+                            lastVisible = window.lastVisible,
+                            goingDown = goingDown,
+                            aheadCount = aheadCount,
+                            itemCount = currentCells.size,
+                        )
+                        inFlight = enqueueTiles(indices, window.tilePx)
+                    }
+            }
+
+            // Phase 2 — wider symmetric background warm once the scroll settles.
+            launch {
+                var warming: List<Disposable> = emptyList()
+                snapshotFlow { gridState.isScrollInProgress }
+                    .distinctUntilChanged()
+                    .collect { scrolling ->
+                        // Resuming a scroll cancels the idle warm so visible tiles reclaim the slots.
+                        warming.forEach { it.dispose() }
+                        warming = emptyList()
+                        if (scrolling) return@collect
+
+                        val visible = gridState.layoutInfo.visibleItemsInfo
+                        val first = visible.firstOrNull()?.index ?: return@collect
+                        val last = visible.lastOrNull()?.index ?: return@collect
+                        val tilePx = visible.maxOfOrNull { minOf(it.size.width, it.size.height) } ?: 0
+                        if (tilePx <= 0) return@collect
+
+                        val radius = (visible.size * 2).coerceIn(1, IDLE_WARM_MAX)
+                        val indices = PrefetchPlanner.idleWarm(
+                            firstVisible = first,
+                            lastVisible = last,
+                            radius = radius,
+                            itemCount = currentCells.size,
+                        )
+                        warming = enqueueTiles(indices, tilePx)
+                    }
+            }
+        }
     }
 }
+
+// Bounded lookahead depths (tile counts). The active window stays small so foreground decodes win
+// slots; the idle window is wider because nothing visible competes when the grid is at rest.
+private const val PREFETCH_AHEAD_MAX = 60
+private const val IDLE_WARM_MAX = 80
 
 /**
  * One square grid tile. The model is a [thumbnailRequest] — never a raw uri/path — so the load is
