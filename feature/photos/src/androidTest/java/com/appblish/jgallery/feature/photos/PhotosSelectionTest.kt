@@ -125,7 +125,11 @@ class PhotosSelectionTest {
     fun noSelection_showsNormalHeaderNotSelectionBar() {
         var opened = false
         render(SelectionState(), onMediaClick = { opened = true })
-        composeRule.onNodeWithText("Photos").assertIsDisplayed()
+        // No active selection → the selection top bar is gone and the normal tab header stays. The
+        // plain "Photos" title now shares its text with the format-filter chip (APP-405), so assert
+        // the header via its stable action tag instead of the ambiguous title text (APP-446).
+        composeRule.onNodeWithTag("selection_top_bar").assertDoesNotExist()
+        composeRule.onNodeWithTag("photos_search_action").assertIsDisplayed()
         // Tapping a tile with no active selection opens the viewer.
         composeRule.onNodeWithContentDescription("IMG_3.jpg").performClick()
         assertTrue(opened)

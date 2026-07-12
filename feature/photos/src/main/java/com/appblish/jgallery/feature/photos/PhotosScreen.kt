@@ -37,6 +37,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -433,7 +435,12 @@ private fun MediaTile(
         modifier = Modifier
             .aspectRatio(1f)
             .background(JGalleryColors.AccentSoft, shape)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            // The clickable tile is the semantic element: it announces (and is addressable by) the
+            // file name regardless of decode state. The inner preview drops its own description when
+            // it falls back to a placeholder (APP-364), so anchoring the name here keeps the tile
+            // stable for a11y and for interaction tests (APP-446).
+            .semantics { contentDescription = item.displayName },
     ) {
         Box(
             modifier = Modifier
@@ -449,7 +456,8 @@ private fun MediaTile(
                 displayName = item.displayName,
                 mimeType = item.mimeType,
                 sizeBytes = item.sizeBytes,
-                contentDescription = item.displayName,
+                // Decorative: the enclosing clickable tile owns the file-name description (see above).
+                contentDescription = null,
                 // Panoramas letterbox the horizon (FillWidth) on the dark cell; all else crops (W3-03).
                 contentScale = if (isPano) ContentScale.FillWidth else ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
