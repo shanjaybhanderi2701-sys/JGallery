@@ -11,4 +11,7 @@ captures/
 *.aab
 *.keystore
 !debug.keystore
+# Real release/CI signing config (APP-455) — keystore path + passwords. NEVER commit secrets;
+# the release build falls back to the committed debug-safe debug.keystore when this is absent.
+keystore.properties
 .kotlin/
