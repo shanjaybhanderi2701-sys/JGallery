@@ -195,6 +195,30 @@ fun BoxScope.GridFastScroller(
 }
 
 /**
+ * Flat-grid convenience overload for grids that have no date sections — folder/in-album grids, the
+ * whole-library picker, and the Recycle Bin (APP-466: the shared set on *every* grid). Snaps release
+ * to the exact dragged item ([sectionStarts] empty) and shows the absolute-position bubble ("item
+ * 3,120 of 8,412", design W3-09) instead of a month label. [itemCount] is the total tile count; the
+ * `deepEnough` gate still hides the thumb until the grid is more than 4 viewports deep, so short
+ * folders/pickers never grow a handle.
+ */
+@Composable
+fun BoxScope.GridFastScroller(
+    gridState: LazyGridState,
+    itemCount: Int,
+    modifier: Modifier = Modifier,
+) {
+    GridFastScroller(
+        gridState = gridState,
+        sectionStarts = emptyList(),
+        // Grid index is 0-based; the position bubble is 1-based (design W3-09). No collapse — a bare
+        // position never has a terser form, so the fling/slow label is identical.
+        bubbleLabel = { index, _ -> FastScrollMath.formatItemPosition(index + 1, itemCount) },
+        modifier = modifier,
+    )
+}
+
+/**
  * Grabbable pill inside the 48dp touch column, vertically placed at [fraction] of the track (C1-05,
  * item 14). At rest it's a 34×56dp white pill with a 3-line grip; on [grabbed] it grows to 38×62dp and
  * fills accent-blue (grip flips to white). Sizes animate so the grab feedback reads as a smooth seize.

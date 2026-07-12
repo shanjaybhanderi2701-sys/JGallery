@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
@@ -46,7 +45,11 @@ import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.component.EmptyTabState
 import com.appblish.jgallery.core.ui.component.VideoOverlay
+import com.appblish.jgallery.core.ui.grid.GridFastScroller
+import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
+import com.appblish.jgallery.core.ui.grid.gridPinchColumns
+import com.appblish.jgallery.core.ui.grid.rememberGridZoomState
 import com.appblish.jgallery.core.ui.selection.SelectionCheckBadge
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
@@ -137,7 +140,13 @@ fun AddToAlbumScreen(
                 modifier = Modifier.testTag("add_to_album_empty"),
             )
             is AddToAlbumUiState.Content -> Box(Modifier.fillMaxSize()) {
-                AddToAlbumGrid(items = state.items, selected = selected, onToggle = onToggle)
+                // FAB yields the bottom corner to the sticky "Add N" bar once anything is picked.
+                AddToAlbumGrid(
+                    items = state.items,
+                    selected = selected,
+                    onToggle = onToggle,
+                    fabEnabled = selected.isEmpty(),
+                )
                 // Sticky "Add N" bar (design C1-09): appears once >=1 item is picked; drives the copy.
                 if (selected.isNotEmpty()) {
                     Row(
@@ -175,36 +184,45 @@ private fun AddToAlbumGrid(
     items: List<MediaItem>,
     selected: Set<MediaId>,
     onToggle: (MediaId) -> Unit,
+    fabEnabled: Boolean,
 ) {
-    val gridState = rememberLazyGridState()
-    val tileShape = JGalleryDimens.tileRadius(AddToAlbumColumns)
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(AddToAlbumColumns.value),
-        state = gridState,
-        horizontalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
-        verticalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
-        modifier = Modifier.fillMaxSize().testTag("add_to_album_grid"),
-    ) {
-        items(items, key = { it.id.value }) { item ->
-            val isSelected = item.id in selected
-            Box(
-                modifier = Modifier
-                    .aspectRatio(1f)
-                    .background(JGalleryColors.AccentSoft, tileShape)
-                    .clickable { onToggle(item.id) },
-            ) {
-                AsyncImage(
-                    model = item.thumbnailRequest(),
-                    contentDescription = item.displayName,
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize().clip(tileShape)
-                        .background(JGalleryColors.TilePlaceholder),
-                )
-                if (item.type == MediaType.VIDEO) {
-                    VideoOverlay(durationMillis = item.durationMillis, columns = AddToAlbumColumns.value)
+    // APP-466: the picker is a whole-library grid, so it gets the full shared set too — pinch-zoom
+    // columns, the flat-grid fast-scroller (position bubble), and the back-to-top FAB.
+    val zoom = rememberGridZoomState(initialColumns = AddToAlbumColumns)
+    val gridState = zoom.gridState
+    val tileShape = JGalleryDimens.tileRadius(zoom.columns)
+    Box(Modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(zoom.columns.value),
+            state = gridState,
+            horizontalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
+            verticalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
+            modifier = Modifier.fillMaxSize().gridPinchColumns(zoom).testTag("add_to_album_grid"),
+        ) {
+            items(items, key = { it.id.value }) { item ->
+                val isSelected = item.id in selected
+                Box(
+                    modifier = Modifier
+                        .aspectRatio(1f)
+                        .background(JGalleryColors.AccentSoft, tileShape)
+                        .clickable { onToggle(item.id) },
+                ) {
+                    AsyncImage(
+                        model = item.thumbnailRequest(),
+                        contentDescription = item.displayName,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize().clip(tileShape)
+                            .background(JGalleryColors.TilePlaceholder),
+                    )
+                    if (item.type == MediaType.VIDEO) {
+                        VideoOverlay(durationMillis = item.durationMillis, columns = zoom.columns.value)
+                    }
+                    SelectionCheckBadge(selected = isSelected, active = true)
                 }
-                SelectionCheckBadge(selected = isSelected, active = true)
             }
         }
+
+        GridFastScroller(gridState = gridState, itemCount = items.size)
+        ScrollToTopFab(gridState = gridState, enabled = fabEnabled)
     }
 }

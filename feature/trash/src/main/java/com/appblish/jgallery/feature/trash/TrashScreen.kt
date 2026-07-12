@@ -61,6 +61,8 @@ import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.TrashEntry
 import com.appblish.jgallery.core.model.TrashPolicy
+import com.appblish.jgallery.core.ui.grid.GridFastScroller
+import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.grid.rememberGridZoomState
 import com.appblish.jgallery.core.thumbs.ThumbnailRequest
@@ -395,24 +397,31 @@ private fun TrashGrid(
     onToggleSelect: (MediaId) -> Unit,
 ) {
     val zoom = rememberGridZoomState(initialColumns = ColumnCount(3))
-    LazyVerticalGrid(
-        columns = GridCells.Fixed(zoom.columns.value),
-        state = zoom.gridState,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
-        modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp)
-            .gridPinchColumns(zoom).testTag("trash_grid"),
-    ) {
-        items(items = entries, key = { it.id.value }) { entry ->
-            TrashTile(
-                entry = entry,
-                selected = entry.id in selection,
-                daysLeft = TrashPolicy.daysLeft(entry.trashedAtMillis, now),
-                expiringSoon = TrashPolicy.isExpiringSoon(entry.trashedAtMillis, now),
-                onClick = { onToggleSelect(entry.id) },
-                onLongClick = { if (!selectionMode) onToggleSelect(entry.id) },
-            )
+    // APP-466: the shared grid set on the bin too — pinch-zoom columns, back-to-top FAB, and the
+    // flat-grid fast-scroller (position bubble). The FAB yields the corner while a selection is active.
+    Box(Modifier.fillMaxSize()) {
+        LazyVerticalGrid(
+            columns = GridCells.Fixed(zoom.columns.value),
+            state = zoom.gridState,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+            modifier = Modifier.fillMaxSize().padding(horizontal = 4.dp)
+                .gridPinchColumns(zoom).testTag("trash_grid"),
+        ) {
+            items(items = entries, key = { it.id.value }) { entry ->
+                TrashTile(
+                    entry = entry,
+                    selected = entry.id in selection,
+                    daysLeft = TrashPolicy.daysLeft(entry.trashedAtMillis, now),
+                    expiringSoon = TrashPolicy.isExpiringSoon(entry.trashedAtMillis, now),
+                    onClick = { onToggleSelect(entry.id) },
+                    onLongClick = { if (!selectionMode) onToggleSelect(entry.id) },
+                )
+            }
         }
+
+        GridFastScroller(gridState = zoom.gridState, itemCount = entries.size)
+        ScrollToTopFab(gridState = zoom.gridState, enabled = !selectionMode)
     }
 }
 

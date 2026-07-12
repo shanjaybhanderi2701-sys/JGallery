@@ -45,6 +45,7 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.component.VideoOverlay
+import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
@@ -262,6 +263,10 @@ private fun AlbumDetailGrid(
                 }
             }
         }
+
+        // APP-466: flat-grid fast-scroller (position bubble) so a large album is grabbable — the last
+        // of the shared grid set the in-album grid was missing.
+        GridFastScroller(gridState = gridState, itemCount = items.size)
 
         // Item 2 (design C1-07): back-to-top FAB; hidden while a selection is active.
         ScrollToTopFab(gridState = gridState, enabled = !selection.isActive)

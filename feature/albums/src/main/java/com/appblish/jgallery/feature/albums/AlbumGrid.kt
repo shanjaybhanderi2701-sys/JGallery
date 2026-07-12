@@ -34,6 +34,7 @@ import coil3.compose.AsyncImage
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.thumbs.coverRequest
+import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
@@ -77,6 +78,10 @@ internal fun AlbumCoverGrid(
                 )
             }
         }
+
+        // APP-466: flat-grid fast-scroller so a large Collections/Video folder list is grabbable too
+        // (auto-hidden until the list is more than ~4 viewports deep).
+        GridFastScroller(gridState = gridState, itemCount = albums.size)
 
         // Item 2 (design C1-07): back-to-top FAB on the album grid (Collections + folder-wise Video grid).
         ScrollToTopFab(gridState = gridState)
