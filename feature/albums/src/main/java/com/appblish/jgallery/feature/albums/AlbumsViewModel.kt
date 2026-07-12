@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.AlbumKind
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaFilter
@@ -18,6 +19,7 @@ import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.ui.selection.AlbumOpUiState
 import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
 import com.appblish.jgallery.core.ui.selection.AlbumOperationContext
+import com.appblish.jgallery.core.ui.selection.SelectionState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
@@ -31,6 +33,7 @@ import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
@@ -134,6 +137,27 @@ class AlbumsViewModel @Inject constructor(
     fun setFilter(filter: MediaFilter) {
         filterState.value = filter
     }
+
+    // --- Album multi-select (G1-8, APP-467) ------------------------------------------------------
+    // Long-press an album enters selection mode instead of opening the single-album action sheet;
+    // this is the prerequisite for the multi-select action bar (G1-11). Powered by the same generic
+    // SelectionState the media grids use — here keyed by album bucketId. Ops on the selection (Copy /
+    // Move / Delete / Pin / Share) arrive with the G1-11 action bar; this ticket owns the selection
+    // mode itself (enter, toggle, select-all, clear).
+    private val _albumSelection = MutableStateFlow(SelectionState<String>())
+    val albumSelection: StateFlow<SelectionState<String>> = _albumSelection.asStateFlow()
+
+    /** Long-press: enter selection mode with [bucketId] selected (idempotent — re-press keeps it). */
+    fun beginAlbumSelection(bucketId: String) = _albumSelection.update { it.anchorOn(bucketId) }
+
+    /** Tap while selecting toggles membership; deselecting the last album exits selection mode. */
+    fun toggleAlbumSelection(bucketId: String) = _albumSelection.update { it.toggle(bucketId) }
+
+    /** Select-all in the selection top bar: add every currently-shown album. */
+    fun selectAllAlbums(bucketIds: Collection<String>) = _albumSelection.update { it.selectAll(bucketIds) }
+
+    /** Exit selection mode (close button / back / after an op). */
+    fun clearAlbumSelection() = _albumSelection.update { it.clear() }
 
     val columns: StateFlow<ColumnCount> =
         preferences.columns
@@ -260,6 +284,53 @@ class AlbumsViewModel @Inject constructor(
         viewModelScope.launch {
             report(operations.deleteAlbum(album.bucketId).summary(), "Album moved to Trash", "Couldn't delete album")
         }
+    }
+
+    // --- Selection batch ops (G1-8, APP-467) -----------------------------------------------------
+    // The two ops that batch cleanly over a multi-select without the single-op progress dialog:
+    // Delete (each album → restorable Trash) and Pin. Copy/Move and single-album Rename come with the
+    // full G1-11 action bar. Both operate on the current [albumSelection] and then exit selection mode.
+
+    /**
+     * Trash every selected real device folder (smart albums have no delete). Runs the deletes in the
+     * retained scope and reports ONE aggregated "N album(s) moved to Trash" toast rather than one per
+     * album, then exits selection mode.
+     */
+    fun deleteSelectedAlbums(shown: List<Album>) {
+        val targets = selectedFrom(shown).filter { it.kind == AlbumKind.DEVICE_FOLDER }
+        clearAlbumSelection()
+        if (targets.isEmpty()) return
+        viewModelScope.launch {
+            val summary = targets.fold(OperationResult(0, 0)) { acc, album ->
+                val r = operations.deleteAlbum(album.bucketId).summary()
+                OperationResult(acc.succeeded + r.succeeded, acc.failed + r.failed)
+            }
+            report(
+                summary,
+                if (targets.size == 1) "Album moved to Trash" else "${targets.size} albums moved to Trash",
+                "Couldn't delete albums",
+            )
+        }
+    }
+
+    /**
+     * Pin/unpin the selection in one gesture: if every selected album is already pinned, unpin them
+     * all; otherwise pin them all (the intuitive toggle for a mixed selection). Then exit selection.
+     */
+    fun pinSelectedAlbums(shown: List<Album>) {
+        val targets = selectedFrom(shown)
+        clearAlbumSelection()
+        if (targets.isEmpty()) return
+        val pinAll = targets.any { !it.pinned }
+        viewModelScope.launch {
+            targets.forEach { preferences.setPinned(it.bucketId, pinAll) }
+        }
+    }
+
+    /** The subset of [shown] currently in the album selection, in shown order. */
+    private fun selectedFrom(shown: List<Album>): List<Album> {
+        val ids = _albumSelection.value.selected
+        return shown.filter { it.bucketId in ids }
     }
 
     /** Fold a bulk op's event stream to its terminal summary (empty album → nothing done). */

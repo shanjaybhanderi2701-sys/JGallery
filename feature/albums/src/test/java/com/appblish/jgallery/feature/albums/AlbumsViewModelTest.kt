@@ -311,6 +311,85 @@ class AlbumsViewModelTest {
         assertThat(event).isInstanceOf(AlbumActionResult.Success::class.java)
     }
 
+    // --- Album multi-select (G1-8, APP-467) ------------------------------------------------------
+
+    @Test
+    fun `long-press enters selection, toggle adds and removes, clear exits`() = runTest(dispatcher) {
+        val vm = viewModel()
+        assertThat(vm.albumSelection.value.isActive).isFalse()
+
+        vm.beginAlbumSelection("camera")
+        assertThat(vm.albumSelection.value.selected).containsExactly("camera")
+        assertThat(vm.albumSelection.value.isActive).isTrue()
+
+        vm.toggleAlbumSelection("shots")
+        assertThat(vm.albumSelection.value.selected).containsExactly("camera", "shots")
+
+        vm.toggleAlbumSelection("camera")
+        assertThat(vm.albumSelection.value.selected).containsExactly("shots")
+
+        vm.clearAlbumSelection()
+        assertThat(vm.albumSelection.value.isActive).isFalse()
+    }
+
+    @Test
+    fun `deleteSelectedAlbums trashes selected device folders and exits selection`() = runTest(dispatcher) {
+        val operations = FakeOperations().apply { bulkResult = OperationResult(succeeded = 3, failed = 0) }
+        val vm = viewModel(operations = operations)
+        val shown = listOf(album("camera", count = 5, newest = 9), album("shots", count = 3, newest = 8))
+
+        vm.beginAlbumSelection("camera")
+        vm.toggleAlbumSelection("shots")
+        vm.deleteSelectedAlbums(shown)
+        advanceUntilIdle()
+
+        assertThat(operations.deleted).containsExactly("camera", "shots")
+        assertThat(vm.albumSelection.value.isActive).isFalse()
+        assertThat(withTimeout(5_000) { vm.albumActionEvents.first() })
+            .isInstanceOf(AlbumActionResult.Success::class.java)
+    }
+
+    @Test
+    fun `deleteSelectedAlbums skips smart albums (only real folders are trashable)`() = runTest(dispatcher) {
+        val operations = FakeOperations()
+        val vm = viewModel(operations = operations)
+        val recent = Album(
+            bucketId = AlbumsCatalog.RECENT_BUCKET_ID,
+            name = "Recent",
+            itemCount = 9,
+            cover = MediaId("r"),
+            newestItemMillis = 9,
+            kind = AlbumKind.RECENT,
+        )
+        val shown = listOf(recent, album("camera", count = 5, newest = 8))
+
+        vm.selectAllAlbums(shown.map { it.bucketId })
+        vm.deleteSelectedAlbums(shown)
+        advanceUntilIdle()
+
+        assertThat(operations.deleted).containsExactly("camera")
+        assertThat(vm.albumSelection.value.isActive).isFalse()
+    }
+
+    @Test
+    fun `pinSelectedAlbums pins the whole selection when any is unpinned, then exits`() =
+        runTest(dispatcher) {
+            val preferences = FakePreferences().apply { storedPins.value = setOf("camera") }
+            val vm = viewModel(preferences = preferences)
+            val shown = listOf(
+                album("camera", count = 5, newest = 9).copy(pinned = true),
+                album("shots", count = 3, newest = 8),
+            )
+
+            vm.selectAllAlbums(shown.map { it.bucketId })
+            vm.pinSelectedAlbums(shown)
+            advanceUntilIdle()
+
+            // "shots" was unpinned → pin the whole selection.
+            assertThat(preferences.storedPins.value).containsExactly("camera", "shots")
+            assertThat(vm.albumSelection.value.isActive).isFalse()
+        }
+
     private fun album(bucketId: String, count: Int, newest: Long) = Album(
         bucketId = bucketId,
         name = bucketId.replaceFirstChar { it.uppercase() },

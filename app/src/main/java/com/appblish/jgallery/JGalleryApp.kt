@@ -75,7 +75,7 @@ fun JGalleryApp(
             // Collections tab body = the Albums grid (spec C4). Album taps route by kind; Search is a
             // header action; the overflow's "Recycle Bin" re-homes the retired Collections utility.
             GalleryTab.COLLECTIONS -> AlbumsScreen(
-                onAlbumClick = { album -> navController.openAlbum(album) },
+                onAlbumClick = { album, filter -> navController.openAlbum(album, filter) },
                 // Create-album (design C1-09): route into the new album's empty "Add photos" prompt so
                 // it gets a cover and appears on the Albums home once the first item is added (APP-416).
                 onAlbumCreated = { name -> navController.navigateToNewAlbum(name) },

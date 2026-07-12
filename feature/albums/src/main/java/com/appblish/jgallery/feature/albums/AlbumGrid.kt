@@ -16,9 +16,12 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
+import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -55,7 +58,11 @@ internal fun AlbumCoverGrid(
     modifier: Modifier = Modifier,
     gridTestTag: String = "albums_grid",
     onAlbumLongClick: ((Album) -> Unit)? = null,
+    // Multi-select (G1-8, APP-467): bucketIds currently selected. Non-empty → selection mode is on, so
+    // every card shows its selection check and the whole grid reads as a picker.
+    selectedBucketIds: Set<String> = emptySet(),
 ) {
+    val selecting = selectedBucketIds.isNotEmpty()
     val gridState = rememberLazyGridState()
 
     Box(modifier = modifier.fillMaxSize()) {
@@ -75,6 +82,8 @@ internal fun AlbumCoverGrid(
                     album = album,
                     onClick = { onAlbumClick(album) },
                     onLongClick = onAlbumLongClick?.let { { it(album) } },
+                    selecting = selecting,
+                    selected = album.bucketId in selectedBucketIds,
                 )
             }
         }
@@ -91,7 +100,13 @@ internal fun AlbumCoverGrid(
 /** Cover (16dp radius, square) + optional pin badge + name + count, per design a04 / token table. */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-internal fun AlbumCoverCard(album: Album, onClick: () -> Unit, onLongClick: (() -> Unit)? = null) {
+internal fun AlbumCoverCard(
+    album: Album,
+    onClick: () -> Unit,
+    onLongClick: (() -> Unit)? = null,
+    selecting: Boolean = false,
+    selected: Boolean = false,
+) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -103,6 +118,13 @@ internal fun AlbumCoverCard(album: Album, onClick: () -> Unit, onLongClick: (() 
                 .fillMaxWidth()
                 .aspectRatio(1f)
                 .clip(JGalleryDimens.AlbumCoverRadius)
+                .then(
+                    if (selected) {
+                        Modifier.border(2.dp, JGalleryColors.Accent, JGalleryDimens.AlbumCoverRadius)
+                    } else {
+                        Modifier
+                    },
+                )
                 .background(JGalleryColors.TilePlaceholder),
         ) {
             val cover = album.coverRequest()
@@ -112,6 +134,30 @@ internal fun AlbumCoverCard(album: Album, onClick: () -> Unit, onLongClick: (() 
                     contentDescription = album.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                )
+            }
+            // Multi-select (G1-8, APP-467): a selection scrim + a check/hollow-ring in the top-end
+            // corner, so long-press reads as "entered picker mode" and each tap toggles this card.
+            if (selecting) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(
+                            JGalleryColors.Accent.copy(alpha = if (selected) 0.28f else 0f),
+                        ),
+                )
+                Icon(
+                    imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
+                    contentDescription = if (selected) "Selected" else "Not selected",
+                    tint = if (selected) JGalleryColors.Accent else JGalleryColors.Background,
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(6.dp)
+                        .size(24.dp)
+                        .then(if (selected) Modifier.background(JGalleryColors.Background, CircleShape) else Modifier)
+                        .testTag(
+                            if (selected) "album_selected_${album.bucketId}" else "album_unselected_${album.bucketId}",
+                        ),
                 )
             }
             // Pin affordance (spec C4 item 6) — a pinned album shows a pin badge. Final visual per C1.

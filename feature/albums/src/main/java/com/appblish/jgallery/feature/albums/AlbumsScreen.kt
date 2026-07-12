@@ -1,24 +1,31 @@
 package com.appblish.jgallery.feature.albums
 
 import android.widget.Toast
-import androidx.compose.foundation.clickable
+import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.ContentCopy
+import androidx.compose.material.icons.outlined.DeleteOutline
+import androidx.compose.material.icons.outlined.DriveFileMove
+import androidx.compose.material.icons.outlined.DriveFileRenameOutline
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PhotoLibrary
+import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.SelectAll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -26,10 +33,10 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -47,6 +54,7 @@ import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.ui.selection.AlbumOpProgressDialog
 import com.appblish.jgallery.core.ui.selection.AlbumOpUiState
 import com.appblish.jgallery.core.ui.selection.DestinationPickerSheet
+import com.appblish.jgallery.core.ui.selection.SelectionState
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
@@ -60,7 +68,7 @@ import com.appblish.jgallery.core.ui.theme.JGalleryColors
 @Composable
 fun AlbumsScreen(
     modifier: Modifier = Modifier,
-    onAlbumClick: (Album) -> Unit = {},
+    onAlbumClick: (Album, MediaFilter) -> Unit = { _, _ -> },
     onAlbumCreated: (name: String) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
@@ -72,7 +80,10 @@ fun AlbumsScreen(
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     val albumOp by viewModel.albumOp.collectAsStateWithLifecycle()
+    val albumSelection by viewModel.albumSelection.collectAsStateWithLifecycle()
     val context = LocalContext.current
+
+    val shownAlbums = (state as? AlbumsUiState.Content)?.albums.orEmpty()
 
     // Create-album outcomes (spec §6, design C1-09): on success route straight into the new album's
     // empty "Add photos" prompt so a fresh album gets a cover and appears on the Albums home once it
@@ -112,13 +123,20 @@ fun AlbumsScreen(
         onRenameAlbum = viewModel::renameAlbum,
         onCopyAlbum = viewModel::copyAlbum,
         onMoveAlbum = viewModel::moveAlbum,
-        onDeleteAlbum = viewModel::deleteAlbum,
         onTogglePin = viewModel::togglePin,
         onAlbumOpCancel = viewModel::cancelAlbumOp,
         onAlbumOpDone = viewModel::dismissAlbumOp,
-        onAlbumClick = onAlbumClick,
+        // Carry the active format chip into album detail so opening a folder yields only matching media.
+        onAlbumClick = { album -> onAlbumClick(album, filter) },
         onOpenSearch = onOpenSearch,
         onOpenTrash = onOpenTrash,
+        albumSelection = albumSelection,
+        onAlbumLongPress = { viewModel.beginAlbumSelection(it.bucketId) },
+        onAlbumSelectToggle = { viewModel.toggleAlbumSelection(it.bucketId) },
+        onSelectAllAlbums = viewModel::selectAllAlbums,
+        onClearAlbumSelection = viewModel::clearAlbumSelection,
+        onDeleteSelected = { viewModel.deleteSelectedAlbums(shownAlbums) },
+        onPinSelected = { viewModel.pinSelectedAlbums(shownAlbums) },
         modifier = modifier,
     )
 }
@@ -140,46 +158,81 @@ fun AlbumsScreen(
     onRenameAlbum: (Album, String) -> Unit = { _, _ -> },
     onCopyAlbum: (Album, String) -> Unit = { _, _ -> },
     onMoveAlbum: (Album, String) -> Unit = { _, _ -> },
-    onDeleteAlbum: (Album) -> Unit = {},
     onTogglePin: (Album) -> Unit = {},
     onAlbumOpCancel: () -> Unit = {},
     onAlbumOpDone: () -> Unit = {},
     onAlbumClick: (Album) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
+    // Multi-select (G1-8, APP-467): long-press enters, tap toggles; the batch ops that don't need the
+    // single-op progress dialog (Delete → Trash, Pin) live in the selection bar, the rest come with the
+    // G1-11 action bar. Single-album Rename/Copy/Move stay reachable when exactly one is selected.
+    albumSelection: SelectionState<String> = SelectionState(),
+    onAlbumLongPress: (Album) -> Unit = {},
+    onAlbumSelectToggle: (Album) -> Unit = {},
+    onSelectAllAlbums: (List<String>) -> Unit = {},
+    onClearAlbumSelection: () -> Unit = {},
+    onDeleteSelected: () -> Unit = {},
+    onPinSelected: () -> Unit = {},
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
-    // The album whose per-album action menu / dialog is open, plus which dialog (null = closed).
-    var actionTarget by remember { mutableStateOf<Album?>(null) }
+    // The album whose single-album dialog is open (only when exactly one is selected), plus which
+    // dialog (null = closed). Delete goes through the batch confirm below instead.
     var openDialog by remember { mutableStateOf<AlbumDialog?>(null) }
+    var showDeleteSelected by remember { mutableStateOf(false) }
+
+    val selectedAlbums = (state as? AlbumsUiState.Content)?.albums.orEmpty()
+        .filter { it.bucketId in albumSelection.selected }
+    val singleSelected = selectedAlbums.singleOrNull()
+
+    // Back exits selection first (spec §7.6 parity with the media grids).
+    BackHandler(enabled = albumSelection.isActive) { onClearAlbumSelection() }
 
     Column(modifier = modifier.fillMaxSize().testTag("albums_screen")) {
-        GalleryTabHeader(title = "Albums") {
-            // Search moved off the tab bar (C1-01 item 10) → header action on both tabs.
-            IconButton(
-                onClick = onOpenSearch,
-                modifier = Modifier.testTag("albums_search_action"),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Search,
-                    contentDescription = "Search",
-                    tint = JGalleryColors.Text,
+        if (albumSelection.isActive) {
+            AlbumSelectionBar(
+                count = albumSelection.count,
+                canActOnFolders = selectedAlbums.any { it.kind == AlbumKind.DEVICE_FOLDER },
+                single = singleSelected,
+                onClose = onClearAlbumSelection,
+                onSelectAll = {
+                    onSelectAllAlbums((state as? AlbumsUiState.Content)?.albums.orEmpty().map { it.bucketId })
+                },
+                onPin = onPinSelected,
+                onDelete = { showDeleteSelected = true },
+                onRename = { openDialog = AlbumDialog.Rename },
+                onCopy = { openDialog = AlbumDialog.Copy },
+                onMove = { openDialog = AlbumDialog.Move },
+            )
+        } else {
+            GalleryTabHeader(title = "Albums") {
+                // Search moved off the tab bar (C1-01 item 10) → header action on both tabs.
+                IconButton(
+                    onClick = onOpenSearch,
+                    modifier = Modifier.testTag("albums_search_action"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Outlined.Search,
+                        contentDescription = "Search",
+                        tint = JGalleryColors.Text,
+                    )
+                }
+                AlbumsOverflowMenu(
+                    onSortBy = { showSortSheet = true },
+                    onColumnCount = { showColumnSheet = true },
+                    onCreateAlbum = { showCreateDialog = true },
+                    onOpenTrash = onOpenTrash,
                 )
             }
-            AlbumsOverflowMenu(
-                onSortBy = { showSortSheet = true },
-                onColumnCount = { showColumnSheet = true },
-                onCreateAlbum = { showCreateDialog = true },
-                onOpenTrash = onOpenTrash,
-            )
-        }
 
-        // Item 3 (design C1-06): the same format filter row as the Photos tab — one mental model
-        // across both. Shown once the library has albums; filters which albums surface.
-        if (state is AlbumsUiState.Content) {
-            FormatFilterChips(selected = filter, onSelect = onFilterChange)
+            // Item 3 (design C1-06): the same format filter row as the Photos tab — one mental model
+            // across both. Shown once the library has albums; filters which albums surface. Hidden while
+            // selecting (the selection bar owns that space), mirroring the Photos grid.
+            if (state is AlbumsUiState.Content) {
+                FormatFilterChips(selected = filter, onSelect = onFilterChange)
+            }
         }
 
         when (state) {
@@ -201,59 +254,52 @@ fun AlbumsScreen(
                     albums = state.albums,
                     columns = columns,
                     onColumnsChange = onColumnsChange,
-                    onAlbumClick = onAlbumClick,
-                    onAlbumLongClick = { actionTarget = it },
+                    // Long-press enters multi-select; a tap toggles once selecting, else opens (APP-467).
+                    onAlbumClick = { album ->
+                        if (albumSelection.isActive) onAlbumSelectToggle(album) else onAlbumClick(album)
+                    },
+                    onAlbumLongClick = onAlbumLongPress,
+                    selectedBucketIds = albumSelection.selected,
                 )
             }
         }
     }
 
-    // Per-album action menu (spec §7, §11): long-press an album → Rename / Copy / Move / Delete.
-    // The menu shows until an action selects a dialog; the target survives so the dialog can use it.
-    actionTarget?.let { target ->
-        if (openDialog == null) {
-            AlbumActionMenu(
-                album = target,
-                onTogglePin = { onTogglePin(target); actionTarget = null },
-                onRename = { openDialog = AlbumDialog.Rename },
-                onCopy = { openDialog = AlbumDialog.Copy },
-                onMove = { openDialog = AlbumDialog.Move },
-                onDelete = { openDialog = AlbumDialog.Delete },
-                onDismiss = { actionTarget = null },
-            )
-        }
-    }
-
-    val target = actionTarget
+    // Single-album Rename / Copy / Move from the selection bar (only offered when exactly one album is
+    // selected). Delete uses the batch confirm below. Dismissing leaves the selection intact.
     when (openDialog) {
-        AlbumDialog.Rename -> if (target != null) NameInputDialog(
+        AlbumDialog.Rename -> if (singleSelected != null) NameInputDialog(
             title = "Rename album",
             label = "Album name",
             confirmLabel = "Rename",
-            initialValue = target.name,
-            onConfirm = { name -> onRenameAlbum(target, name); openDialog = null; actionTarget = null },
-            onDismiss = { openDialog = null; actionTarget = null },
+            initialValue = singleSelected.name,
+            onConfirm = { name -> onRenameAlbum(singleSelected, name); openDialog = null; onClearAlbumSelection() },
+            onDismiss = { openDialog = null },
         )
-        AlbumDialog.Copy -> if (target != null) DestinationPickerSheet(
-            title = "Copy “${target.name}” to",
+        AlbumDialog.Copy -> if (singleSelected != null) DestinationPickerSheet(
+            title = "Copy “${singleSelected.name}” to",
             albums = destinations,
-            excludeBucketId = target.bucketId,
-            onPick = { dest -> onCopyAlbum(target, dest); openDialog = null; actionTarget = null },
-            onDismiss = { openDialog = null; actionTarget = null },
+            excludeBucketId = singleSelected.bucketId,
+            onPick = { dest -> onCopyAlbum(singleSelected, dest); openDialog = null; onClearAlbumSelection() },
+            onDismiss = { openDialog = null },
         )
-        AlbumDialog.Move -> if (target != null) DestinationPickerSheet(
-            title = "Move “${target.name}” to",
+        AlbumDialog.Move -> if (singleSelected != null) DestinationPickerSheet(
+            title = "Move “${singleSelected.name}” to",
             albums = destinations,
-            excludeBucketId = target.bucketId,
-            onPick = { dest -> onMoveAlbum(target, dest); openDialog = null; actionTarget = null },
-            onDismiss = { openDialog = null; actionTarget = null },
+            excludeBucketId = singleSelected.bucketId,
+            onPick = { dest -> onMoveAlbum(singleSelected, dest); openDialog = null; onClearAlbumSelection() },
+            onDismiss = { openDialog = null },
         )
-        AlbumDialog.Delete -> if (target != null) DeleteAlbumDialog(
-            album = target,
-            onConfirm = { onDeleteAlbum(target); openDialog = null; actionTarget = null },
-            onDismiss = { openDialog = null; actionTarget = null },
+        AlbumDialog.Delete, null -> Unit
+    }
+
+    // Batch delete confirm (works for one or many selected folders → restorable Trash).
+    if (showDeleteSelected) {
+        DeleteSelectedAlbumsDialog(
+            count = selectedAlbums.count { it.kind == AlbumKind.DEVICE_FOLDER },
+            onConfirm = { showDeleteSelected = false; onDeleteSelected() },
+            onDismiss = { showDeleteSelected = false },
         )
-        null -> Unit
     }
 
     if (showColumnSheet) {
@@ -349,72 +395,87 @@ private fun MediaFilter.albumsEmptyTitle(): String = when (this) {
     MediaFilter.GIFS -> "No GIF albums"
 }
 
-/** Which per-album dialog is open (spec §7, §11 album-entity ops). */
+/** Which single-album dialog is open, offered only when exactly one album is selected (spec §7, §11). */
 private enum class AlbumDialog { Rename, Copy, Move, Delete }
 
 /**
- * Long-press action sheet for a single album. Every album can be pinned/unpinned (spec C4 item 6);
- * the entity ops Rename / Copy / Move / Delete (spec §7, §11) apply only to real device folders — the
- * synthetic Recent/Video smart albums expose Pin only.
+ * Album multi-select top bar (design C1-01, APP-467): replaces the tab header while selecting. Close
+ * exits, "N selected" reads the count, Select-all grabs every shown album. The batch ops that don't
+ * need the single-op progress dialog live here — **Pin** (toggles the selection) and **Delete** (→
+ * restorable Trash, only when the selection contains real device folders). Single-album Rename / Copy /
+ * Move are offered when exactly one folder is selected; the fuller action bar (Share, multi Copy/Move)
+ * lands with G1-11.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun AlbumActionMenu(
-    album: Album,
-    onTogglePin: () -> Unit,
+private fun AlbumSelectionBar(
+    count: Int,
+    canActOnFolders: Boolean,
+    single: Album?,
+    onClose: () -> Unit,
+    onSelectAll: () -> Unit,
+    onPin: () -> Unit,
+    onDelete: () -> Unit,
     onRename: () -> Unit,
     onCopy: () -> Unit,
     onMove: () -> Unit,
-    onDelete: () -> Unit,
-    onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, modifier = Modifier.testTag("album_action_menu")) {
-        Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-            Text(
-                text = album.name,
-                style = MaterialTheme.typography.titleLarge,
-                color = JGalleryColors.Text,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
-            )
-            AlbumActionRow(
-                label = if (album.pinned) "Unpin" else "Pin",
-                tag = "album_action_pin",
-                onClick = onTogglePin,
-            )
-            if (album.kind == AlbumKind.DEVICE_FOLDER) {
-                AlbumActionRow("Rename", "album_action_rename", onRename)
-                AlbumActionRow("Copy", "album_action_copy", onCopy)
-                AlbumActionRow("Move", "album_action_move", onMove)
-                AlbumActionRow("Delete", "album_action_delete", onDelete)
+    val singleFolder = single?.takeIf { it.kind == AlbumKind.DEVICE_FOLDER }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .background(JGalleryColors.Surface)
+            .padding(horizontal = 4.dp, vertical = 4.dp)
+            .testTag("album_selection_bar"),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        IconButton(onClick = onClose, modifier = Modifier.testTag("album_selection_close")) {
+            Icon(Icons.Outlined.Close, contentDescription = "Exit selection", tint = JGalleryColors.Text)
+        }
+        Text(
+            text = "$count selected",
+            style = MaterialTheme.typography.titleMedium,
+            color = JGalleryColors.Text,
+            maxLines = 1,
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 4.dp)
+                .testTag("album_selection_count"),
+        )
+        // Rename only makes sense for a single folder (renames one entity).
+        if (singleFolder != null) {
+            IconButton(onClick = onRename, modifier = Modifier.testTag("album_selection_rename")) {
+                Icon(Icons.Outlined.DriveFileRenameOutline, contentDescription = "Rename", tint = JGalleryColors.Text)
             }
+            IconButton(onClick = onCopy, modifier = Modifier.testTag("album_selection_copy")) {
+                Icon(Icons.Outlined.ContentCopy, contentDescription = "Copy", tint = JGalleryColors.Text)
+            }
+            IconButton(onClick = onMove, modifier = Modifier.testTag("album_selection_move")) {
+                Icon(Icons.Outlined.DriveFileMove, contentDescription = "Move", tint = JGalleryColors.Text)
+            }
+        }
+        IconButton(onClick = onPin, modifier = Modifier.testTag("album_selection_pin")) {
+            Icon(Icons.Outlined.PushPin, contentDescription = "Pin", tint = JGalleryColors.Text)
+        }
+        if (canActOnFolders) {
+            IconButton(onClick = onDelete, modifier = Modifier.testTag("album_selection_delete")) {
+                Icon(Icons.Outlined.DeleteOutline, contentDescription = "Delete", tint = JGalleryColors.Text)
+            }
+        }
+        IconButton(onClick = onSelectAll, modifier = Modifier.testTag("album_selection_select_all")) {
+            Icon(Icons.Outlined.SelectAll, contentDescription = "Select all", tint = JGalleryColors.Text)
         }
     }
 }
 
+/** Confirm moving the selected albums to the Trash (spec §7.5 — restorable, so a single confirm). */
 @Composable
-private fun AlbumActionRow(label: String, tag: String, onClick: () -> Unit) {
-    Text(
-        text = label,
-        style = MaterialTheme.typography.bodyLarge,
-        color = JGalleryColors.Text,
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 14.dp)
-            .testTag(tag),
-    )
-}
-
-/** Confirm moving a whole album to the Trash (spec §7.5 — restorable, so a single confirm). */
-@Composable
-private fun DeleteAlbumDialog(album: Album, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+private fun DeleteSelectedAlbumsDialog(count: Int, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    val label = if (count == 1) "this album" else "these $count albums"
     AlertDialog(
         onDismissRequest = onDismiss,
         modifier = Modifier.testTag("delete_album_dialog"),
-        title = { Text("Delete album?") },
-        text = { Text("“${album.name}” and its ${album.itemCount} item(s) will be moved to the Trash. You can restore them within 30 days.") },
+        title = { Text(if (count == 1) "Delete album?" else "Delete albums?") },
+        text = { Text("Moving $label and their items to the Trash. You can restore them within 30 days.") },
         confirmButton = {
             TextButton(onClick = onConfirm, modifier = Modifier.testTag("delete_album_confirm")) {
                 Text("Delete")

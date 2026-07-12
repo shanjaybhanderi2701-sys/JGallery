@@ -6,25 +6,38 @@ import androidx.navigation.NavGraphBuilder
 import androidx.navigation.NavType
 import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
+import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaItem
 
 const val ALBUM_DETAIL_BUCKET_ID_ARG = "bucketId"
 const val ALBUM_DETAIL_NAME_ARG = "name"
 const val ALBUM_DETAIL_VIDEO_ONLY_ARG = "videoOnly"
+const val ALBUM_DETAIL_FILTER_ARG = "filter"
 
 /** Route pattern for one album's media grid — the second surface E11 multi-select works on. */
 const val ALBUM_DETAIL_ROUTE =
-    "albumDetail/{$ALBUM_DETAIL_BUCKET_ID_ARG}?$ALBUM_DETAIL_NAME_ARG={$ALBUM_DETAIL_NAME_ARG}&$ALBUM_DETAIL_VIDEO_ONLY_ARG={$ALBUM_DETAIL_VIDEO_ONLY_ARG}"
+    "albumDetail/{$ALBUM_DETAIL_BUCKET_ID_ARG}?$ALBUM_DETAIL_NAME_ARG={$ALBUM_DETAIL_NAME_ARG}" +
+        "&$ALBUM_DETAIL_VIDEO_ONLY_ARG={$ALBUM_DETAIL_VIDEO_ONLY_ARG}" +
+        "&$ALBUM_DETAIL_FILTER_ARG={$ALBUM_DETAIL_FILTER_ARG}"
 
 /**
  * Open the media grid for [bucketId] (tapped album card). [name] titles the screen. [videoOnly] scopes
- * the grid to videos — used by the Video smart album's folder-wise sub-albums (spec C4 item 5). The
- * Recent / All-Videos smart albums pass their sentinel bucket id (see [AlbumsCatalog]).
+ * the grid to videos — used by the Video smart album's folder-wise sub-albums (spec C4 item 5). [filter]
+ * carries the active top-bar format chip into the album so opening a folder while "Videos" (or Photos/
+ * GIFs) is selected yields only matching media (design C1-06, APP-467). The Recent / All-Videos smart
+ * albums pass their sentinel bucket id (see [AlbumsCatalog]).
  */
-fun NavController.navigateToAlbumDetail(bucketId: String, name: String, videoOnly: Boolean = false) {
+fun NavController.navigateToAlbumDetail(
+    bucketId: String,
+    name: String,
+    videoOnly: Boolean = false,
+    filter: MediaFilter = MediaFilter.ALL,
+) {
     navigate(
         "albumDetail/${Uri.encode(bucketId)}" +
-            "?$ALBUM_DETAIL_NAME_ARG=${Uri.encode(name)}&$ALBUM_DETAIL_VIDEO_ONLY_ARG=$videoOnly",
+            "?$ALBUM_DETAIL_NAME_ARG=${Uri.encode(name)}" +
+            "&$ALBUM_DETAIL_VIDEO_ONLY_ARG=$videoOnly" +
+            "&$ALBUM_DETAIL_FILTER_ARG=${filter.name}",
     )
 }
 
@@ -48,6 +61,10 @@ fun NavGraphBuilder.albumDetailScreen(
             navArgument(ALBUM_DETAIL_VIDEO_ONLY_ARG) {
                 type = NavType.BoolType
                 defaultValue = false
+            },
+            navArgument(ALBUM_DETAIL_FILTER_ARG) {
+                type = NavType.StringType
+                defaultValue = MediaFilter.ALL.name
             },
         ),
     ) {

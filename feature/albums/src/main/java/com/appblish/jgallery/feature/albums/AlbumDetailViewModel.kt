@@ -8,10 +8,12 @@ import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.CaptureKind
+import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.MediaType
+import com.appblish.jgallery.core.model.filteredBy
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
@@ -56,6 +58,18 @@ class AlbumDetailViewModel @Inject constructor(
     private val videoOnly: Boolean = savedStateHandle[ALBUM_DETAIL_VIDEO_ONLY_ARG] ?: false
 
     /**
+     * The active top-bar format filter carried in from the tapped album card (design C1-06, APP-467):
+     * opening a folder while "Videos"/"Photos"/"GIFs" is selected shows only that media, so the Albums
+     * surface "yields only matching media" like the Photos tab. Defaults to [MediaFilter.ALL]. GIF/Photo
+     * can't be expressed in the MediaStore query ([MediaType] is IMAGE|VIDEO only), so this filters the
+     * cached items in memory — no rescan.
+     */
+    private val filter: MediaFilter =
+        (savedStateHandle.get<String>(ALBUM_DETAIL_FILTER_ARG))
+            ?.let { runCatching { MediaFilter.valueOf(it) }.getOrNull() }
+            ?: MediaFilter.ALL
+
+    /**
      * Translate the nav args into a cache query. Real folders scope by [bucketId]; the smart-album
      * sentinels (spec C4) map to library-wide queries — Recent = whole library newest-first,
      * All-Videos = every video. [videoOnly] narrows a real folder to its videos (Video → folder-wise).
@@ -77,7 +91,8 @@ class AlbumDetailViewModel @Inject constructor(
     val state: StateFlow<AlbumDetailUiState> =
         repository.observeMedia(query)
             .map { items ->
-                if (items.isEmpty()) AlbumDetailUiState.Empty else AlbumDetailUiState.Content(items)
+                val filtered = items.filteredBy(filter)
+                if (filtered.isEmpty()) AlbumDetailUiState.Empty else AlbumDetailUiState.Content(filtered)
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AlbumDetailUiState.Loading)
 

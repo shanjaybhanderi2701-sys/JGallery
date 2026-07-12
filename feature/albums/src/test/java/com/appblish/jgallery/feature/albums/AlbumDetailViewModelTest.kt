@@ -8,9 +8,11 @@ import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.CaptureKind
 import com.appblish.jgallery.core.model.FileOperationEvent
+import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
+import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.OperationResult
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.Dispatchers
@@ -18,12 +20,14 @@ import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
+import kotlinx.coroutines.withTimeout
 import org.junit.After
 import org.junit.Before
 import org.junit.Test
@@ -152,9 +156,74 @@ class AlbumDetailViewModelTest {
         assertThat(smart.sweepCount).isEqualTo(0)
     }
 
+    // --- Format filter carried in from the tapped album card (design C1-06, APP-467) --------------
+
+    @Test
+    fun `Videos filter yields only videos in album detail`() = runTest(dispatcher) {
+        val vm = detailWithFilter(MediaFilter.VIDEOS, mixedMedia())
+        val content = withTimeout(5_000) {
+            vm.state.first { it is AlbumDetailUiState.Content } as AlbumDetailUiState.Content
+        }
+        assertThat(content.items.map { it.id.value }).containsExactly("vid")
+    }
+
+    @Test
+    fun `Photos filter excludes videos and GIFs in album detail`() = runTest(dispatcher) {
+        val vm = detailWithFilter(MediaFilter.PHOTOS, mixedMedia())
+        val content = withTimeout(5_000) {
+            vm.state.first { it is AlbumDetailUiState.Content } as AlbumDetailUiState.Content
+        }
+        assertThat(content.items.map { it.id.value }).containsExactly("jpg")
+    }
+
+    @Test
+    fun `no filter arg defaults to ALL and shows everything`() = runTest(dispatcher) {
+        val vm = detailWithFilter(filter = null, media = mixedMedia())
+        val content = withTimeout(5_000) {
+            vm.state.first { it is AlbumDetailUiState.Content } as AlbumDetailUiState.Content
+        }
+        assertThat(content.items.map { it.id.value }).containsExactly("vid", "jpg", "gif")
+    }
+
+    private fun detailWithFilter(filter: MediaFilter?, media: List<MediaItem>): AlbumDetailViewModel {
+        val args = mutableMapOf<String, Any?>(
+            ALBUM_DETAIL_BUCKET_ID_ARG to "camera",
+            ALBUM_DETAIL_NAME_ARG to "Camera",
+        )
+        if (filter != null) args[ALBUM_DETAIL_FILTER_ARG] = filter.name
+        return AlbumDetailViewModel(SavedStateHandle(args), MediaRepository(media), FakeOperations())
+    }
+
+    private fun mixedMedia(): List<MediaItem> = listOf(
+        mediaItem("vid", MediaType.VIDEO, "video/mp4"),
+        mediaItem("jpg", MediaType.IMAGE, "image/jpeg"),
+        mediaItem("gif", MediaType.IMAGE, "image/gif"),
+    )
+
+    private fun mediaItem(id: String, type: MediaType, mime: String) = MediaItem(
+        id = MediaId(id),
+        displayName = "$id.${mime.substringAfterLast('/')}",
+        type = type,
+        bucketId = "camera",
+        bucketName = "Camera",
+        dateTakenMillis = 0,
+        dateModifiedMillis = 0,
+        sizeBytes = 0,
+        width = 100,
+        height = 100,
+        durationMillis = if (type == MediaType.VIDEO) 1000 else 0,
+        mimeType = mime,
+    )
+
     private class FakeRepository : MediaIndexRepository {
         override fun observeAlbums(): Flow<List<Album>> = MutableStateFlow(emptyList())
         override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> = MutableStateFlow(emptyList())
+        override suspend fun refresh() = Unit
+    }
+
+    private class MediaRepository(private val media: List<MediaItem>) : MediaIndexRepository {
+        override fun observeAlbums(): Flow<List<Album>> = MutableStateFlow(emptyList())
+        override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> = MutableStateFlow(media)
         override suspend fun refresh() = Unit
     }
 
