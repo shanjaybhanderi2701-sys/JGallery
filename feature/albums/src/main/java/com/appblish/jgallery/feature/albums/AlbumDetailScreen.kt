@@ -68,6 +68,7 @@ import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.BulkOperationUiState
 import com.appblish.jgallery.core.ui.selection.SelectionCheckBadge
 import com.appblish.jgallery.core.ui.selection.SelectionScaffold
+import com.appblish.jgallery.core.ui.selection.mediaSelectionDetails
 import com.appblish.jgallery.core.ui.selection.SelectionState
 import com.appblish.jgallery.core.ui.selection.rememberTileSelectScale
 import com.appblish.jgallery.core.ui.selection.selectableGridDrag
@@ -211,6 +212,14 @@ fun AlbumDetailScreen(
         }
         is AlbumDetailUiState.Content -> {
             val ids = state.items.map { it.id }
+            // Item 11: aggregate Details for the current media selection (multi-safe, any N ≥ 1).
+            val details = remember(selection.selected, state.items) {
+                if (selection.isActive) {
+                    mediaSelectionDetails(state.items.filter { selection.isSelected(it.id) })
+                } else {
+                    null
+                }
+            }
             SelectionScaffold(
                 selection = selection,
                 bulk = bulk,
@@ -225,6 +234,7 @@ fun AlbumDetailScreen(
                 onCreateNew = onRunBulkToNewAlbum,
                 onCancel = onCancelBulk,
                 onDismissResult = onDismissResult,
+                details = details,
                 modifier = modifier.testTag("album_detail_screen"),
             ) {
                 AlbumDetailGrid(

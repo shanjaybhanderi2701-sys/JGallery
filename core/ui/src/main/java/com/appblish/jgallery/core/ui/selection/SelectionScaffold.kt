@@ -29,6 +29,8 @@ import com.appblish.jgallery.core.model.MediaId
  *   (feature passes `{ it.coverRequest() }` so `:core:ui` never depends on `:core:thumbs`, §1.6).
  * @param onCreateNew create a fresh album by name and copy/move the selection into it (D4-03 unify).
  * @param onBrowseFolders fall back to the device-folder picker (W2-04, not built yet — keep honest).
+ * @param details aggregate properties of the current selection (design G1-D7 item 11); when non-null a
+ *   multi-safe **Details** action is added to the bulk bar and opens a read-only summary dialog.
  */
 @Composable
 fun SelectionScaffold(
@@ -47,11 +49,13 @@ fun SelectionScaffold(
     coverFor: (Album) -> Any? = { null },
     onCreateNew: (action: BulkAction, name: String) -> Unit = { _, _ -> },
     onBrowseFolders: () -> Unit = {},
+    details: SelectionDetails? = null,
     grid: @Composable () -> Unit,
 ) {
     // Which action, if any, is waiting on a destination pick or a delete confirm.
     var pendingPick by remember { mutableStateOf<BulkAction?>(null) }
     var confirmDelete by remember { mutableStateOf(false) }
+    var showDetails by remember { mutableStateOf(false) }
     // A large Select-All op paused on its at-scale warning (design W3-09) before the normal flow.
     var pendingLarge by remember { mutableStateOf<BulkAction?>(null) }
 
@@ -84,8 +88,13 @@ fun SelectionScaffold(
                 onAction = { action ->
                     if (isLargeSelection(selection.count)) pendingLarge = action else routeAction(action)
                 },
+                onDetails = details?.let { { showDetails = true } },
             )
         }
+    }
+
+    if (showDetails && details != null) {
+        SelectionDetailsDialog(details = details, onDismiss = { showDetails = false })
     }
 
     pendingLarge?.let { action ->

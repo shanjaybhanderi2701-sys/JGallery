@@ -16,7 +16,6 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
-import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -51,14 +50,14 @@ import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
 import com.appblish.jgallery.core.ui.selection.MoveDestinationSheet
 import com.appblish.jgallery.core.ui.selection.SelectionAction
 import com.appblish.jgallery.core.ui.selection.SelectionActionBar
+import com.appblish.jgallery.core.ui.selection.SelectionDetails
+import com.appblish.jgallery.core.ui.selection.SelectionDetailsDialog
 import com.appblish.jgallery.core.ui.selection.SelectionState
 import com.appblish.jgallery.core.ui.selection.SelectionTopBar
+import com.appblish.jgallery.core.ui.selection.formatDateRange
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import kotlinx.coroutines.flow.flowOf
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
 /**
  * Albums tab — the default tab (spec §2/§3, design a04): album grid with cover thumbnails + item
@@ -305,8 +304,9 @@ fun AlbumsScreen(
                         add(SelectionAction.DELETE)
                     }
                 },
-                singleActions = listOf(SelectionAction.RENAME, SelectionAction.SET_COVER, SelectionAction.DETAILS),
-                // Rename/Set-cover are folder-entity ops; Details reads any single album (incl. smart).
+                // Details is multi-safe (aggregate over the selection); Rename/Set-cover stay single-only.
+                overflowActions = listOf(SelectionAction.DETAILS, SelectionAction.RENAME, SelectionAction.SET_COVER),
+                // Rename/Set-cover are folder-entity ops; Details reads any selection (incl. smart albums).
                 isSingleActionEnabled = { action ->
                     when (action) {
                         SelectionAction.RENAME, SelectionAction.SET_COVER ->
@@ -382,9 +382,10 @@ fun AlbumsScreen(
         )
     }
 
-    // Album details (single). Read-only summary of the selected album.
-    if (showDetails && singleSelected != null) {
-        AlbumDetailsDialog(album = singleSelected, onDismiss = { showDetails = false })
+    // Album details (item 11): multi-safe — a read-only summary of the whole album selection (one album
+    // → its name/type/updated; many → aggregate album + item counts and the updated range).
+    if (showDetails && selectedAlbums.isNotEmpty()) {
+        SelectionDetailsDialog(details = albumSelectionDetails(selectedAlbums), onDismiss = { showDetails = false })
     }
 
     // Set as cover (single folder): pick a member as the album's cover (G1-11).
@@ -497,35 +498,32 @@ private fun MediaFilter.albumsEmptyTitle(): String = when (this) {
 /** Which Copy/Move batch is waiting on a destination pick (G1-11 multi Copy/Move). */
 private enum class BatchOp { COPY, MOVE }
 
-/** Read-only album summary (G1-11 "Details"): name, item count, kind and last-updated date. */
-@Composable
-private fun AlbumDetailsDialog(album: Album, onDismiss: () -> Unit) {
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        modifier = Modifier.testTag("album_details_dialog"),
-        title = { Text(album.name) },
-        text = {
-            Column {
-                DetailRow("Items", album.itemCount.toString())
-                DetailRow("Type", album.kind.detailsLabel())
-                DetailRow("Last updated", formatAlbumDate(album.newestItemMillis))
-            }
-        },
-        confirmButton = {
-            TextButton(onClick = onDismiss, modifier = Modifier.testTag("album_details_close")) {
-                Text("Close")
-            }
-        },
-    )
-}
-
-@Composable
-private fun DetailRow(label: String, value: String) {
-    Text(
-        text = "$label: $value",
-        style = MaterialTheme.typography.bodyMedium,
-        color = JGalleryColors.Text,
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+/**
+ * Read-only album-selection summary (G1-D7 item 11, multi-safe): a single album shows its name / item
+ * count / kind / last-updated date; a multi-selection aggregates album + item counts and the updated
+ * date range across the selection.
+ */
+private fun albumSelectionDetails(albums: List<Album>): SelectionDetails {
+    val single = albums.singleOrNull()
+    if (single != null) {
+        return SelectionDetails(
+            title = single.name,
+            rows = listOf(
+                "Items" to single.itemCount.toString(),
+                "Type" to single.kind.detailsLabel(),
+                "Last updated" to formatDateRange(single.newestItemMillis, single.newestItemMillis),
+            ),
+        )
+    }
+    val totalItems = albums.sumOf { it.itemCount }
+    val dated = albums.map { it.newestItemMillis }.filter { it > 0L }
+    return SelectionDetails(
+        title = "${albums.size} albums",
+        rows = listOf(
+            "Albums" to albums.size.toString(),
+            "Total items" to totalItems.toString(),
+            "Updated" to formatDateRange(dated.minOrNull() ?: 0L, dated.maxOrNull() ?: 0L),
+        ),
     )
 }
 
@@ -534,10 +532,6 @@ private fun AlbumKind.detailsLabel(): String = when (this) {
     AlbumKind.RECENT -> "Recent (all media)"
     AlbumKind.VIDEO -> "Video (all videos)"
 }
-
-/** Format an epoch-millis timestamp as a short human date; blank when the album has no dated items. */
-private fun formatAlbumDate(millis: Long): String =
-    if (millis <= 0L) "—" else SimpleDateFormat("MMM d, yyyy", Locale.getDefault()).format(Date(millis))
 
 /** Confirm moving the selected albums to the Trash (spec §7.5 — restorable, so a single confirm). */
 @Composable

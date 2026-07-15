@@ -79,6 +79,7 @@ import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.BulkOperationUiState
 import com.appblish.jgallery.core.ui.selection.SelectionCheckBadge
+import com.appblish.jgallery.core.ui.selection.mediaSelectionDetails
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -224,8 +225,17 @@ fun PhotosScreen(
             )
         }
         is PhotosUiState.Content -> {
-            val tileIds = remember(state.timeline) {
-                state.timeline.cells.mapNotNull { (it as? PhotosCell.Tile)?.item?.id }
+            val tileItems = remember(state.timeline) {
+                state.timeline.cells.mapNotNull { (it as? PhotosCell.Tile)?.item }
+            }
+            val tileIds = remember(tileItems) { tileItems.map { it.id } }
+            // Item 11: aggregate Details for the current media selection (multi-safe, any N ≥ 1).
+            val details = remember(selection.selected, tileItems) {
+                if (selection.isActive) {
+                    mediaSelectionDetails(tileItems.filter { selection.isSelected(it.id) })
+                } else {
+                    null
+                }
             }
             SelectionScaffold(
                 selection = selection,
@@ -240,6 +250,7 @@ fun PhotosScreen(
                 onCreateNew = onRunBulkToNewAlbum,
                 onCancel = onCancelBulk,
                 onDismissResult = onDismissResult,
+                details = details,
                 modifier = modifier.testTag("photos_screen"),
             ) {
                 Column(Modifier.fillMaxSize()) {
