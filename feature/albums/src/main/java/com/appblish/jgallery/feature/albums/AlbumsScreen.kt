@@ -8,14 +8,12 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.automirrored.outlined.Sort
+import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.PhotoLibrary
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -40,7 +38,8 @@ import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.EmptyTabState
 import com.appblish.jgallery.core.ui.component.FormatFilterChips
-import com.appblish.jgallery.core.ui.component.GalleryTabHeader
+import com.appblish.jgallery.core.ui.component.GalleryMenuItem
+import com.appblish.jgallery.core.ui.component.GalleryTopBar
 import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.thumbs.coverRequest
@@ -56,7 +55,6 @@ import com.appblish.jgallery.core.ui.selection.SelectionState
 import com.appblish.jgallery.core.ui.selection.SelectionTopBar
 import com.appblish.jgallery.core.ui.selection.formatDateRange
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import kotlinx.coroutines.flow.flowOf
 
 /**
@@ -228,25 +226,42 @@ fun AlbumsScreen(
                 onDeselectAll = onClearAlbumSelection,
             )
         } else {
-            GalleryTabHeader(title = "Albums") {
-                // Search moved off the tab bar (C1-01 item 10) → header action on both tabs.
-                IconButton(
-                    onClick = onOpenSearch,
-                    modifier = Modifier.testTag("albums_search_action"),
-                ) {
-                    Icon(
-                        imageVector = Icons.Outlined.Search,
-                        contentDescription = "Search",
-                        tint = JGalleryColors.Text,
-                    )
-                }
-                AlbumsOverflowMenu(
-                    onSortBy = { showSortSheet = true },
-                    onColumnCount = { showColumnSheet = true },
-                    onCreateAlbum = { showCreateDialog = true },
-                    onOpenTrash = onOpenTrash,
-                )
-            }
+            // Canonical top bar (design G1-D7 §1/§2): Search + styled 3-dot overflow, shared with the
+            // Photos tab. Search moved off the tab bar (C1-01 item 10) → header action on both tabs.
+            GalleryTopBar(
+                title = "Albums",
+                onSearch = onOpenSearch,
+                searchTestTag = "albums_search_action",
+                overflowTestTag = "albums_overflow_action",
+                overflowItems = listOf(
+                    GalleryMenuItem(
+                        label = "Sort by",
+                        icon = Icons.AutoMirrored.Outlined.Sort,
+                        testTag = "albums_menu_sort_by",
+                        onClick = { showSortSheet = true },
+                    ),
+                    GalleryMenuItem(
+                        label = "Column count",
+                        icon = Icons.Outlined.GridView,
+                        testTag = "albums_menu_column_count",
+                        onClick = { showColumnSheet = true },
+                    ),
+                    GalleryMenuItem(
+                        label = "Create album",
+                        icon = Icons.Outlined.CreateNewFolder,
+                        testTag = "albums_menu_create_album",
+                        onClick = { showCreateDialog = true },
+                    ),
+                    // Recycle Bin re-homed here (C1-01 item 10): destructive-adjacent, so a divider above.
+                    GalleryMenuItem(
+                        label = "Recycle Bin",
+                        icon = Icons.Outlined.Delete,
+                        testTag = "albums_menu_recycle_bin",
+                        onClick = onOpenTrash,
+                        dividerBefore = true,
+                    ),
+                ),
+            )
 
             // Item 3 (design C1-06): the same format filter row as the Photos tab — one mental model
             // across both. Shown once the library has albums; filters which albums surface. Hidden while
@@ -437,53 +452,6 @@ fun AlbumsScreen(
             onCancel = onAlbumOpCancel,
             onDone = onAlbumOpDone,
         )
-    }
-}
-
-/** Albums overflow (spec §3): Sort By, Column count, Create album. */
-@Composable
-private fun AlbumsOverflowMenu(
-    onSortBy: () -> Unit,
-    onColumnCount: () -> Unit,
-    onCreateAlbum: () -> Unit,
-    onOpenTrash: () -> Unit = {},
-) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        IconButton(
-            onClick = { expanded = true },
-            modifier = Modifier.testTag("albums_overflow_action"),
-        ) {
-            Icon(
-                imageVector = Icons.Outlined.MoreVert,
-                contentDescription = "More options",
-                tint = JGalleryColors.Text,
-            )
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text("Sort by") },
-                onClick = { expanded = false; onSortBy() },
-                modifier = Modifier.testTag("albums_menu_sort_by"),
-            )
-            DropdownMenuItem(
-                text = { Text("Column count") },
-                onClick = { expanded = false; onColumnCount() },
-                modifier = Modifier.testTag("albums_menu_column_count"),
-            )
-            DropdownMenuItem(
-                text = { Text("Create album") },
-                onClick = { expanded = false; onCreateAlbum() },
-                modifier = Modifier.testTag("albums_menu_create_album"),
-            )
-            // Recycle Bin re-homed here (C1-01 item 10): the Collections tab is now the Albums grid, so
-            // the retired CollectionsScreen's only live utility (Trash) moves to this overflow.
-            DropdownMenuItem(
-                text = { Text("Recycle Bin") },
-                onClick = { expanded = false; onOpenTrash() },
-                modifier = Modifier.testTag("albums_menu_recycle_bin"),
-            )
-        }
     }
 }
 

@@ -10,18 +10,22 @@ import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaQuery
+import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.model.filteredBy
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.MediaSelectionController
 import com.appblish.jgallery.feature.photos.di.TimelineDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.flowOn
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -53,7 +57,7 @@ sealed interface PhotosUiState {
 @HiltViewModel
 class PhotosViewModel @Inject constructor(
     repository: MediaIndexRepository,
-    operations: MediaOperationsRepository,
+    private val operations: MediaOperationsRepository,
     private val preferences: PhotosPreferences,
     @TimelineDispatcher timelineDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
@@ -72,12 +76,19 @@ class PhotosViewModel @Inject constructor(
         preferences.groupBy
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GroupBy.DAY)
 
+    // Sort order for the stream (design G1-D7 §3). Persisted per tab, independent of Albums; changing
+    // it re-derives the same in-memory index on the timeline dispatcher — no rescan, like [groupBy].
+    val sort: StateFlow<SortSpec> =
+        preferences.sort
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SortSpec())
+
     val state: StateFlow<PhotosUiState> =
         combine(
             repository.observeMedia(MediaQuery()),
             filterState,
             preferences.groupBy,
-        ) { items, filter, groupBy ->
+            preferences.sort,
+        ) { items, filter, groupBy, sort ->
             if (items.isEmpty()) {
                 PhotosUiState.Empty
             } else {
@@ -88,6 +99,7 @@ class PhotosViewModel @Inject constructor(
                         zone = zone,
                         today = LocalDate.now(zone),
                         groupBy = groupBy,
+                        sort = sort,
                     ),
                     filter = filter,
                 )
@@ -102,6 +114,31 @@ class PhotosViewModel @Inject constructor(
 
     fun setGroupBy(groupBy: GroupBy) {
         viewModelScope.launch { preferences.setGroupBy(groupBy) }
+    }
+
+    fun setSort(sort: SortSpec) {
+        viewModelScope.launch { preferences.setSort(sort) }
+    }
+
+    // Create album (design G1-D7 §2): the Photos overflow can now start a new album. Mirrors
+    // AlbumsViewModel — creates the folder, then the screen routes into its empty "Add photos" prompt
+    // on success (so it gets a cover) or toasts the failure reason.
+    private val createAlbumResults = Channel<PhotosCreateAlbumResult>(Channel.BUFFERED)
+    val createAlbumEvents: Flow<PhotosCreateAlbumResult> = createAlbumResults.receiveAsFlow()
+
+    fun createAlbum(name: String) {
+        viewModelScope.launch {
+            val result = operations.createAlbum(name)
+            createAlbumResults.send(
+                if (result.succeeded > 0) {
+                    PhotosCreateAlbumResult.Success(name.trim())
+                } else {
+                    PhotosCreateAlbumResult.Failure(
+                        result.failures.firstOrNull()?.reason ?: "Couldn't create album",
+                    )
+                },
+            )
+        }
     }
 
     val columns: StateFlow<ColumnCount> =
@@ -145,4 +182,10 @@ class PhotosViewModel @Inject constructor(
         selectionController.runToNewAlbum(action, name)
     fun cancelBulk() = selectionController.cancel()
     fun dismissBulkResult() = selectionController.dismissResult()
+}
+
+/** Outcome of a Photos-overflow "Create album" (design G1-D7 §2). */
+sealed interface PhotosCreateAlbumResult {
+    data class Success(val name: String) : PhotosCreateAlbumResult
+    data class Failure(val reason: String) : PhotosCreateAlbumResult
 }

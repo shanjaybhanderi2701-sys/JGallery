@@ -245,6 +245,47 @@ class PhotoTimelineTest {
     }
 
     @Test
+    fun `default sort is newest-first by capture time, unchanged from before`() {
+        // Default SortSpec (Last Modified, descending) must reduce to the prior capture-time ordering.
+        val timeline = buildPhotosTimeline(
+            items = listOf(
+                item("a", takenAt = LocalDate.of(2026, 1, 1)),
+                item("z", takenAt = LocalDate.of(2026, 7, 1)),
+                item("m", takenAt = LocalDate.of(2026, 4, 1)),
+            ),
+            zone = zone,
+            today = today,
+            locale = locale,
+            groupBy = GroupBy.NONE,
+        )
+        val order = timeline.cells.filterIsInstance<PhotosCell.Tile>().map { it.item.id.value }
+        assertThat(order).containsExactly("z", "m", "a").inOrder()
+    }
+
+    @Test
+    fun `sort by file name ascending orders the stream alphabetically`() {
+        // design G1-D7 §3: the SortBySheet key now drives the Photos stream ordering.
+        val timeline = buildPhotosTimeline(
+            items = listOf(
+                item("banana", takenAt = LocalDate.of(2026, 1, 1)),
+                item("apple", takenAt = LocalDate.of(2026, 7, 1)),
+                item("cherry", takenAt = LocalDate.of(2026, 4, 1)),
+            ),
+            zone = zone,
+            today = today,
+            locale = locale,
+            groupBy = GroupBy.NONE,
+            sort = com.appblish.jgallery.core.model.SortSpec(
+                key = com.appblish.jgallery.core.model.SortKey.FILE_NAME,
+                direction = com.appblish.jgallery.core.model.SortDirection.ASCENDING,
+            ),
+        )
+        val order = timeline.cells.filterIsInstance<PhotosCell.Tile>().map { it.item.id.value }
+        // displayName = "$id.jpg", so ascending name order is apple < banana < cherry.
+        assertThat(order).containsExactly("apple", "banana", "cherry").inOrder()
+    }
+
+    @Test
     fun `ten thousand items build one cell per item plus headers`() {
         val items = (1..10_000).map { item("id_$it", takenAt = today.minusDays((it / 100).toLong())) }
         val timeline = buildPhotosTimeline(items, zone, today, locale)

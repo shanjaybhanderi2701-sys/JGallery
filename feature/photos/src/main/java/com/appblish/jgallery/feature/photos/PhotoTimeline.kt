@@ -2,6 +2,9 @@ package com.appblish.jgallery.feature.photos
 
 import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.MediaItem
+import com.appblish.jgallery.core.model.SortDirection
+import com.appblish.jgallery.core.model.SortKey
+import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.ui.grid.FastScrollMath
 import java.time.Instant
 import java.time.LocalDate
@@ -86,10 +89,12 @@ fun buildPhotosTimeline(
     today: LocalDate,
     locale: Locale = Locale.getDefault(),
     groupBy: GroupBy = GroupBy.DAY,
+    sort: SortSpec = SortSpec(),
 ): PhotosTimeline {
-    val sorted = items.sortedWith(
-        compareByDescending<MediaItem> { it.effectiveTimeMillis }.thenBy { it.id.value },
-    )
+    // Composition order (Grouping.kt): Filter → Sort → Group. The active sort orders the stream; the
+    // section run below is then cut over that order. The default (Last Modified, descending) reduces
+    // to the previous hard-coded capture-time ordering, so it is byte-identical to before.
+    val sorted = items.sortedWith(sort.timelineComparator())
 
     val dayFormat = DateTimeFormatter.ofPattern("dd/MM/yyyy", locale)
     val monthFormat = DateTimeFormatter.ofPattern("MMMM yyyy", locale)
@@ -167,6 +172,25 @@ private fun sectionKeyFor(date: LocalDate, groupBy: GroupBy): Long = when (group
 /** Capture time when known; file-modified time when the row carries no date-taken metadata. */
 internal val MediaItem.effectiveTimeMillis: Long
     get() = if (dateTakenMillis > 0) dateTakenMillis else dateModifiedMillis
+
+/**
+ * Ordering for the Photos stream keyed by the active [SortSpec] (design G1-D7 §3). Mirrors the
+ * cached-index comparator so the four Sort-By keys behave identically to Albums — except Last
+ * Modified uses [effectiveTimeMillis] (capture-time-preferring) so the default day/month/year
+ * sectioning still groups by the moment a photo was taken. The id is a deterministic total-order
+ * tiebreak so the grid keys stay stable across incremental updates.
+ */
+private fun SortSpec.timelineComparator(): Comparator<MediaItem> {
+    val ascending: Comparator<MediaItem> = when (key) {
+        SortKey.FILE_NAME -> compareBy { it.displayName.lowercase() }
+        SortKey.FILE_SIZE -> compareBy { it.sizeBytes }
+        SortKey.LAST_MODIFIED -> compareBy { it.effectiveTimeMillis }
+        // MediaItem carries no path yet; fall back to name so the sort stays total, matching the index.
+        SortKey.FILE_PATH -> compareBy { it.displayName.lowercase() }
+    }
+    val directed = if (direction == SortDirection.DESCENDING) ascending.reversed() else ascending
+    return directed.thenBy { it.id.value }
+}
 
 /** "1:05" / "12:07" / "1:23:45" — the video duration badge on grid tiles. */
 internal fun formatDuration(durationMillis: Long): String {

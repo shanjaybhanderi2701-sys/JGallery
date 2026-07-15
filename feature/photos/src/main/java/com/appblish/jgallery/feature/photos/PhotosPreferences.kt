@@ -6,6 +6,9 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.GroupBy
+import com.appblish.jgallery.core.model.SortDirection
+import com.appblish.jgallery.core.model.SortKey
+import com.appblish.jgallery.core.model.SortSpec
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.map
 
@@ -25,6 +28,14 @@ interface PhotosPreferences {
     val groupBy: Flow<GroupBy>
 
     suspend fun setGroupBy(groupBy: GroupBy)
+
+    /**
+     * Sort order for the Photos stream (design G1-D7 §3 — wires the shared SortBySheet to Photos).
+     * Persisted per tab and independent of Albums; default [SortSpec] = Last Modified, descending.
+     */
+    val sort: Flow<SortSpec>
+
+    suspend fun setSort(sort: SortSpec)
 }
 
 /** DataStore-backed [PhotosPreferences]. Stored values outside 2–6 are clamped on read. */
@@ -53,8 +64,26 @@ internal class DataStorePhotosPreferences(
         dataStore.edit { it[KEY_GROUP_BY] = groupBy.ordinal }
     }
 
+    override val sort: Flow<SortSpec> =
+        dataStore.data.map { prefs ->
+            // Stored as two enum ordinals; anything out of range falls back to the SortSpec default.
+            val key = prefs[KEY_SORT_KEY]?.let { SortKey.entries.getOrNull(it) } ?: return@map SortSpec()
+            val direction = prefs[KEY_SORT_DIR]?.let { SortDirection.entries.getOrNull(it) }
+                ?: SortDirection.DESCENDING
+            SortSpec(key = key, direction = direction)
+        }
+
+    override suspend fun setSort(sort: SortSpec) {
+        dataStore.edit {
+            it[KEY_SORT_KEY] = sort.key.ordinal
+            it[KEY_SORT_DIR] = sort.direction.ordinal
+        }
+    }
+
     private companion object {
         val KEY_COLUMNS = intPreferencesKey("photos_columns")
         val KEY_GROUP_BY = intPreferencesKey("photos_group_by")
+        val KEY_SORT_KEY = intPreferencesKey("photos_sort_key")
+        val KEY_SORT_DIR = intPreferencesKey("photos_sort_dir")
     }
 }

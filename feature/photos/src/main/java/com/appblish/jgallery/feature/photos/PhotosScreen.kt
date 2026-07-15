@@ -1,5 +1,6 @@
 package com.appblish.jgallery.feature.photos
 
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -17,12 +18,12 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.Sort
+import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Photo
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,6 +60,7 @@ import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
+import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.model.formatBadge
 import com.appblish.jgallery.core.model.isPanorama
 import com.appblish.jgallery.core.thumbs.coverRequest
@@ -69,8 +71,11 @@ import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.FormatBadgeChip
 import com.appblish.jgallery.core.ui.component.EmptyTabState
 import com.appblish.jgallery.core.ui.component.FormatFilterChips
-import com.appblish.jgallery.core.ui.component.GalleryTabHeader
+import com.appblish.jgallery.core.ui.component.GalleryMenuItem
+import com.appblish.jgallery.core.ui.component.GalleryTopBar
 import com.appblish.jgallery.core.ui.component.GroupBySheet
+import com.appblish.jgallery.core.ui.component.NameInputDialog
+import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
@@ -109,28 +114,49 @@ fun PhotosScreen(
     modifier: Modifier = Modifier,
     onMediaClick: (MediaItem) -> Unit = {},
     onOpenSearch: () -> Unit = {},
+    onOpenTrash: () -> Unit = {},
+    onAlbumCreated: (name: String) -> Unit = {},
     viewModel: PhotosViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val columns by viewModel.columns.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
     val groupBy by viewModel.groupBy.collectAsStateWithLifecycle()
+    val sort by viewModel.sort.collectAsStateWithLifecycle()
     val selection by viewModel.selection.collectAsStateWithLifecycle()
     val bulk by viewModel.bulk.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
+    val context = LocalContext.current
+
+    // Create-album outcomes (design G1-D7 §2 / C1-09): on success route into the new album's empty
+    // "Add photos" prompt so it gets a cover; failures stay a toast. Mirrors the Albums tab.
+    LaunchedEffect(viewModel) {
+        viewModel.createAlbumEvents.collect { result ->
+            when (result) {
+                is PhotosCreateAlbumResult.Success -> onAlbumCreated(result.name)
+                is PhotosCreateAlbumResult.Failure ->
+                    Toast.makeText(context, result.reason, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     PhotosScreen(
         state = state,
         columns = columns,
         filter = filter,
         groupBy = groupBy,
+        sort = sort,
         selection = selection,
         bulk = bulk,
         destinations = destinations,
         onColumnsChange = viewModel::setColumns,
         onFilterChange = viewModel::setFilter,
         onGroupChange = viewModel::setGroupBy,
+        onSortChange = viewModel::setSort,
         onMediaClick = onMediaClick,
         onOpenSearch = onOpenSearch,
+        onOpenTrash = onOpenTrash,
+        onCreateAlbum = viewModel::createAlbum,
         onToggle = viewModel::toggleSelection,
         onBeginSelect = viewModel::beginSelection,
         onDragSelect = viewModel::dragSelectTo,
@@ -155,11 +181,15 @@ fun PhotosScreen(
     onFilterChange: (MediaFilter) -> Unit = {},
     groupBy: GroupBy = GroupBy.DAY,
     onGroupChange: (GroupBy) -> Unit = {},
+    sort: SortSpec = SortSpec(),
+    onSortChange: (SortSpec) -> Unit = {},
     selection: SelectionState<MediaId> = SelectionState(),
     bulk: BulkOperationUiState = BulkOperationUiState.Idle,
     destinations: List<Album> = emptyList(),
     onMediaClick: (MediaItem) -> Unit = {},
     onOpenSearch: () -> Unit = {},
+    onOpenTrash: () -> Unit = {},
+    onCreateAlbum: (String) -> Unit = {},
     onToggle: (MediaId) -> Unit = {},
     onBeginSelect: (MediaId) -> Unit = {},
     onDragSelect: (MediaId, List<MediaId>) -> Unit = { _, _ -> },
@@ -172,44 +202,53 @@ fun PhotosScreen(
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
     var showGroupSheet by remember { mutableStateOf(false) }
+    var showSortSheet by remember { mutableStateOf(false) }
+    var showCreateDialog by remember { mutableStateOf(false) }
 
+    // Canonical top bar (design G1-D7 §1/§2): Search + 3-dot overflow only — the loose Photos
+    // grid/group icons are gone. The overflow adopts the Albums item set (Sort / Column count /
+    // Create album / Recycle bin), plus Group by (a Photos-only stream control from G1-10 that no
+    // longer has a home on the bar). Sort/Column/Group open their sheets; the rest route out.
     val header: @Composable () -> Unit = {
-        GalleryTabHeader(title = "Photos") {
-            // Search moved off the tab bar (C1-01 item 10) → header action on both tabs.
-            IconButton(
-                onClick = onOpenSearch,
-                modifier = Modifier.testTag("photos_search_action"),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.Search,
-                    contentDescription = "Search",
-                    tint = JGalleryColors.Text,
-                )
-            }
-            // Group-by control (design G1-10). The top-bar cluster (G1-9) will fold this into the
-            // Organize zone; for now it lives beside column count, tinted accent when a non-default
-            // grouping is active so an applied constraint is never hidden.
-            IconButton(
-                onClick = { showGroupSheet = true },
-                modifier = Modifier.testTag("photos_group_by_action"),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.DateRange,
-                    contentDescription = "Group by",
-                    tint = if (groupBy == GroupBy.DAY) JGalleryColors.Text else JGalleryColors.Accent,
-                )
-            }
-            IconButton(
-                onClick = { showColumnSheet = true },
-                modifier = Modifier.testTag("photos_column_count_action"),
-            ) {
-                Icon(
-                    imageVector = Icons.Outlined.GridView,
-                    contentDescription = "Column count",
-                    tint = JGalleryColors.Text,
-                )
-            }
-        }
+        GalleryTopBar(
+            title = "Photos",
+            onSearch = onOpenSearch,
+            searchTestTag = "photos_search_action",
+            overflowTestTag = "photos_overflow_action",
+            overflowItems = listOf(
+                GalleryMenuItem(
+                    label = "Sort by",
+                    icon = Icons.AutoMirrored.Outlined.Sort,
+                    testTag = "photos_menu_sort_by",
+                    onClick = { showSortSheet = true },
+                ),
+                GalleryMenuItem(
+                    label = "Group by",
+                    icon = Icons.Outlined.DateRange,
+                    testTag = "photos_menu_group_by",
+                    onClick = { showGroupSheet = true },
+                ),
+                GalleryMenuItem(
+                    label = "Column count",
+                    icon = Icons.Outlined.GridView,
+                    testTag = "photos_menu_column_count",
+                    onClick = { showColumnSheet = true },
+                ),
+                GalleryMenuItem(
+                    label = "Create album",
+                    icon = Icons.Outlined.CreateNewFolder,
+                    testTag = "photos_menu_create_album",
+                    onClick = { showCreateDialog = true },
+                ),
+                GalleryMenuItem(
+                    label = "Recycle Bin",
+                    icon = Icons.Outlined.Delete,
+                    testTag = "photos_menu_recycle_bin",
+                    onClick = onOpenTrash,
+                    dividerBefore = true,
+                ),
+            ),
+        )
     }
 
     when (state) {
@@ -297,6 +336,27 @@ fun PhotosScreen(
             current = groupBy,
             onSelect = onGroupChange,
             onDismiss = { showGroupSheet = false },
+        )
+    }
+
+    if (showSortSheet) {
+        SortBySheet(
+            current = sort,
+            onSelect = onSortChange,
+            onDismiss = { showSortSheet = false },
+        )
+    }
+
+    if (showCreateDialog) {
+        NameInputDialog(
+            title = "Create album",
+            label = "Album name",
+            confirmLabel = "Create",
+            onConfirm = { name ->
+                onCreateAlbum(name)
+                showCreateDialog = false
+            },
+            onDismiss = { showCreateDialog = false },
         )
     }
 }

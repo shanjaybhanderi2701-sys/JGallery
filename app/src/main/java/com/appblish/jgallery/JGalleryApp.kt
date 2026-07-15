@@ -71,6 +71,9 @@ fun JGalleryApp(
             GalleryTab.PHOTOS -> PhotosScreen(
                 onMediaClick = { item -> navController.navigateToViewer(item.id) },
                 onOpenSearch = { navController.navigateToSearch() },
+                // Photos overflow parity (design G1-D7 §2): Recycle bin + Create album reachable here too.
+                onOpenTrash = { navController.navigateToTrash() },
+                onAlbumCreated = { name -> navController.navigateToNewAlbum(name) },
             )
             // Collections tab body = the Albums grid (spec C4). Album taps route by kind; Search is a
             // header action; the overflow's "Recycle Bin" re-homes the retired Collections utility.

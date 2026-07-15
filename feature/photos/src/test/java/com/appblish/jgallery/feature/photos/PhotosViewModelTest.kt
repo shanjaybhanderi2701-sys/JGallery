@@ -11,6 +11,7 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.OperationResult
+import com.appblish.jgallery.core.model.SortSpec
 import kotlinx.coroutines.flow.emptyFlow
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.Dispatchers
@@ -165,6 +166,12 @@ class PhotosViewModelTest {
         override val groupBy: Flow<GroupBy> = storedGroup
         override suspend fun setGroupBy(groupBy: GroupBy) {
             storedGroup.value = groupBy
+        }
+
+        val storedSort = MutableStateFlow(SortSpec())
+        override val sort: Flow<SortSpec> = storedSort
+        override suspend fun setSort(sort: SortSpec) {
+            storedSort.value = sort
         }
     }
 }
