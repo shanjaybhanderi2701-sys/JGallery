@@ -1,5 +1,6 @@
 package com.appblish.jgallery.feature.photos
 
+import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
@@ -166,6 +167,72 @@ class PhotoTimelineTest {
         val a = buildPhotosTimeline(listOf(item("x", ts), item("y", ts)), zone, today, locale)
         val b = buildPhotosTimeline(listOf(item("y", ts), item("x", ts)), zone, today, locale)
         assertThat(a.cells.map { it.key }).isEqualTo(b.cells.map { it.key })
+    }
+
+    @Test
+    fun `group by MONTH sections newest-first with month-year headers`() {
+        val timeline = buildPhotosTimeline(
+            items = listOf(
+                item("jul_a", takenAt = LocalDate.of(2026, 7, 9)),
+                item("jul_b", takenAt = LocalDate.of(2026, 7, 1)),
+                item("jun", takenAt = LocalDate.of(2026, 6, 20)),
+                item("dec25", takenAt = LocalDate.of(2025, 12, 31)),
+            ),
+            zone = zone,
+            today = today,
+            locale = locale,
+            groupBy = GroupBy.MONTH,
+        )
+
+        val headers = timeline.cells.filterIsInstance<PhotosCell.DateHeader>().map { it.label }
+        assertThat(headers).containsExactly("July 2026", "June 2026", "December 2025").inOrder()
+        // The two July items share one section (one header, then both tiles).
+        assertThat(timeline.sectionStarts).hasSize(3)
+        assertThat(timeline.itemCount).isEqualTo(4)
+    }
+
+    @Test
+    fun `group by YEAR collapses every month into one header per year`() {
+        val timeline = buildPhotosTimeline(
+            items = listOf(
+                item("y26_jul", takenAt = LocalDate.of(2026, 7, 9)),
+                item("y26_jan", takenAt = LocalDate.of(2026, 1, 2)),
+                item("y25", takenAt = LocalDate.of(2025, 8, 8)),
+            ),
+            zone = zone,
+            today = today,
+            locale = locale,
+            groupBy = GroupBy.YEAR,
+        )
+
+        val headers = timeline.cells.filterIsInstance<PhotosCell.DateHeader>().map { it.label }
+        assertThat(headers).containsExactly("2026", "2025").inOrder()
+        assertThat(timeline.sectionStarts).hasSize(2)
+    }
+
+    @Test
+    fun `group by NONE is a flat header-less stream that still bubbles month-year`() {
+        val timeline = buildPhotosTimeline(
+            items = listOf(
+                item("a", takenAt = LocalDate.of(2026, 7, 9)),
+                item("b", takenAt = LocalDate.of(2026, 6, 1)),
+                item("c", takenAt = LocalDate.of(2025, 1, 1)),
+            ),
+            zone = zone,
+            today = today,
+            locale = locale,
+            groupBy = GroupBy.NONE,
+        )
+
+        assertThat(timeline.cells.none { it is PhotosCell.DateHeader }).isTrue()
+        assertThat(timeline.sectionStarts).isEmpty()
+        assertThat(timeline.cells).hasSize(3)
+        assertThat(timeline.itemCount).isEqualTo(3)
+        // Newest-first ordering is preserved even without headers.
+        val ids = timeline.cells.filterIsInstance<PhotosCell.Tile>().map { it.item.id.value }
+        assertThat(ids).containsExactly("a", "b", "c").inOrder()
+        // The fast-scroll bubble stays useful (design G1-10) — first tile is July 2026.
+        assertThat(timeline.bubbleLabel(0, collapsed = false)).isEqualTo("July 2026 · item 1 of 3")
     }
 
     @Test

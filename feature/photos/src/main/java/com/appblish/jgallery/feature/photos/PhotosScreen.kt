@@ -4,9 +4,11 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
@@ -15,6 +17,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.Search
@@ -24,7 +27,9 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -34,7 +39,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
@@ -47,6 +54,7 @@ import coil3.request.Disposable
 import coil3.request.ImageRequest
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
@@ -61,6 +69,7 @@ import com.appblish.jgallery.core.ui.component.FormatBadgeChip
 import com.appblish.jgallery.core.ui.component.EmptyTabState
 import com.appblish.jgallery.core.ui.component.FormatFilterChips
 import com.appblish.jgallery.core.ui.component.GalleryTabHeader
+import com.appblish.jgallery.core.ui.component.GroupBySheet
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
@@ -103,6 +112,7 @@ fun PhotosScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val columns by viewModel.columns.collectAsStateWithLifecycle()
     val filter by viewModel.filter.collectAsStateWithLifecycle()
+    val groupBy by viewModel.groupBy.collectAsStateWithLifecycle()
     val selection by viewModel.selection.collectAsStateWithLifecycle()
     val bulk by viewModel.bulk.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
@@ -110,11 +120,13 @@ fun PhotosScreen(
         state = state,
         columns = columns,
         filter = filter,
+        groupBy = groupBy,
         selection = selection,
         bulk = bulk,
         destinations = destinations,
         onColumnsChange = viewModel::setColumns,
         onFilterChange = viewModel::setFilter,
+        onGroupChange = viewModel::setGroupBy,
         onMediaClick = onMediaClick,
         onOpenSearch = onOpenSearch,
         onToggle = viewModel::toggleSelection,
@@ -138,6 +150,8 @@ fun PhotosScreen(
     modifier: Modifier = Modifier,
     filter: MediaFilter = MediaFilter.ALL,
     onFilterChange: (MediaFilter) -> Unit = {},
+    groupBy: GroupBy = GroupBy.DAY,
+    onGroupChange: (GroupBy) -> Unit = {},
     selection: SelectionState<MediaId> = SelectionState(),
     bulk: BulkOperationUiState = BulkOperationUiState.Idle,
     destinations: List<Album> = emptyList(),
@@ -153,6 +167,7 @@ fun PhotosScreen(
     onDismissResult: () -> Unit = {},
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
+    var showGroupSheet by remember { mutableStateOf(false) }
 
     val header: @Composable () -> Unit = {
         GalleryTabHeader(title = "Photos") {
@@ -165,6 +180,19 @@ fun PhotosScreen(
                     imageVector = Icons.Outlined.Search,
                     contentDescription = "Search",
                     tint = JGalleryColors.Text,
+                )
+            }
+            // Group-by control (design G1-10). The top-bar cluster (G1-9) will fold this into the
+            // Organize zone; for now it lives beside column count, tinted accent when a non-default
+            // grouping is active so an applied constraint is never hidden.
+            IconButton(
+                onClick = { showGroupSheet = true },
+                modifier = Modifier.testTag("photos_group_by_action"),
+            ) {
+                Icon(
+                    imageVector = Icons.Outlined.DateRange,
+                    contentDescription = "Group by",
+                    tint = if (groupBy == GroupBy.DAY) JGalleryColors.Text else JGalleryColors.Accent,
                 )
             }
             IconButton(
@@ -247,6 +275,14 @@ fun PhotosScreen(
             onDismiss = { showColumnSheet = false },
         )
     }
+
+    if (showGroupSheet) {
+        GroupBySheet(
+            current = groupBy,
+            onSelect = onGroupChange,
+            onDismiss = { showGroupSheet = false },
+        )
+    }
 }
 
 /** Title for the filter-scoped empty state (design C1-06 callout 5). */
@@ -315,12 +351,7 @@ private fun PhotosGrid(
                 },
             ) { index ->
                 when (val cell = timeline.cells[index]) {
-                    is PhotosCell.DateHeader -> Text(
-                        text = cell.label,
-                        style = MaterialTheme.typography.headlineSmall,
-                        color = JGalleryColors.Text,
-                        modifier = Modifier.padding(start = 4.dp, top = 18.dp, bottom = 8.dp),
-                    )
+                    is PhotosCell.DateHeader -> GroupHeaderContent(label = cell.label)
                     is PhotosCell.Tile -> MediaTile(
                         item = cell.item,
                         shape = tileShape,
@@ -335,6 +366,10 @@ private fun PhotosGrid(
             }
         }
 
+        // Sticky section header (design G1-10): the current section's label pinned at the top, pushed
+        // up by the next header as it arrives. Draws nothing for GroupBy.NONE (no sections).
+        StickyGroupHeader(gridState = gridState, timeline = timeline)
+
         GridFastScroller(
             gridState = gridState,
             sectionStarts = timeline.sectionStarts,
@@ -345,6 +380,75 @@ private fun PhotosGrid(
         ScrollToTopFab(gridState = gridState, enabled = !selection.isActive)
     }
 }
+
+/**
+ * A full-width group header (design G1-10). Shared by the inline header cells and the pinned
+ * [StickyGroupHeader] overlay so they render identically as one scrolls under the other.
+ */
+@Composable
+private fun GroupHeaderContent(label: String, modifier: Modifier = Modifier) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.headlineSmall,
+        color = JGalleryColors.Text,
+        modifier = modifier.padding(start = 4.dp, top = 18.dp, bottom = 8.dp),
+    )
+}
+
+/**
+ * The sticky section header: the label of the section currently under the top of the viewport, pinned
+ * there over an opaque background so tiles scroll beneath it. As the next section's inline header
+ * climbs into the sticky band it pushes the pinned label up 1:1, so the swap reads as one continuous
+ * header rather than a pop. Renders nothing when the stream carries no sections (GroupBy.NONE) or
+ * before the grid has laid out.
+ *
+ * Reads [LazyGridState.layoutInfo] inside a [derivedStateOf] (the recommended pattern) so it only
+ * recomposes when the pinned label or its push offset actually changes, not on every scroll pixel.
+ */
+@Composable
+private fun BoxScope.StickyGroupHeader(
+    gridState: LazyGridState,
+    timeline: PhotosTimeline,
+) {
+    val sectionStarts = timeline.sectionStarts
+    if (sectionStarts.isEmpty()) return
+
+    // Measured height of the pinned header; the next header is only allowed to push once it enters
+    // this band. Zero until first layout, which harmlessly means "no push yet".
+    var headerHeightPx by remember { mutableIntStateOf(0) }
+
+    val pinned by remember(timeline) {
+        derivedStateOf {
+            val firstIndex = gridState.firstVisibleItemIndex
+            val currentHeaderCell = sectionStarts.lastOrNull { it <= firstIndex } ?: return@derivedStateOf null
+            val label = (timeline.cells.getOrNull(currentHeaderCell) as? PhotosCell.DateHeader)?.label
+                ?: return@derivedStateOf null
+            // The next header, if it is currently on screen and within the sticky band, drives the push.
+            val nextHeaderCell = sectionStarts.firstOrNull { it > firstIndex }
+            val nextTop = nextHeaderCell?.let { cell ->
+                gridState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == cell }?.offset?.y
+            }
+            val push = if (nextTop != null && nextTop < headerHeightPx) nextTop - headerHeightPx else 0
+            PinnedHeader(label, push)
+        }
+    }
+
+    pinned?.let { header ->
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .graphicsLayer { translationY = header.pushPx.toFloat() }
+                .onSizeChanged { headerHeightPx = it.height }
+                .background(JGalleryColors.Background)
+                .testTag("photos_sticky_header"),
+        ) {
+            GroupHeaderContent(label = header.label)
+        }
+    }
+}
+
+/** The pinned sticky-header snapshot: its label and how far up the incoming header is pushing it. */
+private data class PinnedHeader(val label: String, val pushPx: Int)
 
 /** The visible-viewport snapshot that drives [ThumbnailPrefetch]; deduped so only real scrolls fire. */
 private data class PrefetchWindow(

@@ -6,6 +6,7 @@ import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaQuery
@@ -64,8 +65,19 @@ class PhotosViewModel @Inject constructor(
     private val filterState = MutableStateFlow(MediaFilter.ALL)
     val filter: StateFlow<MediaFilter> = filterState.asStateFlow()
 
+    // Time-sectioning dimension (design G1-10). Persisted per tab so a chosen grouping survives tab
+    // switches and process death, exactly like column count. Re-grouping re-derives the same
+    // filtered+sorted stream on the [TimelineDispatcher] — no rescan, no IO.
+    val groupBy: StateFlow<GroupBy> =
+        preferences.groupBy
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), GroupBy.DAY)
+
     val state: StateFlow<PhotosUiState> =
-        combine(repository.observeMedia(MediaQuery()), filterState) { items, filter ->
+        combine(
+            repository.observeMedia(MediaQuery()),
+            filterState,
+            preferences.groupBy,
+        ) { items, filter, groupBy ->
             if (items.isEmpty()) {
                 PhotosUiState.Empty
             } else {
@@ -75,6 +87,7 @@ class PhotosViewModel @Inject constructor(
                         items = items.filteredBy(filter),
                         zone = zone,
                         today = LocalDate.now(zone),
+                        groupBy = groupBy,
                     ),
                     filter = filter,
                 )
@@ -85,6 +98,10 @@ class PhotosViewModel @Inject constructor(
 
     fun setFilter(filter: MediaFilter) {
         filterState.value = filter
+    }
+
+    fun setGroupBy(groupBy: GroupBy) {
+        viewModelScope.launch { preferences.setGroupBy(groupBy) }
     }
 
     val columns: StateFlow<ColumnCount> =

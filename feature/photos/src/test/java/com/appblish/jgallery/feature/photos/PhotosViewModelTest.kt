@@ -5,6 +5,7 @@ import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.FileOperationEvent
+import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
@@ -85,6 +86,30 @@ class PhotosViewModelTest {
         assertThat(withTimeout(5_000) { vm.columns.first { it.value == 5 } }).isEqualTo(ColumnCount(5))
     }
 
+    @Test
+    fun `group-by change persists and re-sections the timeline`() = runTest(dispatcher) {
+        val repository = FakeRepository()
+        val preferences = FakePreferences()
+        val vm = viewModel(repository = repository, preferences = preferences)
+
+        // Two items on the same calendar day → DAY grouping opens one section header.
+        repository.items.value = listOf(mediaItem("a"), mediaItem("b"))
+        val day = withTimeout(5_000) {
+            vm.state.first { it is PhotosUiState.Content } as PhotosUiState.Content
+        }
+        assertThat(day.timeline.sectionStarts).hasSize(1)
+
+        // Switching to NONE persists and re-derives a flat, header-less stream.
+        vm.setGroupBy(GroupBy.NONE)
+        advanceUntilIdle()
+        assertThat(preferences.storedGroup.value).isEqualTo(GroupBy.NONE)
+        val none = withTimeout(5_000) {
+            vm.state.first { it is PhotosUiState.Content && it.timeline.sectionStarts.isEmpty() }
+        } as PhotosUiState.Content
+        assertThat(none.timeline.cells).hasSize(2)
+        assertThat(withTimeout(5_000) { vm.groupBy.first { it == GroupBy.NONE } }).isEqualTo(GroupBy.NONE)
+    }
+
     private fun mediaItem(id: String) = MediaItem(
         id = MediaId(id),
         displayName = "$id.jpg",
@@ -134,6 +159,12 @@ class PhotosViewModelTest {
         override val columns: Flow<ColumnCount> = stored.map(ColumnCount::clamp)
         override suspend fun setColumns(columns: ColumnCount) {
             stored.value = columns.value
+        }
+
+        val storedGroup = MutableStateFlow(GroupBy.DAY)
+        override val groupBy: Flow<GroupBy> = storedGroup
+        override suspend fun setGroupBy(groupBy: GroupBy) {
+            storedGroup.value = groupBy
         }
     }
 }
