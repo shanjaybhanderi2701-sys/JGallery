@@ -25,6 +25,10 @@ import com.appblish.jgallery.core.model.MediaId
  * @param allIds every selectable id currently in the grid — powers Select All / all-selected.
  * @param sourceBucketId the album being viewed (null on the Photos tab); excluded from destinations.
  * @param onRun the controller's `run(action, destinationBucketId)`.
+ * @param coverFor supplies each album's cover model for the [MoveDestinationSheet] thumbnail grid
+ *   (feature passes `{ it.coverRequest() }` so `:core:ui` never depends on `:core:thumbs`, §1.6).
+ * @param onCreateNew create a fresh album by name and copy/move the selection into it (D4-03 unify).
+ * @param onBrowseFolders fall back to the device-folder picker (W2-04, not built yet — keep honest).
  */
 @Composable
 fun SelectionScaffold(
@@ -40,6 +44,9 @@ fun SelectionScaffold(
     onDismissResult: () -> Unit,
     modifier: Modifier = Modifier,
     sourceBucketId: String? = null,
+    coverFor: (Album) -> Any? = { null },
+    onCreateNew: (action: BulkAction, name: String) -> Unit = { _, _ -> },
+    onBrowseFolders: () -> Unit = {},
     grid: @Composable () -> Unit,
 ) {
     // Which action, if any, is waiting on a destination pick or a delete confirm.
@@ -94,13 +101,26 @@ fun SelectionScaffold(
     }
 
     pendingPick?.let { action ->
-        DestinationPickerSheet(
-            title = if (action == BulkAction.COPY) "Copy to" else "Move to",
+        // D4-03: one cover-thumbnail sheet for every Copy/Move (viewer already used it; now the bulk
+        // selection path does too), with the inline "New album" create-and-move step. The text-row
+        // DestinationPickerSheet is retired from this path.
+        MoveDestinationSheet(
+            verb = if (action == BulkAction.COPY) AlbumOpVerb.COPY else AlbumOpVerb.MOVE,
+            itemCount = selection.count,
             albums = albums,
+            coverFor = coverFor,
             excludeBucketId = sourceBucketId,
             onPick = { bucketId ->
                 pendingPick = null
                 onRun(action, bucketId)
+            },
+            onCreateNew = { name ->
+                pendingPick = null
+                onCreateNew(action, name)
+            },
+            onBrowseFolders = {
+                pendingPick = null
+                onBrowseFolders()
             },
             onDismiss = { pendingPick = null },
         )

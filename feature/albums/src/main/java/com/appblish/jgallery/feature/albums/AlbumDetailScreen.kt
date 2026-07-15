@@ -55,6 +55,7 @@ import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.SortSpec
+import com.appblish.jgallery.core.thumbs.coverRequest
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.SortBySheet
@@ -130,6 +131,7 @@ fun AlbumDetailScreen(
         onSelectAll = viewModel::selectAll,
         onClearSelection = viewModel::clearSelection,
         onRunBulk = viewModel::runBulk,
+        onRunBulkToNewAlbum = viewModel::runBulkToNewAlbum,
         onCancelBulk = viewModel::cancelBulk,
         onDismissResult = viewModel::dismissBulkResult,
         onOpenCamera = { viewModel.requestCapture(CaptureKind.PHOTO) },
@@ -159,6 +161,7 @@ fun AlbumDetailScreen(
     onSelectAll: (Collection<MediaId>) -> Unit = {},
     onClearSelection: () -> Unit = {},
     onRunBulk: (BulkAction, String?) -> Unit = { _, _ -> },
+    onRunBulkToNewAlbum: (BulkAction, String) -> Unit = { _, _ -> },
     onCancelBulk: () -> Unit = {},
     onDismissResult: () -> Unit = {},
     onAddPhotos: () -> Unit = {},
@@ -218,6 +221,8 @@ fun AlbumDetailScreen(
                 onSelectAll = { onSelectAll(ids) },
                 onClearSelection = onClearSelection,
                 onRun = onRunBulk,
+                coverFor = { it.coverRequest() },
+                onCreateNew = onRunBulkToNewAlbum,
                 onCancel = onCancelBulk,
                 onDismissResult = onDismissResult,
                 modifier = modifier.testTag("album_detail_screen"),

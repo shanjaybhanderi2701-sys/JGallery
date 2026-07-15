@@ -124,6 +124,8 @@ class AlbumDetailViewModel @Inject constructor(
         copy = operations::copy,
         move = operations::move,
         trash = operations::moveToTrash,
+        copyToNew = operations::copyToNewAlbum,
+        moveToNew = operations::moveToNewAlbum,
     )
     val selection get() = selectionController.selection
     val bulk get() = selectionController.bulk
@@ -161,6 +163,8 @@ class AlbumDetailViewModel @Inject constructor(
     fun clearSelection() = selectionController.clearSelection()
     fun runBulk(action: BulkAction, destinationBucketId: String?) =
         selectionController.run(action, destinationBucketId)
+    fun runBulkToNewAlbum(action: BulkAction, name: String) =
+        selectionController.runToNewAlbum(action, name)
     fun cancelBulk() = selectionController.cancel()
     fun dismissBulkResult() = selectionController.dismissResult()
 

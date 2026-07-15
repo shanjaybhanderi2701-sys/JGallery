@@ -115,10 +115,13 @@ class PhotosSelectionTest {
     }
 
     @Test
-    fun bulkCopy_opensDestinationPicker() {
+    fun bulkCopy_opensDestinationSheet() {
+        // D4-03: bulk Copy/Move now opens the shared cover-thumbnail MoveDestinationSheet (with its
+        // inline "New album" create-and-move step), not the retired text-row DestinationPickerSheet.
         render(preset(), destinations = listOf(Album("bucket_9", "Trips", 4, MediaId("media_9"), 0L)))
         composeRule.onNodeWithTag("bulk_copy").performClick()
-        composeRule.onNodeWithTag("destination_picker").assertIsDisplayed()
+        composeRule.onNodeWithTag("move_destination_sheet").assertIsDisplayed()
+        composeRule.onNodeWithTag("move_sheet_new_album").assertIsDisplayed()
     }
 
     @Test

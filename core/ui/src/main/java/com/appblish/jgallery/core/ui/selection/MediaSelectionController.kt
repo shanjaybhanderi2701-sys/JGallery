@@ -8,6 +8,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
@@ -29,6 +30,11 @@ class MediaSelectionController(
     private val copy: (ids: List<MediaId>, destinationBucketId: String) -> Flow<FileOperationEvent>,
     private val move: (ids: List<MediaId>, destinationBucketId: String) -> Flow<FileOperationEvent>,
     private val trash: (ids: List<MediaId>) -> Flow<FileOperationEvent>,
+    // Create-and-fill destinations for the D4-03 unified sheet: the selection becomes a brand-new
+    // album's cover + contents (name-based §1.6 seam, APP-422), so there is no empty-album problem.
+    // Default to an empty flow so existing tests that only exercise Copy/Move/Trash keep compiling.
+    private val copyToNew: (ids: List<MediaId>, name: String) -> Flow<FileOperationEvent> = { _, _ -> emptyFlow() },
+    private val moveToNew: (ids: List<MediaId>, name: String) -> Flow<FileOperationEvent> = { _, _ -> emptyFlow() },
 ) {
     private val _selection = MutableStateFlow(SelectionState<MediaId>())
     val selection: StateFlow<SelectionState<MediaId>> = _selection.asStateFlow()
@@ -72,13 +78,35 @@ class MediaSelectionController(
         if (ids.isEmpty()) return
         if ((action == BulkAction.COPY || action == BulkAction.MOVE) && destinationBucketId == null) return
 
-        runningJob?.cancel()
-        _bulk.value = BulkOperationUiState.Running(action, progress = null)
         val events: Flow<FileOperationEvent> = when (action) {
             BulkAction.COPY -> copy(ids, destinationBucketId!!)
             BulkAction.MOVE -> move(ids, destinationBucketId!!)
             BulkAction.TRASH -> trash(ids)
         }
+        launchOp(action, events)
+    }
+
+    /**
+     * Create a new album named [name] and copy/move the current selection into it (spec §7.2, C1-03
+     * inline "New album" step of the unified [MoveDestinationSheet]). The selected items become the
+     * new album's cover + contents — no empty-album problem. No-ops on an empty selection, a blank
+     * name, or TRASH (which has no create-new destination).
+     */
+    fun runToNewAlbum(action: BulkAction, name: String) {
+        val ids = _selection.value.selected.toList()
+        if (ids.isEmpty() || name.isBlank()) return
+        val events: Flow<FileOperationEvent> = when (action) {
+            BulkAction.COPY -> copyToNew(ids, name)
+            BulkAction.MOVE -> moveToNew(ids, name)
+            BulkAction.TRASH -> return
+        }
+        launchOp(action, events)
+    }
+
+    /** Shared streaming collector for [run] / [runToNewAlbum]: progress → summary, then exit selection. */
+    private fun launchOp(action: BulkAction, events: Flow<FileOperationEvent>) {
+        runningJob?.cancel()
+        _bulk.value = BulkOperationUiState.Running(action, progress = null)
         runningJob = scope.launch {
             events.collect { event ->
                 when (event) {
