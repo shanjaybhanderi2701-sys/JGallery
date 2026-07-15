@@ -8,6 +8,7 @@ import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.CaptureKind
+import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
@@ -20,11 +21,14 @@ import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.MediaSelectionController
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -43,11 +47,13 @@ sealed interface AlbumDetailUiState {
  * **Albums** surface too — the whole selection/bulk machinery is the shared [MediaSelectionController]
  * and [com.appblish.jgallery.core.ui.selection.SelectionScaffold], identical to Photos.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AlbumDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
     repository: MediaIndexRepository,
     private val operations: MediaOperationsRepository,
+    private val viewPreferences: AlbumViewPreferences,
 ) : ViewModel() {
 
     /** The bucket being viewed; excluded from Copy/Move destinations so you can't target the source. */
@@ -74,7 +80,7 @@ class AlbumDetailViewModel @Inject constructor(
      * sentinels (spec C4) map to library-wide queries — Recent = whole library newest-first,
      * All-Videos = every video. [videoOnly] narrows a real folder to its videos (Video → folder-wise).
      */
-    private val query: MediaQuery = when (bucketId) {
+    private val baseQuery: MediaQuery = when (bucketId) {
         AlbumsCatalog.RECENT_BUCKET_ID ->
             MediaQuery(sort = SortSpec(SortKey.LAST_MODIFIED, SortDirection.DESCENDING))
         AlbumsCatalog.ALL_VIDEOS_BUCKET_ID ->
@@ -88,8 +94,25 @@ class AlbumDetailViewModel @Inject constructor(
         )
     }
 
+    /**
+     * Effective in-album view settings (G1-9, design APP-465 TB-03): the persisted per-album Sort +
+     * Grid size, resolved through the album's scope (this album only vs all). Drives both the grid
+     * ordering (via the cached-index [SortSpec]) and the column count.
+     */
+    val viewSettings: StateFlow<AlbumViewSettings> =
+        viewPreferences.settings(bucketId)
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AlbumViewSettings())
+
+    /**
+     * Re-sorting is a cheap re-order of the already-loaded cached rows (spec §6, no rescan/IO): a new
+     * persisted [SortSpec] just re-issues the query with a different sort. Only the sort re-triggers
+     * the query; a column-count change is UI-only, so it is filtered out here via [distinctUntilChanged].
+     */
     val state: StateFlow<AlbumDetailUiState> =
-        repository.observeMedia(query)
+        viewSettings
+            .map { it.sort }
+            .distinctUntilChanged()
+            .flatMapLatest { sort -> repository.observeMedia(baseQuery.copy(sort = sort)) }
             .map { items ->
                 val filtered = items.filteredBy(filter)
                 if (filtered.isEmpty()) AlbumDetailUiState.Empty else AlbumDetailUiState.Content(filtered)
@@ -108,6 +131,28 @@ class AlbumDetailViewModel @Inject constructor(
     val destinations: StateFlow<List<Album>> =
         repository.observeAlbums()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // --- In-album Sort + Grid size + scope (G1-9, design APP-465 TB-03) ---------------------------
+
+    /** Persist a new [sort] into the album's current scope (this album only vs all). */
+    fun setSort(sort: SortSpec) = persistView { viewPreferences.setSort(bucketId, sort, currentScope()) }
+
+    /**
+     * Persist a new [columns] density into the album's current scope. Fired by both the Grid-size sheet
+     * and a pinch-zoom, so the two share one persisted source of truth.
+     */
+    fun setColumns(columns: ColumnCount) =
+        persistView { viewPreferences.setColumns(bucketId, columns, currentScope()) }
+
+    /** Flip whether this album's view settings apply to itself only or to all albums. */
+    fun setScope(scope: ViewScope) = persistView { viewPreferences.setScope(bucketId, scope) }
+
+    /** The scope the album is currently on; new Sort/Grid-size writes target this store. */
+    private fun currentScope(): ViewScope = viewSettings.value.scope
+
+    private fun persistView(block: suspend () -> Unit) {
+        viewModelScope.launch { block() }
+    }
 
     fun toggleSelection(id: MediaId) = selectionController.toggle(id)
     fun beginSelection(id: MediaId) = selectionController.beginDrag(id)

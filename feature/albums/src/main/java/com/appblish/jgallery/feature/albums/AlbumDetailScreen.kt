@@ -17,17 +17,28 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.GridView
+import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.SortByAlpha
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
@@ -43,13 +54,15 @@ import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
+import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
+import com.appblish.jgallery.core.ui.component.ColumnCountSheet
+import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
-import com.appblish.jgallery.core.ui.grid.rememberGridZoomState
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.BulkOperationUiState
 import com.appblish.jgallery.core.ui.selection.SelectionCheckBadge
@@ -60,8 +73,6 @@ import com.appblish.jgallery.core.ui.selection.selectableGridDrag
 import com.appblish.jgallery.core.ui.selection.tileSelectScale
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
-
-private val AlbumDetailColumns = ColumnCount(3)
 
 /**
  * Album detail (spec §3): one bucket's media as a flat grid, with the SAME E11 multi-select + bulk
@@ -80,6 +91,7 @@ fun AlbumDetailScreen(
     val selection by viewModel.selection.collectAsStateWithLifecycle()
     val bulk by viewModel.bulk.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
+    val viewSettings by viewModel.viewSettings.collectAsStateWithLifecycle()
 
     // Delegated capture (APP-424): the system camera writes the photo into this album's folder via the
     // EXTRA_OUTPUT uri the ViewModel mints — TakePicture returns only a success Boolean and ignores the
@@ -103,11 +115,15 @@ fun AlbumDetailScreen(
         title = viewModel.title,
         sourceBucketId = viewModel.bucketId,
         state = state,
+        viewSettings = viewSettings,
         selection = selection,
         bulk = bulk,
         destinations = destinations,
         onBack = onBack,
         onMediaClick = onMediaClick,
+        onSortChange = viewModel::setSort,
+        onColumnsChange = viewModel::setColumns,
+        onScopeChange = viewModel::setScope,
         onToggle = viewModel::toggleSelection,
         onBeginSelect = viewModel::beginSelection,
         onDragSelect = viewModel::dragSelectTo,
@@ -130,9 +146,13 @@ fun AlbumDetailScreen(
     onBack: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
     modifier: Modifier = Modifier,
+    viewSettings: AlbumViewSettings = AlbumViewSettings(),
     selection: SelectionState<MediaId> = SelectionState(),
     bulk: BulkOperationUiState = BulkOperationUiState.Idle,
     destinations: List<Album> = emptyList(),
+    onSortChange: (SortSpec) -> Unit = {},
+    onColumnsChange: (ColumnCount) -> Unit = {},
+    onScopeChange: (ViewScope) -> Unit = {},
     onToggle: (MediaId) -> Unit = {},
     onBeginSelect: (MediaId) -> Unit = {},
     onDragSelect: (MediaId, List<MediaId>) -> Unit = { _, _ -> },
@@ -144,6 +164,9 @@ fun AlbumDetailScreen(
     onAddPhotos: () -> Unit = {},
     onOpenCamera: () -> Unit = {},
 ) {
+    var showSortSheet by remember { mutableStateOf(false) }
+    var showColumnSheet by remember { mutableStateOf(false) }
+
     val header: @Composable () -> Unit = {
         Row(
             modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
@@ -159,14 +182,22 @@ fun AlbumDetailScreen(
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.padding(start = 4.dp),
+                modifier = Modifier.weight(1f).padding(start = 4.dp),
+            )
+            // In-album control cluster (G1-9, design APP-465 TB-03): Sort + Grid size + scope toggle,
+            // same structure as the Albums-tab overflow so the surface reads identically.
+            AlbumViewMenu(
+                scope = viewSettings.scope,
+                onSortBy = { showSortSheet = true },
+                onGridSize = { showColumnSheet = true },
+                onScopeChange = onScopeChange,
             )
         }
     }
 
     when (state) {
         AlbumDetailUiState.Loading -> Column(modifier.fillMaxSize().testTag("album_detail_screen")) {
-            header(); SkeletonGrid(columns = AlbumDetailColumns)
+            header(); SkeletonGrid(columns = viewSettings.columns)
         }
         AlbumDetailUiState.Empty -> Column(modifier.fillMaxSize().testTag("album_detail_screen")) {
             header()
@@ -194,7 +225,9 @@ fun AlbumDetailScreen(
                 AlbumDetailGrid(
                     items = state.items,
                     orderedIds = ids,
+                    columns = viewSettings.columns,
                     selection = selection,
+                    onColumnsChange = onColumnsChange,
                     onMediaClick = onMediaClick,
                     onToggle = onToggle,
                     onBeginSelect = onBeginSelect,
@@ -203,27 +236,125 @@ fun AlbumDetailScreen(
             }
         }
     }
+
+    // Sort + Grid-size sheets (G1-9): the D4 sheet family, shared with the Photos/Albums surfaces. Every
+    // change persists immediately into the album's current scope via [onSortChange] / [onColumnsChange].
+    if (showSortSheet) {
+        SortBySheet(
+            current = viewSettings.sort,
+            onSelect = onSortChange,
+            onDismiss = { showSortSheet = false },
+        )
+    }
+    if (showColumnSheet) {
+        ColumnCountSheet(
+            current = viewSettings.columns,
+            onSelect = onColumnsChange,
+            onDismiss = { showColumnSheet = false },
+        )
+    }
+}
+
+/**
+ * Album-detail control cluster menu (G1-9, design APP-465 TB-03): Sort by / Grid size plus the
+ * "apply to this album only vs. all albums" scope toggle. Kept as an overflow to mirror the Albums-tab
+ * overflow (`AlbumsOverflowMenu`) so both grid surfaces expose the same organize/view controls.
+ */
+@Composable
+private fun AlbumViewMenu(
+    scope: ViewScope,
+    onSortBy: () -> Unit,
+    onGridSize: () -> Unit,
+    onScopeChange: (ViewScope) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    Box {
+        IconButton(
+            onClick = { expanded = true },
+            modifier = Modifier.testTag("album_detail_overflow_action"),
+        ) {
+            Icon(Icons.Outlined.MoreVert, contentDescription = "View options", tint = JGalleryColors.Text)
+        }
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+            DropdownMenuItem(
+                text = { Text("Sort by") },
+                leadingIcon = { Icon(Icons.Outlined.SortByAlpha, contentDescription = null) },
+                onClick = { expanded = false; onSortBy() },
+                modifier = Modifier.testTag("album_detail_menu_sort_by"),
+            )
+            DropdownMenuItem(
+                text = { Text("Grid size") },
+                leadingIcon = { Icon(Icons.Outlined.GridView, contentDescription = null) },
+                onClick = { expanded = false; onGridSize() },
+                modifier = Modifier.testTag("album_detail_menu_grid_size"),
+            )
+            Text(
+                text = "APPLY TO",
+                color = JGalleryColors.TextSecondary,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 4.dp),
+            )
+            ScopeRow(
+                label = "This album only",
+                selected = scope == ViewScope.THIS_ALBUM,
+                onClick = { expanded = false; onScopeChange(ViewScope.THIS_ALBUM) },
+                testTag = "album_detail_scope_this",
+            )
+            ScopeRow(
+                label = "All albums",
+                selected = scope == ViewScope.ALL_ALBUMS,
+                onClick = { expanded = false; onScopeChange(ViewScope.ALL_ALBUMS) },
+                testTag = "album_detail_scope_all",
+            )
+        }
+    }
+}
+
+@Composable
+private fun ScopeRow(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    testTag: String,
+) {
+    DropdownMenuItem(
+        text = { Text(label, color = if (selected) JGalleryColors.Accent else JGalleryColors.Text) },
+        trailingIcon = {
+            Icon(
+                Icons.Outlined.Check,
+                contentDescription = if (selected) "Selected" else null,
+                tint = if (selected) JGalleryColors.Accent else Color.Transparent,
+            )
+        },
+        onClick = onClick,
+        modifier = Modifier.testTag(testTag),
+    )
 }
 
 @Composable
 private fun AlbumDetailGrid(
     items: List<MediaItem>,
     orderedIds: List<MediaId>,
+    columns: ColumnCount,
     selection: SelectionState<MediaId>,
+    onColumnsChange: (ColumnCount) -> Unit,
     onMediaClick: (MediaItem) -> Unit,
     onToggle: (MediaId) -> Unit,
     onBeginSelect: (MediaId) -> Unit,
     onDragSelect: (MediaId, List<MediaId>) -> Unit,
 ) {
-    val zoom = rememberGridZoomState(initialColumns = AlbumDetailColumns)
-    val gridState = zoom.gridState
-    val tileShape = JGalleryDimens.tileRadius(zoom.columns)
+    // G1-9: the column count is the persisted per-album Grid-size (via [onColumnsChange]); pinch-zoom
+    // writes to the same source of truth, so pinch and the Grid-size sheet stay in lock-step and both
+    // survive process death. Same callback-driven pinch primitive the Photos tab uses.
+    val gridState = rememberLazyGridState()
+    val tileShape = JGalleryDimens.tileRadius(columns)
     val idAtCell: (Int) -> MediaId? = { index -> items.getOrNull(index)?.id }
 
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .gridPinchColumns(zoom)
+            .gridPinchColumns(currentColumns = { columns }, onColumnsChange = onColumnsChange)
             .selectableGridDrag(
                 gridState = gridState,
                 onSelectStart = { index -> idAtCell(index)?.let(onBeginSelect) },
@@ -231,7 +362,7 @@ private fun AlbumDetailGrid(
             ),
     ) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(zoom.columns.value),
+            columns = GridCells.Fixed(columns.value),
             state = gridState,
             horizontalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
             verticalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
@@ -257,7 +388,7 @@ private fun AlbumDetailGrid(
                     // Item 8 (design C1-08): shared video play-icon overlay so videos are distinguishable
                     // in the album grid too — same disc/scrim/duration pill as the Photos tab.
                     if (item.type == MediaType.VIDEO) {
-                        VideoOverlay(durationMillis = item.durationMillis, columns = zoom.columns.value)
+                        VideoOverlay(durationMillis = item.durationMillis, columns = columns.value)
                     }
                     SelectionCheckBadge(selected = selection.isSelected(item.id), active = selection.isActive)
                 }

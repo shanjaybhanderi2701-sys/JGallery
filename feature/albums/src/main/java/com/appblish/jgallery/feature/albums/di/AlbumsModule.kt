@@ -4,7 +4,9 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.appblish.jgallery.feature.albums.AlbumViewPreferences
 import com.appblish.jgallery.feature.albums.AlbumsPreferences
+import com.appblish.jgallery.feature.albums.DataStoreAlbumViewPreferences
 import com.appblish.jgallery.feature.albums.DataStoreAlbumsPreferences
 import dagger.Module
 import dagger.Provides
@@ -27,4 +29,11 @@ object AlbumsModule {
     fun provideAlbumsPreferences(
         @ApplicationContext context: Context,
     ): AlbumsPreferences = DataStoreAlbumsPreferences(context.albumsDataStore)
+
+    /** Per-album Sort / Grid-size / scope settings (G1-9). Shares the Albums-tab DataStore file. */
+    @Provides
+    @Singleton
+    fun provideAlbumViewPreferences(
+        @ApplicationContext context: Context,
+    ): AlbumViewPreferences = DataStoreAlbumViewPreferences(context.albumsDataStore)
 }

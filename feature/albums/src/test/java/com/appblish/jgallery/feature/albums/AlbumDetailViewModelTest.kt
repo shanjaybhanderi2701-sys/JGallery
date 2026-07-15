@@ -7,6 +7,7 @@ import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.CaptureKind
+import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
@@ -14,6 +15,9 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.OperationResult
+import com.appblish.jgallery.core.model.SortDirection
+import com.appblish.jgallery.core.model.SortKey
+import com.appblish.jgallery.core.model.SortSpec
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -50,6 +54,7 @@ class AlbumDetailViewModelTest {
         bucketId: String = "camera",
         name: String = "Trip 2026",
         operations: FakeOperations = FakeOperations(),
+        preferences: AlbumViewPreferences = FakeAlbumViewPreferences(),
     ) = AlbumDetailViewModel(
         SavedStateHandle(
             mapOf(
@@ -59,6 +64,7 @@ class AlbumDetailViewModelTest {
         ),
         FakeRepository(),
         operations,
+        preferences,
     )
 
     @Test
@@ -191,8 +197,76 @@ class AlbumDetailViewModelTest {
             ALBUM_DETAIL_NAME_ARG to "Camera",
         )
         if (filter != null) args[ALBUM_DETAIL_FILTER_ARG] = filter.name
-        return AlbumDetailViewModel(SavedStateHandle(args), MediaRepository(media), FakeOperations())
+        return AlbumDetailViewModel(
+            SavedStateHandle(args),
+            MediaRepository(media),
+            FakeOperations(),
+            FakeAlbumViewPreferences(),
+        )
     }
+
+    // --- In-album Sort + Grid size + per-album scope (G1-9, APP-468) ------------------------------
+
+    @Test
+    fun `setSort persists into the album scope and re-queries the index with the new sort`() =
+        runTest(dispatcher) {
+            val repo = RecordingRepository(mixedMedia())
+            val prefs = FakeAlbumViewPreferences()
+            val vm = AlbumDetailViewModel(
+                SavedStateHandle(mapOf(ALBUM_DETAIL_BUCKET_ID_ARG to "camera", ALBUM_DETAIL_NAME_ARG to "Camera")),
+                repo,
+                FakeOperations(),
+                prefs,
+            )
+            val stateJob = launch { vm.state.collect {} }
+            val settingsJob = launch { vm.viewSettings.collect {} }
+            advanceUntilIdle()
+
+            val byName = SortSpec(SortKey.FILE_NAME, SortDirection.ASCENDING)
+            vm.setSort(byName)
+            advanceUntilIdle()
+
+            assertThat(repo.queries.map { it.sort }).contains(byName)
+            assertThat(vm.viewSettings.value.sort).isEqualTo(byName)
+            stateJob.cancel()
+            settingsJob.cancel()
+        }
+
+    @Test
+    fun `setColumns persists the grid density for the album`() = runTest(dispatcher) {
+        val prefs = FakeAlbumViewPreferences()
+        val vm = viewModel(preferences = prefs)
+        val settingsJob = launch { vm.viewSettings.collect {} }
+        advanceUntilIdle()
+
+        vm.setColumns(ColumnCount(5))
+        advanceUntilIdle()
+
+        assertThat(vm.viewSettings.value.columns).isEqualTo(ColumnCount(5))
+        settingsJob.cancel()
+    }
+
+    @Test
+    fun `setScope THIS_ALBUM then a change stays scoped to this album, not the global default`() =
+        runTest(dispatcher) {
+            val prefs = FakeAlbumViewPreferences()
+            val vm = viewModel(bucketId = "camera", preferences = prefs)
+            val settingsJob = launch { vm.viewSettings.collect {} }
+            advanceUntilIdle()
+
+            vm.setScope(ViewScope.THIS_ALBUM)
+            advanceUntilIdle()
+            assertThat(vm.viewSettings.value.scope).isEqualTo(ViewScope.THIS_ALBUM)
+
+            vm.setColumns(ColumnCount(6))
+            advanceUntilIdle()
+
+            // This album shows 6…
+            assertThat(vm.viewSettings.value.columns).isEqualTo(ColumnCount(6))
+            // …but a sibling album still on ALL_ALBUMS keeps the untouched global default.
+            assertThat(prefs.settings("screenshots").first().columns).isEqualTo(ColumnCount.DEFAULT)
+            settingsJob.cancel()
+        }
 
     private fun mixedMedia(): List<MediaItem> = listOf(
         mediaItem("vid", MediaType.VIDEO, "video/mp4"),
@@ -225,6 +299,66 @@ class AlbumDetailViewModelTest {
         override fun observeAlbums(): Flow<List<Album>> = MutableStateFlow(emptyList())
         override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> = MutableStateFlow(media)
         override suspend fun refresh() = Unit
+    }
+
+    /** Records every [MediaQuery] it is handed so a test can assert the persisted sort reached the index. */
+    private class RecordingRepository(private val media: List<MediaItem>) : MediaIndexRepository {
+        val queries = mutableListOf<MediaQuery>()
+        override fun observeAlbums(): Flow<List<Album>> = MutableStateFlow(emptyList())
+        override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> {
+            queries += query
+            return MutableStateFlow(media)
+        }
+        override suspend fun refresh() = Unit
+    }
+
+    /**
+     * In-memory [AlbumViewPreferences] mirroring the DataStore impl's scope routing: a shared global
+     * default plus per-album overrides, resolved by each album's [ViewScope]. Lets the ViewModel wiring
+     * be tested without a real DataStore; the DataStore semantics themselves are covered separately.
+     */
+    private class FakeAlbumViewPreferences : AlbumViewPreferences {
+        private var global = AlbumViewSettings()
+        private val perAlbumSort = mutableMapOf<String, SortSpec>()
+        private val perAlbumColumns = mutableMapOf<String, ColumnCount>()
+        private val scopes = mutableMapOf<String, ViewScope>()
+        private val flows = mutableMapOf<String, MutableStateFlow<AlbumViewSettings>>()
+
+        override fun settings(bucketId: String): Flow<AlbumViewSettings> =
+            flows.getOrPut(bucketId) { MutableStateFlow(resolve(bucketId)) }
+
+        override suspend fun setSort(bucketId: String, sort: SortSpec, scope: ViewScope) {
+            scopes[bucketId] = scope
+            if (scope == ViewScope.ALL_ALBUMS) global = global.copy(sort = sort) else perAlbumSort[bucketId] = sort
+            emitAll()
+        }
+
+        override suspend fun setColumns(bucketId: String, columns: ColumnCount, scope: ViewScope) {
+            scopes[bucketId] = scope
+            if (scope == ViewScope.ALL_ALBUMS) global = global.copy(columns = columns) else perAlbumColumns[bucketId] = columns
+            emitAll()
+        }
+
+        override suspend fun setScope(bucketId: String, scope: ViewScope) {
+            scopes[bucketId] = scope
+            emitAll()
+        }
+
+        private fun resolve(bucketId: String): AlbumViewSettings {
+            val scope = scopes[bucketId] ?: ViewScope.ALL_ALBUMS
+            return if (scope == ViewScope.ALL_ALBUMS) {
+                global.copy(scope = scope)
+            } else {
+                AlbumViewSettings(
+                    sort = perAlbumSort[bucketId] ?: global.sort,
+                    columns = perAlbumColumns[bucketId] ?: global.columns,
+                    scope = scope,
+                )
+            }
+        }
+
+        // A global change ripples to every ALL_ALBUMS album, so re-resolve all live flows.
+        private fun emitAll() = flows.forEach { (bucketId, flow) -> flow.value = resolve(bucketId) }
     }
 
     private class FakeAlbumCapture : AlbumCapture {
