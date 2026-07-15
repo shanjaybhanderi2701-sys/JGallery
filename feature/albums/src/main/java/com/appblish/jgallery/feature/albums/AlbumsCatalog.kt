@@ -3,6 +3,7 @@ package com.appblish.jgallery.feature.albums
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.AlbumKind
 import com.appblish.jgallery.core.model.MediaFilter
+import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.SortSpec
@@ -58,6 +59,7 @@ internal object AlbumsCatalog {
         videos: List<MediaItem>,
         pinnedBucketIds: Set<String>,
         sort: SortSpec,
+        coverOverrides: Map<String, MediaId> = emptyMap(),
     ): List<Album> {
         val recent = recentAlbum(deviceAlbums)
         val video = videoAlbum(videos)
@@ -66,6 +68,8 @@ internal object AlbumsCatalog {
             folder.copy(
                 isPriority = isPriorityFolder(folder),
                 pinned = folder.bucketId in pinnedBucketIds,
+                // "Set as cover" (G1-11): the user's chosen cover wins over the index's newest-item default.
+                cover = coverOverrides[folder.bucketId] ?: folder.cover,
             )
         }
         val smart = listOfNotNull(recent, video).map { it.copy(pinned = it.bucketId in pinnedBucketIds) }

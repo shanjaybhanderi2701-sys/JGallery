@@ -390,6 +390,105 @@ class AlbumsViewModelTest {
             assertThat(vm.albumSelection.value.isActive).isFalse()
         }
 
+    // --- Multi-select action bar (G1-11, APP-471) ------------------------------------------------
+
+    @Test
+    fun `copySelectedAlbums copies every selected folder as one aggregate op and exits selection`() =
+        runTest(dispatcher) {
+            val operations = FakeOperations().apply { bulkResult = OperationResult(succeeded = 3, failed = 0) }
+            val vm = viewModel(operations = operations)
+            val shown = listOf(album("camera", count = 5, newest = 9), album("shots", count = 3, newest = 8))
+
+            vm.beginAlbumSelection("camera")
+            vm.toggleAlbumSelection("shots")
+            vm.copySelectedAlbums(shown, destinationBucketId = "trip")
+            advanceUntilIdle()
+
+            assertThat(operations.copied).containsExactly("camera" to "trip", "shots" to "trip")
+            assertThat(vm.albumSelection.value.isActive).isFalse()
+            val state = vm.albumOp.value
+            assertThat(state).isInstanceOf(AlbumOpUiState.Finished::class.java)
+            state as AlbumOpUiState.Finished
+            assertThat(state.context.verb).isEqualTo(AlbumOpVerb.COPY)
+            // One combined op: the total spans both albums and the successes fold together.
+            assertThat(state.context.total).isEqualTo(8)
+            assertThat(state.context.albumName).isEqualTo("2 albums")
+            assertThat(state.summary.succeeded).isEqualTo(6)
+        }
+
+    @Test
+    fun `moveSelectedAlbums skips smart albums and moves only real folders`() = runTest(dispatcher) {
+        val operations = FakeOperations().apply { bulkResult = OperationResult(succeeded = 5, failed = 0) }
+        val vm = viewModel(operations = operations)
+        val recent = Album(
+            bucketId = AlbumsCatalog.RECENT_BUCKET_ID,
+            name = "Recent",
+            itemCount = 9,
+            cover = MediaId("r"),
+            newestItemMillis = 9,
+            kind = AlbumKind.RECENT,
+        )
+        val shown = listOf(recent, album("camera", count = 5, newest = 8))
+
+        vm.selectAllAlbums(shown.map { it.bucketId })
+        vm.moveSelectedAlbums(shown, destinationBucketId = "trip")
+        advanceUntilIdle()
+
+        assertThat(operations.moved).containsExactly("camera" to "trip")
+        assertThat(vm.albumSelection.value.isActive).isFalse()
+    }
+
+    @Test
+    fun `setAlbumCover persists the choice and overrides the index cover in Content`() =
+        runTest(dispatcher) {
+            val repository = FakeRepository()
+            val preferences = FakePreferences()
+            val vm = viewModel(repository = repository, preferences = preferences)
+            repository.albums.value = listOf(album("camera", count = 5, newest = 9))
+
+            // Enter selection then set a new cover.
+            vm.beginAlbumSelection("camera")
+            vm.setAlbumCover("camera", MediaId("chosen"))
+            advanceUntilIdle()
+
+            assertThat(preferences.storedCovers.value).containsEntry("camera", MediaId("chosen"))
+            assertThat(vm.albumSelection.value.isActive).isFalse()
+            val content = withTimeout(5_000) {
+                vm.state.first {
+                    it is AlbumsUiState.Content &&
+                        it.albums.any { a -> a.bucketId == "camera" && a.cover == MediaId("chosen") }
+                } as AlbumsUiState.Content
+            }
+            assertThat(content.albums.first { it.bucketId == "camera" }.cover).isEqualTo(MediaId("chosen"))
+        }
+
+    @Test
+    fun `albumMedia queries the selected album bucket for the cover picker`() = runTest(dispatcher) {
+        val repository = FakeRepository().apply {
+            albumMediaResult = listOf(mediaItem("m1", "camera"), mediaItem("m2", "camera"))
+        }
+        val vm = viewModel(repository = repository)
+
+        val media = withTimeout(5_000) { vm.albumMedia("camera").first() }
+        assertThat(media.map { it.id.value }).containsExactly("m1", "m2").inOrder()
+        assertThat(repository.queriedBuckets).contains("camera")
+    }
+
+    private fun mediaItem(id: String, bucketId: String) = MediaItem(
+        id = MediaId(id),
+        displayName = id,
+        type = com.appblish.jgallery.core.model.MediaType.IMAGE,
+        bucketId = bucketId,
+        bucketName = bucketId,
+        dateTakenMillis = 1,
+        dateModifiedMillis = 1,
+        sizeBytes = 1,
+        width = 1,
+        height = 1,
+        durationMillis = 0,
+        mimeType = "image/jpeg",
+    )
+
     private fun album(bucketId: String, count: Int, newest: Long) = Album(
         bucketId = bucketId,
         name = bucketId.replaceFirstChar { it.uppercase() },
@@ -400,8 +499,14 @@ class AlbumsViewModelTest {
 
     private class FakeRepository : MediaIndexRepository {
         val albums = MutableStateFlow<List<Album>>(emptyList())
+        /** Media returned for a per-album (bucket-scoped) query — powers the "Set as cover" picker. */
+        var albumMediaResult: List<MediaItem> = emptyList()
+        val queriedBuckets = mutableListOf<String?>()
         override fun observeAlbums(): Flow<List<Album>> = albums
-        override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> = MutableStateFlow(emptyList())
+        override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> {
+            queriedBuckets += query.bucketId
+            return MutableStateFlow(if (query.bucketId == null) emptyList() else albumMediaResult)
+        }
         override suspend fun refresh() = Unit
     }
 
@@ -470,6 +575,11 @@ class AlbumsViewModelTest {
         override val pinnedBucketIds: Flow<Set<String>> = storedPins
         override suspend fun setPinned(bucketId: String, pinned: Boolean) {
             storedPins.value = if (pinned) storedPins.value + bucketId else storedPins.value - bucketId
+        }
+        val storedCovers = MutableStateFlow<Map<String, MediaId>>(emptyMap())
+        override val coverOverrides: Flow<Map<String, MediaId>> = storedCovers
+        override suspend fun setCover(bucketId: String, cover: MediaId) {
+            storedCovers.value = storedCovers.value + (bucketId to cover)
         }
     }
 }

@@ -48,8 +48,8 @@ class AlbumsOrganizationTest {
         onCreateAlbum: (String) -> Unit = {},
         onColumnsChange: (ColumnCount) -> Unit = {},
         onRenameAlbum: (Album, String) -> Unit = { _, _ -> },
-        onCopyAlbum: (Album, String) -> Unit = { _, _ -> },
-        onMoveAlbum: (Album, String) -> Unit = { _, _ -> },
+        onCopySelected: (String) -> Unit = {},
+        onMoveSelected: (String) -> Unit = {},
         onDeleteSelected: () -> Unit = {},
         onPinSelected: () -> Unit = {},
     ) {
@@ -66,8 +66,6 @@ class AlbumsOrganizationTest {
                     onSortChange = onSortChange,
                     onCreateAlbum = onCreateAlbum,
                     onRenameAlbum = onRenameAlbum,
-                    onCopyAlbum = onCopyAlbum,
-                    onMoveAlbum = onMoveAlbum,
                     albumSelection = selection,
                     onAlbumLongPress = { selection = selection.anchorOn(it.bucketId) },
                     onAlbumSelectToggle = { selection = selection.toggle(it.bucketId) },
@@ -75,6 +73,8 @@ class AlbumsOrganizationTest {
                     onClearAlbumSelection = { selection = selection.clear() },
                     onDeleteSelected = onDeleteSelected,
                     onPinSelected = onPinSelected,
+                    onCopySelected = onCopySelected,
+                    onMoveSelected = onMoveSelected,
                 )
             }
         }
@@ -129,7 +129,8 @@ class AlbumsOrganizationTest {
 
         composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
 
-        composeRule.onNodeWithTag("album_selection_bar").assertIsDisplayed()
+        composeRule.onNodeWithTag("selection_top_bar").assertIsDisplayed()
+        composeRule.onNodeWithTag("selection_action_bar").assertIsDisplayed()
         composeRule.onNodeWithText("1 selected").assertIsDisplayed()
         composeRule.onNodeWithTag("album_selected_camera").assertIsDisplayed()
     }
@@ -153,9 +154,9 @@ class AlbumsOrganizationTest {
         content()
 
         composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
-        composeRule.onNodeWithTag("album_selection_close").performClick()
+        composeRule.onNodeWithTag("selection_close").performClick()
 
-        composeRule.onNodeWithTag("album_selection_bar").assertIsNotDisplayed()
+        composeRule.onNodeWithTag("selection_action_bar").assertIsNotDisplayed()
         composeRule.onNodeWithTag("albums_overflow_action").assertIsDisplayed()
     }
 
@@ -165,7 +166,7 @@ class AlbumsOrganizationTest {
         content(onDeleteSelected = { deleted = true })
 
         composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
-        composeRule.onNodeWithTag("album_selection_delete").performClick()
+        composeRule.onNodeWithTag("selection_action_delete").performClick()
         composeRule.onNodeWithTag("delete_album_dialog").assertIsDisplayed()
         composeRule.onNodeWithTag("delete_album_confirm").performClick()
 
@@ -178,7 +179,9 @@ class AlbumsOrganizationTest {
         content(onRenameAlbum = { album, name -> renamed = album to name })
 
         composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
-        composeRule.onNodeWithTag("album_selection_rename").performClick()
+        // Rename is a single-only op in the ⋮ overflow.
+        composeRule.onNodeWithTag("selection_action_more").performClick()
+        composeRule.onNodeWithTag("selection_action_rename").performClick()
         composeRule.onNodeWithTag("name_input_dialog").assertIsDisplayed()
 
         composeRule.onNodeWithTag("name_input_field").performTextInput("_Renamed")
@@ -191,18 +194,17 @@ class AlbumsOrganizationTest {
     }
 
     @Test
-    fun selectionBar_copy_singleSelected_picksDestinationExcludingSource() {
-        var copied: Pair<Album, String>? = null
-        content(onCopyAlbum = { album, dest -> copied = album to dest })
+    fun selectionBar_copy_multi_picksDestination() {
+        var copiedTo: String? = null
+        content(onCopySelected = { copiedTo = it })
 
+        // Select both folders → Copy is a multi-safe bottom-bar action.
         composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
-        composeRule.onNodeWithTag("album_selection_copy").performClick()
+        composeRule.onNodeWithTag("album_card_shots").performClick()
+        composeRule.onNodeWithTag("selection_action_copy").performClick()
         composeRule.onNodeWithTag("destination_picker").assertIsDisplayed()
         composeRule.onNodeWithTag("destination_shots").performClick()
 
-        composeRule.runOnIdle {
-            assert(copied?.first?.bucketId == "camera")
-            assert(copied?.second == "shots")
-        }
+        composeRule.runOnIdle { assert(copiedTo == "shots") }
     }
 }

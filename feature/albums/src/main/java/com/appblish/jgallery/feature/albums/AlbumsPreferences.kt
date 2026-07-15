@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
@@ -35,6 +36,15 @@ interface AlbumsPreferences {
 
     /** Pin or unpin [bucketId] (spec C4 item 6). Idempotent. */
     suspend fun setPinned(bucketId: String, pinned: Boolean)
+
+    /**
+     * User-chosen cover overrides (G1-11 "Set as cover"): bucketId → the [MediaId] the user picked as
+     * that album's cover, replacing the index's default newest-item cover. Empty when nothing overridden.
+     */
+    val coverOverrides: Flow<Map<String, MediaId>>
+
+    /** Pin [cover] as the cover of album [bucketId] (G1-11). Replaces any previous choice for it. */
+    suspend fun setCover(bucketId: String, cover: MediaId)
 }
 
 /** DataStore-backed [AlbumsPreferences]. Unknown/legacy stored values fall back to the defaults. */
@@ -76,6 +86,24 @@ internal class DataStoreAlbumsPreferences(
         }
     }
 
+    // Cover overrides are stored as a set of "bucketIdmediaId" tokens — one per overridden album —
+    // so the whole map rides the same DataStore.Preferences without a codec. Legacy/garbled tokens drop.
+    override val coverOverrides: Flow<Map<String, MediaId>> =
+        dataStore.data.map { prefs ->
+            prefs[KEY_COVERS].orEmpty().mapNotNull { token ->
+                val sep = token.indexOf(COVER_SEP)
+                if (sep <= 0 || sep == token.lastIndex) null
+                else token.substring(0, sep) to MediaId(token.substring(sep + 1))
+            }.toMap()
+        }
+
+    override suspend fun setCover(bucketId: String, cover: MediaId) {
+        dataStore.edit { prefs ->
+            val kept = prefs[KEY_COVERS].orEmpty().filterNot { it.startsWith("$bucketId$COVER_SEP") }
+            prefs[KEY_COVERS] = (kept + "$bucketId$COVER_SEP${cover.value}").toSet()
+        }
+    }
+
     private fun String?.toSortKey(): SortKey =
         this?.let { name -> SortKey.entries.firstOrNull { it.name == name } } ?: DEFAULT.key
 
@@ -87,6 +115,8 @@ internal class DataStoreAlbumsPreferences(
         val KEY_SORT_KEY = stringPreferencesKey("albums_sort_key")
         val KEY_SORT_DIR = stringPreferencesKey("albums_sort_dir")
         val KEY_PINNED = stringSetPreferencesKey("albums_pinned_bucket_ids")
+        val KEY_COVERS = stringSetPreferencesKey("albums_cover_overrides")
+        const val COVER_SEP = '\u001F'
         val DEFAULT = SortSpec()
     }
 }

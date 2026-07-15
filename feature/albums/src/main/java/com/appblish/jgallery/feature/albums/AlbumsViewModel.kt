@@ -9,6 +9,8 @@ import com.appblish.jgallery.core.model.AlbumKind
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaFilter
+import com.appblish.jgallery.core.model.MediaId
+import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.OperationProgress
@@ -30,6 +32,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -63,7 +66,7 @@ private data class AlbumsCatalogData(
  */
 @HiltViewModel
 class AlbumsViewModel @Inject constructor(
-    repository: MediaIndexRepository,
+    private val repository: MediaIndexRepository,
     private val operations: MediaOperationsRepository,
     private val preferences: AlbumsPreferences,
 ) : ViewModel() {
@@ -110,13 +113,14 @@ class AlbumsViewModel @Inject constructor(
             repository.observeMedia(MediaQuery()),
             preferences.pinnedBucketIds,
             preferences.sort,
-        ) { albums, media, pinned, sort ->
+            preferences.coverOverrides,
+        ) { albums, media, pinned, sort, coverOverrides ->
             if (albums.isEmpty()) {
                 AlbumsCatalogData(emptyList(), emptyMap(), libraryEmpty = true)
             } else {
                 val videos = media.filter { it.type == MediaType.VIDEO }
                 AlbumsCatalogData(
-                    albums = AlbumsCatalog.buildAlbumsTab(albums, videos, pinned, sort),
+                    albums = AlbumsCatalog.buildAlbumsTab(albums, videos, pinned, sort, coverOverrides),
                     bucketFormats = AlbumsCatalog.bucketFormats(media),
                     libraryEmpty = false,
                 )
@@ -230,15 +234,22 @@ class AlbumsViewModel @Inject constructor(
         destinationBucketId: String,
         op: () -> Flow<FileOperationEvent>,
     ) {
-        albumOpJob?.cancel()
-        val destinationLabel = destinations.value.firstOrNull { it.bucketId == destinationBucketId }?.name
-            ?: "destination"
         val context = AlbumOperationContext(
             verb = verb,
             albumName = album.name,
-            destinationLabel = destinationLabel,
+            destinationLabel = destinationLabel(destinationBucketId),
             total = album.itemCount,
         )
+        startAlbumOp(context, op)
+    }
+
+    /** Human-readable destination name for the progress dialog, from the current album list. */
+    private fun destinationLabel(destinationBucketId: String): String =
+        destinations.value.firstOrNull { it.bucketId == destinationBucketId }?.name ?: "destination"
+
+    /** Drive [op]'s event stream into the determinate progress dialog (see [runAlbumOp] for the flow). */
+    private fun startAlbumOp(context: AlbumOperationContext, op: () -> Flow<FileOperationEvent>) {
+        albumOpJob?.cancel()
         _albumOp.value = AlbumOpUiState.Running(context, progress = null)
 
         var lastProgress: OperationProgress? = null
@@ -325,6 +336,92 @@ class AlbumsViewModel @Inject constructor(
         viewModelScope.launch {
             targets.forEach { preferences.setPinned(it.bucketId, pinAll) }
         }
+    }
+
+    // --- Multi-select Copy / Move (G1-11) --------------------------------------------------------
+    // Copy/Move over a whole selection of real folders (smart albums are skipped — they have no folder
+    // to copy). Both stream through the SAME determinate progress dialog as the single-album op: each
+    // album's flow is chained into one cumulative progress stream + a single aggregated summary, so a
+    // multi-album Copy reads as one operation with one N-of-total bar and one "N copied" result.
+
+    /** Copy every selected device folder into [destinationBucketId] (spec §7.1, G1-11). */
+    fun copySelectedAlbums(shown: List<Album>, destinationBucketId: String) =
+        runAlbumBatchOp(AlbumOpVerb.COPY, shown, destinationBucketId) {
+            operations.copyAlbum(it.bucketId, destinationBucketId)
+        }
+
+    /** Move every selected device folder into [destinationBucketId] (spec §7.2, G1-11). */
+    fun moveSelectedAlbums(shown: List<Album>, destinationBucketId: String) =
+        runAlbumBatchOp(AlbumOpVerb.MOVE, shown, destinationBucketId) {
+            operations.moveAlbum(it.bucketId, destinationBucketId)
+        }
+
+    private fun runAlbumBatchOp(
+        verb: AlbumOpVerb,
+        shown: List<Album>,
+        destinationBucketId: String,
+        opFor: (Album) -> Flow<FileOperationEvent>,
+    ) {
+        val targets = selectedFrom(shown).filter { it.kind == AlbumKind.DEVICE_FOLDER }
+        clearAlbumSelection()
+        if (targets.isEmpty()) return
+        val context = AlbumOperationContext(
+            verb = verb,
+            albumName = if (targets.size == 1) targets.first().name else "${targets.size} albums",
+            destinationLabel = destinationLabel(destinationBucketId),
+            total = targets.sumOf { it.itemCount },
+        )
+        startAlbumOp(context) { combinedAlbumFlow(targets, opFor) }
+    }
+
+    /**
+     * Chain each album's op stream into ONE cumulative [FileOperationEvent] stream: every `InProgress`
+     * is re-based by the items already finished in prior albums (so the bar advances monotonically to
+     * the grand total), and the per-album `Completed` summaries fold into a single terminal summary. If
+     * the collector is cancelled mid-stream no terminal is emitted — the dialog then synthesises the
+     * "N done before cancel" summary exactly as for a single album.
+     */
+    private fun combinedAlbumFlow(
+        targets: List<Album>,
+        opFor: (Album) -> Flow<FileOperationEvent>,
+    ): Flow<FileOperationEvent> = flow {
+        val grandTotal = targets.sumOf { it.itemCount }
+        var base = 0
+        var succeeded = 0
+        var failed = 0
+        for (album in targets) {
+            opFor(album).collect { event ->
+                when (event) {
+                    is FileOperationEvent.InProgress -> emit(
+                        FileOperationEvent.InProgress(
+                            OperationProgress(
+                                completed = base + event.progress.completed,
+                                total = grandTotal,
+                                currentName = event.progress.currentName,
+                            ),
+                        ),
+                    )
+                    is FileOperationEvent.Completed -> {
+                        succeeded += event.summary.succeeded
+                        failed += event.summary.failed
+                    }
+                }
+            }
+            base += album.itemCount
+        }
+        emit(FileOperationEvent.Completed(OperationResult(succeeded = succeeded, failed = failed)))
+    }
+
+    // --- Set as cover (G1-11) --------------------------------------------------------------------
+
+    /** The media inside [bucketId], for the "Set as cover" picker. Newest-first, images and videos. */
+    fun albumMedia(bucketId: String): Flow<List<MediaItem>> =
+        repository.observeMedia(MediaQuery(bucketId = bucketId))
+
+    /** Persist [cover] as album [bucketId]'s cover (G1-11) and exit selection. */
+    fun setAlbumCover(bucketId: String, cover: MediaId) {
+        viewModelScope.launch { preferences.setCover(bucketId, cover) }
+        clearAlbumSelection()
     }
 
     /** The subset of [shown] currently in the album selection, in shown order. */
