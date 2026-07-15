@@ -77,6 +77,7 @@ import com.appblish.jgallery.core.ui.component.GroupBySheet
 import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.ui.component.VideoOverlay
+import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
@@ -126,6 +127,7 @@ fun PhotosScreen(
     val selection by viewModel.selection.collectAsStateWithLifecycle()
     val bulk by viewModel.bulk.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Create-album outcomes (design G1-D7 §2 / C1-09): on success route into the new album's empty
@@ -149,6 +151,8 @@ fun PhotosScreen(
         selection = selection,
         bulk = bulk,
         destinations = destinations,
+        isRefreshing = isRefreshing,
+        onRefresh = viewModel::refresh,
         onColumnsChange = viewModel::setColumns,
         onFilterChange = viewModel::setFilter,
         onGroupChange = viewModel::setGroupBy,
@@ -186,6 +190,8 @@ fun PhotosScreen(
     selection: SelectionState<MediaId> = SelectionState(),
     bulk: BulkOperationUiState = BulkOperationUiState.Idle,
     destinations: List<Album> = emptyList(),
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
     onMediaClick: (MediaItem) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
@@ -306,17 +312,21 @@ fun PhotosScreen(
                             caption = "Nothing here for this filter. Switch to All to see everything.",
                         )
                     } else {
-                        PhotosGrid(
-                            timeline = state.timeline,
-                            columns = columns,
-                            selection = selection,
-                            orderedIds = tileIds,
-                            onColumnsChange = onColumnsChange,
-                            onMediaClick = onMediaClick,
-                            onToggle = onToggle,
-                            onBeginSelect = onBeginSelect,
-                            onDragSelect = onDragSelect,
-                        )
+                        // Pull-to-refresh (design G1-D7 item 13): shared wrapper so every grid behaves
+                        // identically. Wraps the scrollable directly so its nested-scroll drives the pull.
+                        GalleryPullToRefresh(isRefreshing = isRefreshing, onRefresh = onRefresh) {
+                            PhotosGrid(
+                                timeline = state.timeline,
+                                columns = columns,
+                                selection = selection,
+                                orderedIds = tileIds,
+                                onColumnsChange = onColumnsChange,
+                                onMediaClick = onMediaClick,
+                                onToggle = onToggle,
+                                onBeginSelect = onBeginSelect,
+                                onDragSelect = onDragSelect,
+                            )
+                        }
                     }
                 }
             }

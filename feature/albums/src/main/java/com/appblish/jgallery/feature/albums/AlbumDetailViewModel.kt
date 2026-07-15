@@ -23,10 +23,12 @@ import com.appblish.jgallery.core.ui.selection.MediaSelectionController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.map
@@ -51,7 +53,7 @@ sealed interface AlbumDetailUiState {
 @HiltViewModel
 class AlbumDetailViewModel @Inject constructor(
     savedStateHandle: SavedStateHandle,
-    repository: MediaIndexRepository,
+    private val repository: MediaIndexRepository,
     private val operations: MediaOperationsRepository,
     private val viewPreferences: AlbumViewPreferences,
 ) : ViewModel() {
@@ -133,6 +135,23 @@ class AlbumDetailViewModel @Inject constructor(
     val destinations: StateFlow<List<Album>> =
         repository.observeAlbums()
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+
+    // Pull-to-refresh (design G1-D7 item 13): forces a full re-enumeration; the grid re-emits when the
+    // re-scan lands. Re-entrant pulls while one is in flight are ignored.
+    private val refreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = refreshing.asStateFlow()
+
+    fun refresh() {
+        if (refreshing.value) return
+        viewModelScope.launch {
+            refreshing.value = true
+            try {
+                repository.refresh()
+            } finally {
+                refreshing.value = false
+            }
+        }
+    }
 
     // --- In-album Sort + Grid size + scope (G1-9, design APP-465 TB-03) ---------------------------
 

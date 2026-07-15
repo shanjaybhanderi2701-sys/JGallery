@@ -3,10 +3,13 @@ package com.appblish.jgallery.feature.onboarding.screen
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
@@ -40,8 +43,13 @@ import com.appblish.jgallery.feature.onboarding.TrustCopy
 @Composable
 fun TrustOverlayScreen(modifier: Modifier = Modifier) {
     Surface(modifier = modifier.fillMaxSize(), color = JGalleryColors.Background) {
+        // Background is edge-to-edge; content sits in the safe area so the heading clears the status
+        // bar and the down-pointer/caption clear the nav bar (design §Inset, item 10).
         Column(
-            modifier = Modifier.fillMaxSize().padding(horizontal = 32.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+                .padding(horizontal = 32.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Spacer(Modifier.height(96.dp))

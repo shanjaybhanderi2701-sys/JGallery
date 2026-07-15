@@ -54,6 +54,7 @@ import com.appblish.jgallery.core.ui.selection.SelectionDetailsDialog
 import com.appblish.jgallery.core.ui.selection.SelectionState
 import com.appblish.jgallery.core.ui.selection.SelectionTopBar
 import com.appblish.jgallery.core.ui.selection.formatDateRange
+import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import kotlinx.coroutines.flow.flowOf
 
@@ -80,6 +81,7 @@ fun AlbumsScreen(
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     val albumOp by viewModel.albumOp.collectAsStateWithLifecycle()
     val albumSelection by viewModel.albumSelection.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     val shownAlbums = (state as? AlbumsUiState.Content)?.albums.orEmpty()
@@ -122,6 +124,8 @@ fun AlbumsScreen(
         filter = filter,
         destinations = destinations,
         albumOp = albumOp,
+        isRefreshing = isRefreshing,
+        onRefresh = viewModel::refresh,
         onColumnsChange = viewModel::setColumns,
         onSortChange = viewModel::setSort,
         onFilterChange = viewModel::setFilter,
@@ -168,6 +172,8 @@ fun AlbumsScreen(
     onFilterChange: (MediaFilter) -> Unit = {},
     destinations: List<Album> = emptyList(),
     albumOp: AlbumOpUiState? = null,
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
     onRenameAlbum: (Album, String) -> Unit = { _, _ -> },
     onTogglePin: (Album) -> Unit = {},
     onAlbumOpCancel: () -> Unit = {},
@@ -287,22 +293,25 @@ fun AlbumsScreen(
                         caption = "No albums have this kind of media. Switch to All to see everything.",
                     )
                 } else {
-                    AlbumCoverGrid(
-                        albums = state.albums,
-                        columns = columns,
-                        onColumnsChange = onColumnsChange,
-                        // Long-press enters multi-select; a tap toggles once selecting, else opens (APP-467).
-                        onAlbumClick = { album ->
-                            if (albumSelection.isActive) onAlbumSelectToggle(album) else onAlbumClick(album)
-                        },
-                        selectedBucketIds = albumSelection.selected,
-                        // Items 5 & 6: the grid container owns long-press + drag range-select, so a
-                        // long-press holds (no click rollback) and a sweep extends the selection.
-                        onBeginSelect = { bucketId ->
-                            allAlbums.firstOrNull { it.bucketId == bucketId }?.let(onAlbumLongPress)
-                        },
-                        onDragSelect = onAlbumDragSelect,
-                    )
+                    // Pull-to-refresh (design G1-D7 item 13): shared wrapper, identical to the other grids.
+                    GalleryPullToRefresh(isRefreshing = isRefreshing, onRefresh = onRefresh) {
+                        AlbumCoverGrid(
+                            albums = state.albums,
+                            columns = columns,
+                            onColumnsChange = onColumnsChange,
+                            // Long-press enters multi-select; a tap toggles once selecting, else opens (APP-467).
+                            onAlbumClick = { album ->
+                                if (albumSelection.isActive) onAlbumSelectToggle(album) else onAlbumClick(album)
+                            },
+                            selectedBucketIds = albumSelection.selected,
+                            // Items 5 & 6: the grid container owns long-press + drag range-select, so a
+                            // long-press holds (no click rollback) and a sweep extends the selection.
+                            onBeginSelect = { bucketId ->
+                                allAlbums.firstOrNull { it.bucketId == bucketId }?.let(onAlbumLongPress)
+                            },
+                            onDragSelect = onAlbumDragSelect,
+                        )
+                    }
                 }
             }
         }

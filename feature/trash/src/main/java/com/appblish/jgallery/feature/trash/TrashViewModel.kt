@@ -84,6 +84,24 @@ class TrashViewModel @Inject constructor(
         viewModelScope.launch { runCatching { trash.purgeExpired() } }
     }
 
+    // Pull-to-refresh (design G1-D7 item 13): the bin's re-scan is a re-evaluation of the 30-day
+    // retention window — expired entries are purged and the manifest stream re-emits the pruned list.
+    // Re-entrant pulls while one is in flight are ignored.
+    private val refreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = refreshing.asStateFlow()
+
+    fun refresh() {
+        if (refreshing.value) return
+        viewModelScope.launch {
+            refreshing.value = true
+            try {
+                runCatching { trash.purgeExpired() }
+            } finally {
+                refreshing.value = false
+            }
+        }
+    }
+
     // --- selection ---
 
     fun toggleSelection(id: MediaId) {

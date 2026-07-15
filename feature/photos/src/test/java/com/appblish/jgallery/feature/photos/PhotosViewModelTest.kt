@@ -14,6 +14,7 @@ import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.model.SortSpec
 import kotlinx.coroutines.flow.emptyFlow
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -55,6 +56,33 @@ class PhotosViewModelTest {
         val state = withTimeout(5_000) { vm.state.first { it != PhotosUiState.Loading } }
         assertThat(state).isEqualTo(PhotosUiState.Empty)
     }
+
+    @Test
+    fun `refresh re-enumerates the index, toggles isRefreshing, and ignores re-entrant pulls`() =
+        runTest(dispatcher) {
+            val repository = FakeRepository()
+            val gate = CompletableDeferred<Unit>()
+            repository.refreshGate = gate
+            val vm = viewModel(repository = repository)
+
+            assertThat(vm.isRefreshing.value).isFalse()
+
+            vm.refresh()
+            advanceUntilIdle()
+            // In-flight: the re-enumeration is suspended on the gate, spinner still up.
+            assertThat(vm.isRefreshing.value).isTrue()
+            assertThat(repository.refreshCalls).isEqualTo(1)
+
+            // A second pull while one is running is a no-op (no double re-scan).
+            vm.refresh()
+            advanceUntilIdle()
+            assertThat(repository.refreshCalls).isEqualTo(1)
+
+            // Completing the re-scan clears the spinner.
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertThat(vm.isRefreshing.value).isFalse()
+        }
 
     @Test
     fun `index emission becomes a timeline and incremental updates re-derive it`() = runTest(dispatcher) {
@@ -128,9 +156,15 @@ class PhotosViewModelTest {
 
     private class FakeRepository : MediaIndexRepository {
         val items = MutableStateFlow<List<MediaItem>>(emptyList())
+        var refreshCalls = 0
+        /** When set, refresh() suspends on this gate so a test can observe the in-flight window. */
+        var refreshGate: CompletableDeferred<Unit>? = null
         override fun observeAlbums(): Flow<List<Album>> = MutableStateFlow(emptyList())
         override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> = items
-        override suspend fun refresh() = Unit
+        override suspend fun refresh() {
+            refreshCalls++
+            refreshGate?.await()
+        }
     }
 
     /** The bulk-op seam is exercised in [com.appblish.jgallery.core.ui.selection] tests; here it is inert. */

@@ -56,7 +56,7 @@ sealed interface PhotosUiState {
  */
 @HiltViewModel
 class PhotosViewModel @Inject constructor(
-    repository: MediaIndexRepository,
+    private val repository: MediaIndexRepository,
     private val operations: MediaOperationsRepository,
     private val preferences: PhotosPreferences,
     @TimelineDispatcher timelineDispatcher: CoroutineDispatcher,
@@ -107,6 +107,24 @@ class PhotosViewModel @Inject constructor(
         }
             .flowOn(timelineDispatcher)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), PhotosUiState.Loading)
+
+    // Pull-to-refresh (design G1-D7 item 13): forces a full re-enumeration of the index. The spinner
+    // stays up for the duration of [MediaIndexRepository.refresh]; the observeMedia stream re-emits when
+    // the re-scan lands. Re-entrant pulls while one is in flight are ignored.
+    private val refreshing = MutableStateFlow(false)
+    val isRefreshing: StateFlow<Boolean> = refreshing.asStateFlow()
+
+    fun refresh() {
+        if (refreshing.value) return
+        viewModelScope.launch {
+            refreshing.value = true
+            try {
+                repository.refresh()
+            } finally {
+                refreshing.value = false
+            }
+        }
+    }
 
     fun setFilter(filter: MediaFilter) {
         filterState.value = filter

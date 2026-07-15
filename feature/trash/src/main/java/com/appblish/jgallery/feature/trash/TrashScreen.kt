@@ -61,6 +61,7 @@ import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.TrashEntry
 import com.appblish.jgallery.core.model.TrashPolicy
+import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
@@ -83,10 +84,13 @@ fun TrashScreen(
     val state by viewModel.state.collectAsStateWithLifecycle()
     val inFlight by viewModel.operationInFlight.collectAsStateWithLifecycle()
     val summary by viewModel.lastSummary.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
     TrashScreen(
         state = state,
         operationInFlight = inFlight,
         summary = summary,
+        isRefreshing = isRefreshing,
+        onRefresh = viewModel::refresh,
         onBack = onBack,
         onToggleSelect = viewModel::toggleSelection,
         onSelectAll = viewModel::selectAll,
@@ -110,6 +114,8 @@ fun TrashScreen(
     operationInFlight: TrashOpKind?,
     summary: TrashOperationSummary?,
     onBack: () -> Unit,
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
     onToggleSelect: (MediaId) -> Unit,
     onSelectAll: () -> Unit,
     onClearSelection: () -> Unit,
@@ -179,13 +185,18 @@ fun TrashScreen(
                     caption = "Deleted photos and videos wait here for 30 days before they’re removed " +
                         "for good. Nothing to restore right now.",
                 )
-                is TrashUiState.Content -> TrashGrid(
-                    entries = state.entries,
-                    selection = state.selection,
-                    selectionMode = state.inSelectionMode,
-                    now = now,
-                    onToggleSelect = onToggleSelect,
-                )
+                is TrashUiState.Content ->
+                    // Pull-to-refresh (design G1-D7 item 13): shared wrapper, identical to the other grids;
+                    // on the bin a pull re-evaluates the 30-day retention window.
+                    GalleryPullToRefresh(isRefreshing = isRefreshing, onRefresh = onRefresh) {
+                        TrashGrid(
+                            entries = state.entries,
+                            selection = state.selection,
+                            selectionMode = state.inSelectionMode,
+                            now = now,
+                            onToggleSelect = onToggleSelect,
+                        )
+                    }
             }
 
             if (operationInFlight != null) {

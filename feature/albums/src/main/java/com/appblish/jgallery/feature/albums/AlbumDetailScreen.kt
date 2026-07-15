@@ -60,6 +60,7 @@ import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.ui.component.VideoOverlay
+import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
@@ -94,6 +95,7 @@ fun AlbumDetailScreen(
     val bulk by viewModel.bulk.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     val viewSettings by viewModel.viewSettings.collectAsStateWithLifecycle()
+    val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
 
     // Delegated capture (APP-424): the system camera writes the photo into this album's folder via the
     // EXTRA_OUTPUT uri the ViewModel mints — TakePicture returns only a success Boolean and ignores the
@@ -121,6 +123,8 @@ fun AlbumDetailScreen(
         selection = selection,
         bulk = bulk,
         destinations = destinations,
+        isRefreshing = isRefreshing,
+        onRefresh = viewModel::refresh,
         onBack = onBack,
         onMediaClick = onMediaClick,
         onSortChange = viewModel::setSort,
@@ -153,6 +157,8 @@ fun AlbumDetailScreen(
     selection: SelectionState<MediaId> = SelectionState(),
     bulk: BulkOperationUiState = BulkOperationUiState.Idle,
     destinations: List<Album> = emptyList(),
+    isRefreshing: Boolean = false,
+    onRefresh: () -> Unit = {},
     onSortChange: (SortSpec) -> Unit = {},
     onColumnsChange: (ColumnCount) -> Unit = {},
     onScopeChange: (ViewScope) -> Unit = {},
@@ -237,17 +243,20 @@ fun AlbumDetailScreen(
                 details = details,
                 modifier = modifier.testTag("album_detail_screen"),
             ) {
-                AlbumDetailGrid(
-                    items = state.items,
-                    orderedIds = ids,
-                    columns = viewSettings.columns,
-                    selection = selection,
-                    onColumnsChange = onColumnsChange,
-                    onMediaClick = onMediaClick,
-                    onToggle = onToggle,
-                    onBeginSelect = onBeginSelect,
-                    onDragSelect = onDragSelect,
-                )
+                // Pull-to-refresh (design G1-D7 item 13): shared wrapper, identical to the other grids.
+                GalleryPullToRefresh(isRefreshing = isRefreshing, onRefresh = onRefresh) {
+                    AlbumDetailGrid(
+                        items = state.items,
+                        orderedIds = ids,
+                        columns = viewSettings.columns,
+                        selection = selection,
+                        onColumnsChange = onColumnsChange,
+                        onMediaClick = onMediaClick,
+                        onToggle = onToggle,
+                        onBeginSelect = onBeginSelect,
+                        onDragSelect = onDragSelect,
+                    )
+                }
             }
         }
     }

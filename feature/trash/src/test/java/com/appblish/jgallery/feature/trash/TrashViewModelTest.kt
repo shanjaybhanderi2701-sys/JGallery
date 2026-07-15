@@ -7,6 +7,7 @@ import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.model.TrashEntry
 import com.google.common.truth.Truth.assertThat
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -61,6 +62,35 @@ class TrashViewModelTest {
         assertThat(vm.state.value).isEqualTo(TrashUiState.Empty)
         assertThat(repo.purgeCalls).isEqualTo(1)
     }
+
+    @Test
+    fun `refresh re-purges expired entries, toggles isRefreshing, and ignores re-entrant pulls`() =
+        runTest(dispatcher) {
+            val repo = FakeTrashRepository()
+            val vm = TrashViewModel(repo)
+            backgroundScope.launchCollect(vm)
+            advanceUntilIdle()
+            // init already purged once on open.
+            assertThat(repo.purgeCalls).isEqualTo(1)
+            assertThat(vm.isRefreshing.value).isFalse()
+
+            val gate = CompletableDeferred<Unit>()
+            repo.purgeGate = gate
+            vm.refresh()
+            advanceUntilIdle()
+            // In-flight: the bin re-purge is suspended on the gate, spinner still up.
+            assertThat(vm.isRefreshing.value).isTrue()
+            assertThat(repo.purgeCalls).isEqualTo(2)
+
+            // A second pull while one is running is a no-op.
+            vm.refresh()
+            advanceUntilIdle()
+            assertThat(repo.purgeCalls).isEqualTo(2)
+
+            gate.complete(Unit)
+            advanceUntilIdle()
+            assertThat(vm.isRefreshing.value).isFalse()
+        }
 
     @Test
     fun `a populated bin becomes Content`() = runTest(dispatcher) {
@@ -181,8 +211,11 @@ class TrashViewModelTest {
             return flowOf(FileOperationEvent.Completed(OperationResult(count, 0)))
         }
 
+        /** When set, purgeExpired() suspends on this gate so a test can observe the in-flight window. */
+        var purgeGate: CompletableDeferred<Unit>? = null
         override suspend fun purgeExpired(): Int {
             purgeCalls++
+            purgeGate?.await()
             return 0
         }
     }
