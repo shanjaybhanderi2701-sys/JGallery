@@ -438,6 +438,65 @@ class AlbumsViewModelTest {
         assertThat(vm.albumSelection.value.isActive).isFalse()
     }
 
+    // --- D4-03: whole-album create-new = FLATTEN (Architect ruling APP-480) -----------------------
+
+    @Test
+    fun `copySelectedAlbumsToNew flattens the deduped union of member ids into one new album`() =
+        runTest(dispatcher) {
+            val operations = FakeOperations().apply { bulkResult = OperationResult(succeeded = 3, failed = 0) }
+            val repository = FakeRepository().apply {
+                albumMediaByBucket = mapOf(
+                    "camera" to listOf(mediaItem("a", "camera"), mediaItem("b", "camera")),
+                    // "b" also appears in shots → the union must de-duplicate it (no double-count).
+                    "shots" to listOf(mediaItem("c", "shots"), mediaItem("b", "shots")),
+                )
+            }
+            val vm = viewModel(operations = operations, repository = repository)
+            val shown = listOf(album("camera", count = 2, newest = 9), album("shots", count = 2, newest = 8))
+
+            vm.beginAlbumSelection("camera")
+            vm.toggleAlbumSelection("shots")
+            vm.copySelectedAlbumsToNew(shown, name = "Trip")
+            advanceUntilIdle()
+
+            // One create-and-fill call, by name, with the deduped union of both folders' member ids (C3).
+            assertThat(operations.newAlbumCopies).hasSize(1)
+            val (name, ids) = operations.newAlbumCopies.first()
+            assertThat(name).isEqualTo("Trip")
+            assertThat(ids.map { it.value }).containsExactly("a", "b", "c")
+            assertThat(operations.moved).isEmpty()
+            assertThat(vm.albumSelection.value.isActive).isFalse()
+            val state = vm.albumOp.value
+            assertThat(state).isInstanceOf(AlbumOpUiState.Finished::class.java)
+            state as AlbumOpUiState.Finished
+            assertThat(state.context.verb).isEqualTo(AlbumOpVerb.COPY)
+            assertThat(state.context.albumName).isEqualTo("2 albums")
+            assertThat(state.summary.succeeded).isEqualTo(3)
+        }
+
+    @Test
+    fun `moveSelectedAlbumsToNew with only empty sources creates nothing and reports a no-op`() =
+        runTest(dispatcher) {
+            val operations = FakeOperations()
+            val repository = FakeRepository().apply {
+                albumMediaByBucket = mapOf("camera" to emptyList(), "shots" to emptyList())
+            }
+            val vm = viewModel(operations = operations, repository = repository)
+            val shown = listOf(album("camera", count = 0, newest = 9), album("shots", count = 0, newest = 8))
+
+            vm.selectAllAlbums(shown.map { it.bucketId })
+            vm.moveSelectedAlbumsToNew(shown, name = "Empty")
+            advanceUntilIdle()
+
+            // C5: an all-empty selection never creates an album — the seam isn't called, summary is 0/0.
+            assertThat(operations.newAlbumMoves).isEmpty()
+            val state = vm.albumOp.value
+            assertThat(state).isInstanceOf(AlbumOpUiState.Finished::class.java)
+            state as AlbumOpUiState.Finished
+            assertThat(state.summary.succeeded).isEqualTo(0)
+            assertThat(state.summary.failed).isEqualTo(0)
+        }
+
     @Test
     fun `setAlbumCover persists the choice and overrides the index cover in Content`() =
         runTest(dispatcher) {
@@ -501,11 +560,15 @@ class AlbumsViewModelTest {
         val albums = MutableStateFlow<List<Album>>(emptyList())
         /** Media returned for a per-album (bucket-scoped) query — powers the "Set as cover" picker. */
         var albumMediaResult: List<MediaItem> = emptyList()
+        /** Per-bucket media, used by the D4-03 flatten path to expand each folder to its member ids. */
+        var albumMediaByBucket: Map<String, List<MediaItem>> = emptyMap()
         val queriedBuckets = mutableListOf<String?>()
         override fun observeAlbums(): Flow<List<Album>> = albums
         override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> {
             queriedBuckets += query.bucketId
-            return MutableStateFlow(if (query.bucketId == null) emptyList() else albumMediaResult)
+            val bucket = query.bucketId ?: return MutableStateFlow(emptyList())
+            val media = albumMediaByBucket[bucket] ?: albumMediaResult
+            return MutableStateFlow(media)
         }
         override suspend fun refresh() = Unit
     }
@@ -521,10 +584,17 @@ class AlbumsViewModelTest {
         override suspend fun viewUri(id: MediaId): android.net.Uri? = null
         override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
-        override fun copyToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> =
-            flowOf(FileOperationEvent.Completed(bulkResult))
-        override fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> =
-            flowOf(FileOperationEvent.Completed(bulkResult))
+        /** Records the (name, ids) union handed to the D4-03 flatten create-new path. */
+        val newAlbumCopies = mutableListOf<Pair<String, List<MediaId>>>()
+        val newAlbumMoves = mutableListOf<Pair<String, List<MediaId>>>()
+        override fun copyToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> {
+            newAlbumCopies += name to ids
+            return flowOf(FileOperationEvent.Completed(bulkResult))
+        }
+        override fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> {
+            newAlbumMoves += name to ids
+            return flowOf(FileOperationEvent.Completed(bulkResult))
+        }
         override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
         override fun deletePermanently(ids: List<MediaId>): Flow<FileOperationEvent> = emptyFlow()
         override suspend fun beginCapture(

@@ -44,9 +44,11 @@ import com.appblish.jgallery.core.ui.component.FormatFilterChips
 import com.appblish.jgallery.core.ui.component.GalleryTabHeader
 import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
+import com.appblish.jgallery.core.thumbs.coverRequest
 import com.appblish.jgallery.core.ui.selection.AlbumOpProgressDialog
 import com.appblish.jgallery.core.ui.selection.AlbumOpUiState
-import com.appblish.jgallery.core.ui.selection.DestinationPickerSheet
+import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
+import com.appblish.jgallery.core.ui.selection.MoveDestinationSheet
 import com.appblish.jgallery.core.ui.selection.SelectionAction
 import com.appblish.jgallery.core.ui.selection.SelectionActionBar
 import com.appblish.jgallery.core.ui.selection.SelectionState
@@ -144,6 +146,8 @@ fun AlbumsScreen(
         onPinSelected = { viewModel.pinSelectedAlbums(shownAlbums) },
         onCopySelected = { dest -> viewModel.copySelectedAlbums(shownAlbums, dest) },
         onMoveSelected = { dest -> viewModel.moveSelectedAlbums(shownAlbums, dest) },
+        onCopySelectedToNew = { name -> viewModel.copySelectedAlbumsToNew(shownAlbums, name) },
+        onMoveSelectedToNew = { name -> viewModel.moveSelectedAlbumsToNew(shownAlbums, name) },
         onSetAlbumCover = { album, id -> viewModel.setAlbumCover(album.bucketId, id) },
         coverPickerMedia = coverMedia,
         onCoverPickerOpen = { coverBucket = it.bucketId },
@@ -185,6 +189,9 @@ fun AlbumsScreen(
     onPinSelected: () -> Unit = {},
     onCopySelected: (destinationBucketId: String) -> Unit = {},
     onMoveSelected: (destinationBucketId: String) -> Unit = {},
+    onCopySelectedToNew: (name: String) -> Unit = {},
+    onMoveSelectedToNew: (name: String) -> Unit = {},
+    onBrowseFolders: () -> Unit = {},
     onSetAlbumCover: (Album, MediaId) -> Unit = { _, _ -> },
     coverPickerMedia: List<MediaItem> = emptyList(),
     onCoverPickerOpen: (Album) -> Unit = {},
@@ -326,15 +333,33 @@ fun AlbumsScreen(
         )
     }
 
-    // Copy/Move the selected folders to a picked destination (works for one or many).
+    // Copy/Move the selected folders to a picked destination (works for one or many). D4-03: the last
+    // DestinationPickerSheet consumer now uses the shared cover-thumbnail MoveDestinationSheet, so every
+    // Copy/Move surface (viewer, bulk selection, whole-album) speaks one sheet. Its "New album" tile
+    // FLATTENS the selected folders' media into one new album (Architect ruling APP-480), mirroring the
+    // merge that picking an existing album already performs. The operand noun is "albums" and the count
+    // is the selected-folder count — never a bucket-expanded item count (C1).
     pendingBatch?.let { op ->
-        DestinationPickerSheet(
-            title = if (op == BatchOp.COPY) "Copy to" else "Move to",
+        val verb = if (op == BatchOp.COPY) AlbumOpVerb.COPY else AlbumOpVerb.MOVE
+        MoveDestinationSheet(
+            verb = verb,
+            itemCount = selectedFolders.size,
+            itemNoun = if (selectedFolders.size == 1) "album" else "albums",
+            createSubtitle = "The selected albums' media become its cover + contents",
             albums = destinations,
+            coverFor = { it.coverRequest() },
             excludeBucketId = singleSelected?.bucketId,
             onPick = { dest ->
                 pendingBatch = null
                 if (op == BatchOp.COPY) onCopySelected(dest) else onMoveSelected(dest)
+            },
+            onCreateNew = { name ->
+                pendingBatch = null
+                if (op == BatchOp.COPY) onCopySelectedToNew(name) else onMoveSelectedToNew(name)
+            },
+            onBrowseFolders = {
+                pendingBatch = null
+                onBrowseFolders()
             },
             onDismiss = { pendingBatch = null },
         )

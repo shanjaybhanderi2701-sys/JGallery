@@ -202,8 +202,11 @@ class AlbumsOrganizationTest {
         composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
         composeRule.onNodeWithTag("album_card_shots").performClick()
         composeRule.onNodeWithTag("selection_action_copy").performClick()
-        composeRule.onNodeWithTag("destination_picker").assertIsDisplayed()
-        composeRule.onNodeWithTag("destination_shots").performClick()
+        // D4-03: the whole-album Copy/Move path now uses the shared cover-thumbnail MoveDestinationSheet
+        // (pick a tile, then commit) instead of the retired text-row DestinationPickerSheet.
+        composeRule.onNodeWithTag("move_destination_sheet").assertIsDisplayed()
+        composeRule.onNodeWithTag("move_dest_shots").performClick()
+        composeRule.onNodeWithTag("move_sheet_commit").performClick()
 
         composeRule.runOnIdle { assert(copiedTo == "shots") }
     }

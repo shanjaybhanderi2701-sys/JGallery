@@ -32,6 +32,8 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.emitAll
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flow
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.flow.receiveAsFlow
@@ -355,6 +357,60 @@ class AlbumsViewModel @Inject constructor(
         runAlbumBatchOp(AlbumOpVerb.MOVE, shown, destinationBucketId) {
             operations.moveAlbum(it.bucketId, destinationBucketId)
         }
+
+    // --- Copy / Move the selection into a NEW album (D4-03 create-new = FLATTEN) -----------------
+    // The MoveDestinationSheet "New album" tile flattens every selected folder's media into ONE new
+    // album by name (Architect ruling APP-480): identical to picking an existing album as destination,
+    // which already merges all their media into it. Reuses the APP-422 name-based create-and-fill seam
+    // (copyToNewAlbum/moveToNewAlbum) — no §1.6 change. Member ids are expanded at commit only (C2).
+
+    /** Copy every selected device folder's media into a fresh album named [name] (D4-03 flatten). */
+    fun copySelectedAlbumsToNew(shown: List<Album>, name: String) =
+        runAlbumBatchToNewOp(AlbumOpVerb.COPY, shown, name) { ids -> operations.copyToNewAlbum(ids, name) }
+
+    /** Move every selected device folder's media into a fresh album named [name] (D4-03 flatten). */
+    fun moveSelectedAlbumsToNew(shown: List<Album>, name: String) =
+        runAlbumBatchToNewOp(AlbumOpVerb.MOVE, shown, name) { ids -> operations.moveToNewAlbum(ids, name) }
+
+    private fun runAlbumBatchToNewOp(
+        verb: AlbumOpVerb,
+        shown: List<Album>,
+        name: String,
+        opFor: (List<MediaId>) -> Flow<FileOperationEvent>,
+    ) {
+        val targets = selectedFrom(shown).filter { it.kind == AlbumKind.DEVICE_FOLDER }
+        clearAlbumSelection()
+        if (targets.isEmpty()) return
+        val context = AlbumOperationContext(
+            verb = verb,
+            albumName = if (targets.size == 1) targets.first().name else "${targets.size} albums",
+            // Destination is the not-yet-created album; label it by the typed name (C1: no expansion).
+            destinationLabel = name,
+            total = targets.sumOf { it.itemCount },
+        )
+        startAlbumOp(context) { newAlbumFlow(targets, opFor) }
+    }
+
+    /**
+     * Expand the selected folders to the UNION of their member ids **at commit only** (C2), then drive
+     * the single create-and-fill flow. A folder that resolves to zero ids is simply absent from the
+     * union (C5); if every source is empty the op reports a no-op summary instead of creating an empty
+     * album. Duplicate ids across sources are de-duplicated so a Move can't double-count.
+     */
+    private fun newAlbumFlow(
+        targets: List<Album>,
+        opFor: (List<MediaId>) -> Flow<FileOperationEvent>,
+    ): Flow<FileOperationEvent> = flow {
+        val ids = targets
+            .flatMap { album -> repository.observeMedia(MediaQuery(bucketId = album.bucketId)).first() }
+            .map { it.id }
+            .distinct()
+        if (ids.isEmpty()) {
+            emit(FileOperationEvent.Completed(OperationResult(succeeded = 0, failed = 0)))
+            return@flow
+        }
+        emitAll(opFor(ids))
+    }
 
     private fun runAlbumBatchOp(
         verb: AlbumOpVerb,

@@ -68,7 +68,12 @@ private val NewAlbumGreenSoft = Color(0xFFEAF6EF)
  * Cover models are supplied by [coverFor] (the feature layer passes `{ it.coverRequest() }`) so this
  * shared component never has to depend on the thumbnail pipeline — the §1.6 boundary stays intact.
  *
- * @param itemCount how many items are being copied/moved — restated in the title ("Move 12 items to…").
+ * @param itemCount how many operands are being copied/moved — restated in the title ("Move 12 items to…").
+ * @param itemNoun the operand noun for the title (default "items"; the whole-album path passes "albums"
+ *   so it reads "Move 3 albums to…" — D4-03 C1: the count is known up front, no bucket expansion).
+ * @param createSubtitle overrides the create-step subtitle. Default asserts the item count ("The 12
+ *   items become its cover + contents"); the album path passes a count-free line since folder member
+ *   counts aren't expanded to render the picker (D4-03 C1/C2).
  * @param onPick commit to an existing album's bucketId.
  * @param onCreateNew create a fresh album by name and move/copy the items into it (routes to C1-04 progress).
  * @param onBrowseFolders fall back to the full device-folder picker (W2-04).
@@ -86,6 +91,8 @@ fun MoveDestinationSheet(
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
     excludeBucketId: String? = null,
+    itemNoun: String = "items",
+    createSubtitle: String? = null,
 ) {
     val destinations = remember(albums, excludeBucketId) {
         albums.filter { it.bucketId != excludeBucketId }
@@ -106,7 +113,7 @@ fun MoveDestinationSheet(
             if (creatingNew) {
                 // Inline create step (C1-03 phone 2): the items become the new album's cover + contents.
                 CreateNewAlbumStep(
-                    itemCount = itemCount,
+                    subtitle = createSubtitle ?: "The $itemCount $itemNoun become its cover + contents",
                     verb = verb,
                     name = newName,
                     onNameChange = { newName = it },
@@ -117,7 +124,7 @@ fun MoveDestinationSheet(
             }
 
             Text(
-                text = "$actionWord $itemCount items to…",
+                text = "$actionWord $itemCount $itemNoun to…",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
                 color = JGalleryColors.Text,
@@ -272,7 +279,7 @@ private fun DestinationTile(album: Album, cover: Any?, selected: Boolean, onClic
 /** Inline "Create new album" step (C1-03 phone 2): name field + Cancel / Create & move. */
 @Composable
 private fun CreateNewAlbumStep(
-    itemCount: Int,
+    subtitle: String,
     verb: AlbumOpVerb,
     name: String,
     onNameChange: (String) -> Unit,
@@ -299,7 +306,7 @@ private fun CreateNewAlbumStep(
                     color = JGalleryColors.Text,
                 )
                 Text(
-                    text = "The $itemCount items become its cover + contents",
+                    text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
                     color = JGalleryColors.TextSecondary,
                 )
