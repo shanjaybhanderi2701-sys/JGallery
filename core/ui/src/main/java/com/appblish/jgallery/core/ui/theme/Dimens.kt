@@ -12,8 +12,14 @@ object JGalleryDimens {
     val ButtonHeight = 56.dp
     val NavHeight = 86.dp
 
-    /** OnePlus-modeled 2-tab bar (C1-01): 78dp bar, 25dp glyphs, 4dp active accent dot. */
-    val TabBarHeight = 78.dp
+    /**
+     * OnePlus-modeled 2-tab bar content row (C1-01 / G1-D5): 25dp glyphs, 4dp active accent dot.
+     * This is the content-row height only; the bar's total height is this **plus** the bottom
+     * navigation-bar inset, which [com.appblish.jgallery.core.ui.nav.GalleryTabBar] adds via
+     * `windowInsetsPadding(WindowInsets.navigationBars)` (APP-454 fix: labels were clipped by the
+     * system nav bar). Was 78dp flat before the inset fix.
+     */
+    val TabBarHeight = 56.dp
     val TabBarIconSize = 25.dp
     val TabBarActiveDotSize = 4.dp
     val PhotosGutter = 4.dp

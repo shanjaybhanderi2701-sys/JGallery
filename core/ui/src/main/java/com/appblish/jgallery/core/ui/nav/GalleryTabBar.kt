@@ -7,10 +7,13 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.background
 import androidx.compose.material3.Icon
@@ -47,11 +50,18 @@ data class GalleryTabBarItem(
 /**
  * OnePlus-modeled bottom tab bar (design C1-01, item 10). Collapses the old 4-item Material
  * `NavigationBar` into a flat 2-tab bar:
- *  - 78dp tall, [JGalleryColors.Background] container, no elevation.
+ *  - a 56dp content row that sits **above** the system navigation-bar inset, over a full-bleed
+ *    [JGalleryColors.Background] surface, no elevation. Total bar height = 56dp + navBar inset.
  *  - 25dp glyph, 13sp/600 label.
  *  - active tab = accent icon **and** accent label **and** a 4dp accent dot under the label
  *    (this dot replaces the old filled accent pill/indicator).
  *  - no center FAB, no badges.
+ *
+ * Insets (G1-D5 / APP-454): the app is edge-to-edge (`enableEdgeToEdge`), so — unlike Material's
+ * `NavigationBar` — this widget must consume the navigation-bar inset itself or the system nav bar
+ * (gesture pill or 3-button row) paints over the icon/label/dot. The fix keeps the `Surface`
+ * full-bleed to the physical bottom and lifts only the content `Row` via
+ * `windowInsetsPadding(WindowInsets.navigationBars)` — the same pattern as the W2 selection bar.
  *
  * Stateless and route-keyed: the caller owns [selectedRoute] and reacts to [onSelect]. Each tab is
  * tagged `tab_<route>` (and marked `selected` in semantics) so shell/UI tests can assert routing and
@@ -72,6 +82,9 @@ fun GalleryTabBar(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                // Full-bleed surface, inset content: lift the row clear of the system nav bar
+                // (navigationBars, not .bottom, so a side nav bar in landscape is respected too).
+                .windowInsetsPadding(WindowInsets.navigationBars)
                 .height(JGalleryDimens.TabBarHeight),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceEvenly,

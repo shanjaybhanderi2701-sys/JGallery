@@ -11,8 +11,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.appblish.jgallery.core.ui.theme.JGalleryTheme
@@ -21,8 +23,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Instrumented proof of the OnePlus-modeled 2-tab bar (C1-01, APP-414): renders exactly the
- * Photos · Collections pair, drives selection via [GalleryTabBar]'s stateless route contract, and
+ * Instrumented proof of the OnePlus-modeled 2-tab bar (C1-01, APP-414; G1-D5 label APP-454):
+ * renders exactly the Photos · Albums pair (the second tab's route id stays `collections`), drives
+ * selection via [GalleryTabBar]'s stateless route contract, and
  * shows the 4dp accent dot only on the active tab. The full shell rewire (enum reduction +
  * `JGalleryApp` host) is gated on C5's header work + Architect Search/Trash re-homing; this widget
  * ships and is verified standalone so that rewire is a mechanical swap.
@@ -35,7 +38,7 @@ class GalleryTabBarTest {
 
     private val items = listOf(
         GalleryTabBarItem("photos", "Photos", Icons.Filled.Photo, Icons.Outlined.Photo),
-        GalleryTabBarItem("collections", "Collections", Icons.Filled.Category, Icons.Outlined.Category),
+        GalleryTabBarItem("collections", "Albums", Icons.Filled.Category, Icons.Outlined.Category),
     )
 
     @Test
@@ -47,15 +50,18 @@ class GalleryTabBarTest {
             }
         }
 
-        // Both tabs present; Photos active on entry, Collections not.
+        // Both tabs present; Photos active on entry, the second tab not.
         composeRule.onNodeWithTag("tab_photos").assertIsSelected()
         composeRule.onNodeWithTag("tab_collections").assertIsNotSelected()
+
+        // G1-D5: the second tab's human-facing label reads "Albums" (route id stays `collections`).
+        composeRule.onNodeWithText("Albums").assertIsDisplayed()
 
         // The accent dot follows the active tab. Each tab's clickable Column merges its descendants,
         // so the dot's tag lives on the unmerged tree — query it there (see APP-446).
         composeRule.onNodeWithTag("tab_active_dot", useUnmergedTree = true).assertExists()
 
-        // Tap Collections → selection moves.
+        // Tap the second tab → selection moves.
         composeRule.onNodeWithTag("tab_collections").performClick()
         composeRule.onNodeWithTag("tab_collections").assertIsSelected()
         composeRule.onNodeWithTag("tab_photos").assertIsNotSelected()

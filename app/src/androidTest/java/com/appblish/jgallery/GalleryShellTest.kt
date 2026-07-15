@@ -15,9 +15,10 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Instrumented DoD check for the 2-tab shell (design C1-01 item 10): the bar is **Photos · Collections**,
- * Photos is the default, both tabs are reachable, and the retired Albums/Search tabs are gone (Albums
- * is now the Collections body; Search is a header action). The shell is exercised through its DI-free
+ * Instrumented DoD check for the 2-tab shell (design C1-01 item 10; G1-D5 label APP-454): the bar is
+ * **Photos · Albums** (the second tab's route id stays `collections`), Photos is the default, both tabs
+ * are reachable, and the retired 4-tab ids (`tab_albums`/`tab_search`) are gone (the Albums grid is the
+ * second tab's body; Search is a header action). The shell is exercised through its DI-free
  * [JGalleryApp] `tabContent` seam with tagged stubs — routing is what this test owns. The real grid
  * screens are covered by their feature-module tests against the stateless overloads.
  */
@@ -43,7 +44,8 @@ class GalleryShellTest {
         // Photos is the default tab.
         composeRule.onNodeWithTag("photos_screen").assertIsDisplayed()
 
-        composeRule.onNodeWithText("Collections").performClick()
+        // The second tab now reads "Albums" (G1-D5); its route/testTag stay `collections`.
+        composeRule.onNodeWithText("Albums").performClick()
         composeRule.onNodeWithTag("collections_screen").assertIsDisplayed()
 
         composeRule.onNodeWithText("Photos").performClick()
