@@ -11,15 +11,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.CloudOff
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -27,6 +24,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.appblish.jgallery.core.ui.component.JGallerySheet
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
@@ -42,7 +40,6 @@ import com.appblish.jgallery.core.ui.theme.JGalleryColors
  * @param onOpenSettings host launches the boundary's settings request; on return it calls
  *   `StorageAccessMonitor.refresh()`, which clears the banner if access came back.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ReRequestSheet(
     onOpenSettings: () -> Unit,
@@ -50,10 +47,9 @@ fun ReRequestSheet(
     modifier: Modifier = Modifier,
     permanentlyDenied: Boolean = false,
 ) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        sheetState = sheetState,
+    JGallerySheet(
+        onDismiss = onDismiss,
+        skipPartiallyExpanded = true,
         modifier = modifier.testTag("re_request_sheet"),
     ) {
         Column(

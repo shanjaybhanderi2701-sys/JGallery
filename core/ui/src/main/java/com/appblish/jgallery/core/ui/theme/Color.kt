@@ -15,6 +15,12 @@ object JGalleryColors {
     val Surface = Color(0xFFF2F3F6)     // search bar, secondary buttons, utility pills
     val TilePlaceholder = Color(0xFFEDEFF3) // grid tile before its thumbnail lands — never blank white (design §6)
 
+    // Bottom-sheet grab handle (D4 spec §D4-01/§D4-05 "handle #E3E6EB"). A neutral cooler grey than the
+    // #F2F3F6 utility fill so the 44×5dp handle reads distinctly against the white sheet surface. Not a
+    // new hue — the exact value the accepted APP-453 redlines enumerate; centralized here so every sheet
+    // shares one handle instead of each falling back to M3's thin grey pill.
+    val SheetHandle = Color(0xFFE3E6EB)
+
     // Warning amber (`color.warn`, W2 design spec §token): Trash ≤5-days-left badge, partial-success
     // summary glyph. Reserved for "heads-up before something irreversible", not a generic accent.
     val Warn = Color(0xFFE68A17)

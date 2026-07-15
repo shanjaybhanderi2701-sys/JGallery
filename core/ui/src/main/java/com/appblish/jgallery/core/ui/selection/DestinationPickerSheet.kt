@@ -7,17 +7,15 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.ui.component.JGallerySheet
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
@@ -29,7 +27,6 @@ import com.appblish.jgallery.core.ui.theme.JGalleryColors
  * @param title "Copy to" / "Move to" — set by the caller from the chosen [BulkAction].
  * @param excludeBucketId the source bucket to omit (null on the Photos tab = show all).
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DestinationPickerSheet(
     title: String,
@@ -39,15 +36,8 @@ fun DestinationPickerSheet(
     modifier: Modifier = Modifier,
     excludeBucketId: String? = null,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss, modifier = modifier.testTag("destination_picker")) {
+    JGallerySheet(onDismiss = onDismiss, title = title, modifier = modifier.testTag("destination_picker")) {
         Column(Modifier.fillMaxWidth().padding(bottom = 12.dp)) {
-            Text(
-                text = title,
-                style = MaterialTheme.typography.titleLarge,
-                color = JGalleryColors.Text,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
-            )
             val destinations = albums.filter { it.bucketId != excludeBucketId }
             if (destinations.isEmpty()) {
                 Text(

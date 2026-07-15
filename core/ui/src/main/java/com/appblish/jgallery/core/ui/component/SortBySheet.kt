@@ -3,21 +3,17 @@ package com.appblish.jgallery.core.ui.component
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowDownward
 import androidx.compose.material.icons.filled.ArrowUpward
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -28,7 +24,6 @@ import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
-import com.appblish.jgallery.core.ui.theme.JGalleryDimens
 
 /**
  * "Sort By" bottom sheet (spec §6): the four cached-index sort keys — File Name / File Path /
@@ -39,27 +34,18 @@ import com.appblish.jgallery.core.ui.theme.JGalleryDimens
  * a direction flip is one gesture set); it dismisses on outside tap. Every change is reported via
  * [onSelect] with the full [SortSpec] so the caller can persist immediately.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SortBySheet(
     current: SortSpec,
     onSelect: (SortSpec) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        shape = JGalleryDimens.SheetRadius,
-        containerColor = JGalleryColors.Background,
-        dragHandle = { GrabHandle() },
+    JGallerySheet(
+        onDismiss = onDismiss,
+        title = "Sort by",
         modifier = Modifier.testTag("sort_by_sheet"),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) {
-            Text(
-                text = "Sort by",
-                style = MaterialTheme.typography.headlineSmall,
-                color = JGalleryColors.Text,
-            )
-
+        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) {
             SortKey.entries.forEach { key ->
                 SortKeyRow(
                     label = key.label,
@@ -152,17 +138,6 @@ private fun DirectionChip(
             text = label,
             style = MaterialTheme.typography.titleMedium,
             color = if (selected) JGalleryColors.OnAccent else JGalleryColors.Text,
-        )
-    }
-}
-
-@Composable
-private fun GrabHandle() {
-    Box(modifier = Modifier.padding(top = 10.dp, bottom = 6.dp)) {
-        Box(
-            modifier = Modifier
-                .size(width = JGalleryDimens.GrabHandleWidth, height = JGalleryDimens.GrabHandleHeight)
-                .background(JGalleryColors.Surface, RoundedCornerShape(50)),
         )
     }
 }

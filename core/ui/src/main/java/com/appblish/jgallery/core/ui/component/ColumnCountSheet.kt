@@ -10,9 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -21,33 +19,25 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
-import com.appblish.jgallery.core.ui.theme.JGalleryDimens
 
 /**
  * "Column count" bottom sheet (design W1-06): a 2–6 selector that mirrors the pinch value — picking
  * here and pinching write the same per-tab persisted count. iOS-style sheet per the token set: 26dp
  * top radius, 44x5dp grab handle.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun ColumnCountSheet(
     current: ColumnCount,
     onSelect: (ColumnCount) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(
-        onDismissRequest = onDismiss,
-        shape = JGalleryDimens.SheetRadius,
-        containerColor = JGalleryColors.Background,
-        dragHandle = { GrabHandle() },
+    JGallerySheet(
+        onDismiss = onDismiss,
+        title = "Column count",
+        subtitle = "Pinch the grid to change this too",
         modifier = Modifier.testTag("column_count_sheet"),
     ) {
-        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp)) {
-            Text(
-                text = "Column count",
-                style = MaterialTheme.typography.headlineSmall,
-                color = JGalleryColors.Text,
-            )
+        Column(modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp)) {
             Row(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
@@ -77,16 +67,5 @@ fun ColumnCountSheet(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun GrabHandle() {
-    Box(modifier = Modifier.padding(top = 10.dp, bottom = 6.dp)) {
-        Box(
-            modifier = Modifier
-                .size(width = JGalleryDimens.GrabHandleWidth, height = JGalleryDimens.GrabHandleHeight)
-                .background(JGalleryColors.Surface, CircleShape),
-        )
     }
 }

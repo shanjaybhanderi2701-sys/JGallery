@@ -24,10 +24,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material3.Button
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -51,6 +49,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.ui.component.JGallerySheet
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 // C1-03 green (#23A55A) for the "New album" add-tile. NOT [JGalleryColors.TrustGreen], which is
@@ -75,7 +74,6 @@ private val NewAlbumGreenSoft = Color(0xFFEAF6EF)
  * @param onBrowseFolders fall back to the full device-folder picker (W2-04).
  * @param excludeBucketId the source album to omit so items can't be moved onto themselves.
  */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun MoveDestinationSheet(
     verb: AlbumOpVerb,
@@ -98,12 +96,12 @@ fun MoveDestinationSheet(
 
     val actionWord = if (verb == AlbumOpVerb.COPY) "Copy" else "Move"
 
-    ModalBottomSheet(onDismissRequest = onDismiss, modifier = modifier.testTag("move_destination_sheet")) {
+    JGallerySheet(onDismiss = onDismiss, modifier = modifier.testTag("move_destination_sheet")) {
         Column(
             Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp)
-                .padding(bottom = 20.dp),
+                .padding(horizontal = 22.dp)
+                .padding(bottom = 24.dp),
         ) {
             if (creatingNew) {
                 // Inline create step (C1-03 phone 2): the items become the new album's cover + contents.
