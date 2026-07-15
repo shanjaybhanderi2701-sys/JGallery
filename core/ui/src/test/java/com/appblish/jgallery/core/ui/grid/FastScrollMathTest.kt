@@ -25,13 +25,21 @@ class FastScrollMathTest {
     }
 
     @Test
-    fun `drag fraction maps linearly onto the full index`() {
-        assertThat(FastScrollMath.targetIndex(0f, 10_000)).isEqualTo(0)
-        assertThat(FastScrollMath.targetIndex(1f, 10_000)).isEqualTo(9_999)
-        assertThat(FastScrollMath.targetIndex(0.5f, 10_001)).isEqualTo(5_000)
-        assertThat(FastScrollMath.targetIndex(0.5f, 0)).isEqualTo(0)
-        assertThat(FastScrollMath.targetIndex(-1f, 100)).isEqualTo(0)
-        assertThat(FastScrollMath.targetIndex(2f, 100)).isEqualTo(99)
+    fun `drag fraction inverts thumb fraction over the scrollable range`() {
+        // targetIndex maps over [0, total - visible] — the same range thumbFraction maps out of — so
+        // scrolling to the result settles the thumb back at the released fraction (item 7).
+        assertThat(FastScrollMath.targetIndex(0f, 10_000, 24)).isEqualTo(0)
+        assertThat(FastScrollMath.targetIndex(1f, 10_000, 24)).isEqualTo(9_976) // last first-visible index
+        assertThat(FastScrollMath.targetIndex(0.5f, 100, 20)).isEqualTo(40)     // 0.5 * (100 - 20)
+        // Round-trip: thumbFraction(target) == released fraction, so the thumb does not jump on release.
+        val target = FastScrollMath.targetIndex(0.5f, 100, 20)
+        assertThat(FastScrollMath.thumbFraction(target, 20, 100)).isEqualTo(0.5f)
+        // Degenerate inputs clamp instead of throwing.
+        assertThat(FastScrollMath.targetIndex(0.5f, 0, 20)).isEqualTo(0)
+        assertThat(FastScrollMath.targetIndex(-1f, 100, 20)).isEqualTo(0)
+        assertThat(FastScrollMath.targetIndex(2f, 100, 20)).isEqualTo(80)
+        // Empty layout (visible == 0) falls back to a full-range map rather than dividing by nothing.
+        assertThat(FastScrollMath.targetIndex(1f, 100, 0)).isEqualTo(99)
     }
 
     @Test

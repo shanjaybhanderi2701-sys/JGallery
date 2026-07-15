@@ -333,6 +333,33 @@ class AlbumsViewModelTest {
     }
 
     @Test
+    fun `drag range-select extends from the anchor and shrinking deselects (item 6)`() = runTest(dispatcher) {
+        val vm = viewModel()
+        val ordered = listOf("a", "b", "c", "d")
+
+        // Long-press "b" anchors; a drag over "d" selects the inclusive b..d span.
+        vm.beginAlbumSelection("b")
+        vm.dragOverAlbum("d", ordered)
+        assertThat(vm.albumSelection.value.selected).containsExactly("b", "c", "d")
+
+        // Dragging back to "c" shrinks the range — "d" is dropped (nothing was selected before the drag).
+        vm.dragOverAlbum("c", ordered)
+        assertThat(vm.albumSelection.value.selected).containsExactly("b", "c")
+    }
+
+    @Test
+    fun `drag range-select unions with the pre-drag selection (item 6)`() = runTest(dispatcher) {
+        val vm = viewModel()
+        val ordered = listOf("a", "b", "c", "d")
+
+        // Pre-select "a" via a first press, then a second press+drag on c..d must keep "a".
+        vm.beginAlbumSelection("a")
+        vm.beginAlbumSelection("c")
+        vm.dragOverAlbum("d", ordered)
+        assertThat(vm.albumSelection.value.selected).containsExactly("a", "c", "d")
+    }
+
+    @Test
     fun `deleteSelectedAlbums trashes selected device folders and exits selection`() = runTest(dispatcher) {
         val operations = FakeOperations().apply { bulkResult = OperationResult(succeeded = 3, failed = 0) }
         val vm = viewModel(operations = operations)

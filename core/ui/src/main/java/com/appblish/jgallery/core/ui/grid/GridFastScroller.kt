@@ -98,6 +98,11 @@ fun BoxScope.GridFastScroller(
     val totalItems by remember(gridState) {
         derivedStateOf { gridState.layoutInfo.totalItemsCount }
     }
+    // Visible-tile count feeds the drag→index map so it inverts [thumbFraction] over the same range
+    // (item 7): a release settles the thumb back at the fraction the finger left it on.
+    val visibleItems by remember(gridState) {
+        derivedStateOf { gridState.layoutInfo.visibleItemsInfo.size }
+    }
     val scrollFraction by remember(gridState) {
         derivedStateOf {
             val info = gridState.layoutInfo
@@ -154,15 +159,21 @@ fun BoxScope.GridFastScroller(
                                 bubbleCollapsed = FastScrollMath.bubbleCollapsed(speed)
                             }
                             lastDragAtMs = now
-                            val total = gridState.layoutInfo.totalItemsCount
+                            val info = gridState.layoutInfo
                             scope.launch {
-                                gridState.scrollToItem(FastScrollMath.targetIndex(dragFraction, total))
+                                gridState.scrollToItem(
+                                    FastScrollMath.targetIndex(
+                                        dragFraction, info.totalItemsCount, info.visibleItemsInfo.size,
+                                    ),
+                                )
                             }
                         },
                         onDragEnd = {
                             dragging = false
-                            val total = gridState.layoutInfo.totalItemsCount
-                            val landed = FastScrollMath.targetIndex(dragFraction, total)
+                            val info = gridState.layoutInfo
+                            val landed = FastScrollMath.targetIndex(
+                                dragFraction, info.totalItemsCount, info.visibleItemsInfo.size,
+                            )
                             scope.launch {
                                 gridState.scrollToItem(FastScrollMath.nearestSectionStart(landed, sectionStarts))
                             }
@@ -187,7 +198,9 @@ fun BoxScope.GridFastScroller(
                 trackHeightPx = trackHeightPx,
             )
             if (dragging) {
-                val label = bubbleLabel(FastScrollMath.targetIndex(dragFraction, totalItems), bubbleCollapsed)
+                val label = bubbleLabel(
+                    FastScrollMath.targetIndex(dragFraction, totalItems, visibleItems), bubbleCollapsed,
+                )
                 if (label != null) DateBubble(label = label, fraction = fraction, trackHeightPx = trackHeightPx)
             }
         }

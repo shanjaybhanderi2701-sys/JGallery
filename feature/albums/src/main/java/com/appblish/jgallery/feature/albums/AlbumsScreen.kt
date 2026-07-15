@@ -139,6 +139,7 @@ fun AlbumsScreen(
         onOpenTrash = onOpenTrash,
         albumSelection = albumSelection,
         onAlbumLongPress = { viewModel.beginAlbumSelection(it.bucketId) },
+        onAlbumDragSelect = viewModel::dragOverAlbum,
         onAlbumSelectToggle = { viewModel.toggleAlbumSelection(it.bucketId) },
         onSelectAllAlbums = viewModel::selectAllAlbums,
         onClearAlbumSelection = viewModel::clearAlbumSelection,
@@ -182,6 +183,8 @@ fun AlbumsScreen(
     // the single-only ops (Rename/Set-cover/Details), disabled when >1 is selected.
     albumSelection: SelectionState<String> = SelectionState(),
     onAlbumLongPress: (Album) -> Unit = {},
+    // Drag range-select (item 6): sweep from the anchor to the bucket under the finger within [ordered].
+    onAlbumDragSelect: (bucketId: String, ordered: List<String>) -> Unit = { _, _ -> },
     onAlbumSelectToggle: (Album) -> Unit = {},
     onSelectAllAlbums: (List<String>) -> Unit = {},
     onClearAlbumSelection: () -> Unit = {},
@@ -278,8 +281,13 @@ fun AlbumsScreen(
                         onAlbumClick = { album ->
                             if (albumSelection.isActive) onAlbumSelectToggle(album) else onAlbumClick(album)
                         },
-                        onAlbumLongClick = onAlbumLongPress,
                         selectedBucketIds = albumSelection.selected,
+                        // Items 5 & 6: the grid container owns long-press + drag range-select, so a
+                        // long-press holds (no click rollback) and a sweep extends the selection.
+                        onBeginSelect = { bucketId ->
+                            allAlbums.firstOrNull { it.bucketId == bucketId }?.let(onAlbumLongPress)
+                        },
+                        onDragSelect = onAlbumDragSelect,
                     )
                 }
             }

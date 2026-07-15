@@ -1,8 +1,7 @@
 package com.appblish.jgallery.feature.albums
 
-import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +25,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -37,17 +37,19 @@ import coil3.compose.AsyncImage
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.thumbs.coverRequest
+import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
+import com.appblish.jgallery.core.ui.selection.selectableGridDrag
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
 
 /**
  * Reusable album cover grid shared by the Albums tab and the Video smart album's folder-wise screen
  * (spec C4). Same structural perf properties as the Photos grid: stable keys, fixed geometry, pinch
- * column morph persisted per tab. [onAlbumLongClick] is optional — the nested Video grid has no
- * per-album actions.
+ * column morph persisted per tab. [onBeginSelect]/[onDragSelect] are optional — the nested Video grid
+ * has no selection, so it passes neither and the drag gesture is not attached.
  */
 @Composable
 internal fun AlbumCoverGrid(
@@ -57,15 +59,32 @@ internal fun AlbumCoverGrid(
     onAlbumClick: (Album) -> Unit,
     modifier: Modifier = Modifier,
     gridTestTag: String = "albums_grid",
-    onAlbumLongClick: ((Album) -> Unit)? = null,
     // Multi-select (G1-8, APP-467): bucketIds currently selected. Non-empty → selection mode is on, so
     // every card shows its selection check and the whole grid reads as a picker.
     selectedBucketIds: Set<String> = emptySet(),
+    // Long-press-to-select + drag range-select (items 5 & 6): the container owns both, exactly like the
+    // Photos grid, so long-press holds (no click-toggle rollback) and a sweep range-selects. Null in the
+    // nested Video folder grid, which has no selection.
+    onBeginSelect: ((bucketId: String) -> Unit)? = null,
+    onDragSelect: ((bucketId: String, ordered: List<String>) -> Unit)? = null,
 ) {
     val selecting = selectedBucketIds.isNotEmpty()
     val gridState = rememberLazyGridState()
+    // Grid adapter index → album bucketId (flat list, no headers) for the drag hit-test.
+    val bucketAt: (Int) -> String? = { index -> albums.getOrNull(index)?.bucketId }
+    val orderedBucketIds = remember(albums) { albums.map { it.bucketId } }
 
-    Box(modifier = modifier.fillMaxSize()) {
+    val selectionModifier = if (onBeginSelect != null) {
+        Modifier.selectableGridDrag(
+            gridState = gridState,
+            onSelectStart = { index -> bucketAt(index)?.let(onBeginSelect) },
+            onDragOverIndex = { index -> bucketAt(index)?.let { onDragSelect?.invoke(it, orderedBucketIds) } },
+        )
+    } else {
+        Modifier
+    }
+
+    Box(modifier = modifier.fillMaxSize().then(selectionModifier)) {
         LazyVerticalGrid(
             columns = GridCells.Fixed(columns.value),
             state = gridState,
@@ -81,7 +100,6 @@ internal fun AlbumCoverGrid(
                 AlbumCoverCard(
                     album = album,
                     onClick = { onAlbumClick(album) },
-                    onLongClick = onAlbumLongClick?.let { { it(album) } },
                     selecting = selecting,
                     selected = album.bucketId in selectedBucketIds,
                 )
@@ -98,19 +116,19 @@ internal fun AlbumCoverGrid(
 }
 
 /** Cover (16dp radius, square) + optional pin badge + name + count, per design a04 / token table. */
-@OptIn(ExperimentalFoundationApi::class)
 @Composable
 internal fun AlbumCoverCard(
     album: Album,
     onClick: () -> Unit,
-    onLongClick: (() -> Unit)? = null,
     selecting: Boolean = false,
     selected: Boolean = false,
 ) {
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
+            // Tap only — long-press + drag selection is owned by the grid container (items 5 & 6), so a
+            // long-press never resolves as a click here and can't toggle the just-selected card back off.
+            .clickable(onClick = onClick)
             .testTag("album_card_${album.bucketId}"),
     ) {
         Box(
@@ -134,6 +152,17 @@ internal fun AlbumCoverCard(
                     contentDescription = album.name,
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
+                )
+            }
+            // Item 8: under the Video filter the cover is a video frame — draw the shared play disc over
+            // it (duration pill suppressed via hideDurationAtColumns = 0) so it reads unmistakably as a
+            // video cover, matching the play affordance on the Photos/album-detail grids.
+            if (album.coverIsVideo) {
+                VideoOverlay(
+                    durationMillis = 0L,
+                    columns = 0,
+                    hideDurationAtColumns = 0,
+                    modifier = Modifier.testTag("album_video_cover_${album.bucketId}"),
                 )
             }
             // Multi-select (G1-8, APP-467): a selection scrim + a check/hollow-ring in the top-end

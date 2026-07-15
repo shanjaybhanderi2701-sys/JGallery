@@ -108,6 +108,38 @@ internal object AlbumsCatalog {
     }
 
     /**
+     * Per-album cover video for the Videos filter (G1-D7 item 8): each device folder → its newest
+     * video, plus the Recent smart album → the newest video library-wide. The Video smart album already
+     * covers with a video, so it is not in the map (handled by [withVideoCovers] on kind). Empty when
+     * the library holds no videos. Computed off the same cached [videos] the tab is already built from.
+     */
+    fun videoCoverByBucket(videos: List<MediaItem>): Map<String, MediaId> {
+        val onlyVideos = videos.filter { it.type == MediaType.VIDEO }
+        if (onlyVideos.isEmpty()) return emptyMap()
+        val perFolder = onlyVideos
+            .groupBy { it.bucketId }
+            .mapValues { (_, items) -> items.maxBy { it.dateTakenMillis }.id }
+        val newestOverall = onlyVideos.maxBy { it.dateTakenMillis }.id
+        return perFolder + (RECENT_BUCKET_ID to newestOverall)
+    }
+
+    /**
+     * Repaint covers to video frames for the Videos filter (G1-D7 item 8). Each album whose bucket has
+     * a video ([videoCoverByBucket]) gets that video as its [Album.cover] with [Album.coverIsVideo] set
+     * so the card draws a play badge; the Video smart album is flagged directly since its cover is
+     * already a video. Applied only while the Videos filter is active — ordering is preserved.
+     */
+    fun withVideoCovers(albums: List<Album>, videoCoverByBucket: Map<String, MediaId>): List<Album> =
+        albums.map { album ->
+            when (album.kind) {
+                AlbumKind.VIDEO -> album.copy(coverIsVideo = true)
+                else -> videoCoverByBucket[album.bucketId]
+                    ?.let { album.copy(cover = it, coverIsVideo = true) }
+                    ?: album
+            }
+        }
+
+    /**
      * "All Videos" + one sub-album per folder that contains videos (spec C4 item 5). This is the
      * folder-wise grouping shown when the Video smart album is opened; folders are newest-first with a
      * bucketId tiebreak so the order is deterministic. Empty when there are no videos.

@@ -63,4 +63,10 @@ data class Album(
     val kind: AlbumKind = AlbumKind.DEVICE_FOLDER,
     val isPriority: Boolean = false,
     val pinned: Boolean = false,
+    /**
+     * True when [cover] points at a video (so the card draws a play badge). Set by the feature layer
+     * when the Videos filter repaints covers to a video frame (G1-D7 item 8); the index's real-folder
+     * albums default to false.
+     */
+    val coverIsVideo: Boolean = false,
 )

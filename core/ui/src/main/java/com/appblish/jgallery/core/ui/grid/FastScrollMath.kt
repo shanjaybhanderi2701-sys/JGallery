@@ -31,10 +31,19 @@ object FastScrollMath {
         return (firstVisibleIndex.toFloat() / range).coerceIn(0f, 1f)
     }
 
-    /** Inverse of [thumbFraction]: the item index a drag to [fraction] should land on (linear map, design §3). */
-    fun targetIndex(fraction: Float, totalItems: Int): Int {
+    /**
+     * True inverse of [thumbFraction]: the *first-visible* index a drag to [fraction] should scroll to
+     * (design §3). Maps over the same scrollable range `[0, totalItems - visibleItems]` that
+     * [thumbFraction] maps *out* of, so that after `scrollToItem(target)` the thumb settles back at the
+     * exact fraction the finger released at — dragging to 50 % lands on 50 % (item 7). Mapping over
+     * `(totalItems - 1)` instead (the old bug) put the top item under the finger, so the thumb snapped
+     * to a higher fraction on release. [visibleItems] falls back to a full-range map when the layout is
+     * momentarily empty (0), and the result is clamped to a real item index.
+     */
+    fun targetIndex(fraction: Float, totalItems: Int, visibleItems: Int): Int {
         if (totalItems <= 0) return 0
-        return (fraction.coerceIn(0f, 1f) * (totalItems - 1)).roundToInt()
+        val lastFirstIndex = (totalItems - visibleItems.coerceAtLeast(1)).coerceAtLeast(0)
+        return (fraction.coerceIn(0f, 1f) * lastFirstIndex).roundToInt().coerceIn(0, totalItems - 1)
     }
 
     /**

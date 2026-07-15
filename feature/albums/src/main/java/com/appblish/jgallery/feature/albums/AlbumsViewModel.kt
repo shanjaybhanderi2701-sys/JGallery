@@ -58,6 +58,8 @@ private data class AlbumsCatalogData(
     val albums: List<Album>,
     val bucketFormats: Map<String, Set<MediaFilter>>,
     val libraryEmpty: Boolean,
+    // Per-album cover video for the Videos filter (item 8): bucketId → newest video id (incl. Recent).
+    val videoCoverByBucket: Map<String, MediaId> = emptyMap(),
 )
 
 /**
@@ -125,6 +127,7 @@ class AlbumsViewModel @Inject constructor(
                     albums = AlbumsCatalog.buildAlbumsTab(albums, videos, pinned, sort, coverOverrides),
                     bucketFormats = AlbumsCatalog.bucketFormats(media),
                     libraryEmpty = false,
+                    videoCoverByBucket = AlbumsCatalog.videoCoverByBucket(videos),
                 )
             }
         }
@@ -134,8 +137,15 @@ class AlbumsViewModel @Inject constructor(
             if (data.libraryEmpty) {
                 AlbumsUiState.Empty
             } else {
+                val shown = AlbumsCatalog.applyFormatFilter(data.albums, filter, data.bucketFormats)
+                // Item 8: under the Videos filter every surviving cover repaints to a video frame + play
+                // badge; all other filters keep the default (image) covers.
                 AlbumsUiState.Content(
-                    AlbumsCatalog.applyFormatFilter(data.albums, filter, data.bucketFormats),
+                    if (filter == MediaFilter.VIDEOS) {
+                        AlbumsCatalog.withVideoCovers(shown, data.videoCoverByBucket)
+                    } else {
+                        shown
+                    },
                 )
             }
         }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AlbumsUiState.Loading)
@@ -153,8 +163,25 @@ class AlbumsViewModel @Inject constructor(
     private val _albumSelection = MutableStateFlow(SelectionState<String>())
     val albumSelection: StateFlow<SelectionState<String>> = _albumSelection.asStateFlow()
 
-    /** Long-press: enter selection mode with [bucketId] selected (idempotent — re-press keeps it). */
-    fun beginAlbumSelection(bucketId: String) = _albumSelection.update { it.anchorOn(bucketId) }
+    /** Selection snapshot captured at drag-start so shrinking a sweep deselects (parity with the media grids). */
+    private var albumDragBase: Set<String> = emptySet()
+
+    /**
+     * Long-press / drag-start: enter selection with [bucketId] as the anchor, and snapshot the current
+     * selection so a subsequent drag extends from a stable base (item 6). Idempotent — re-press keeps it.
+     */
+    fun beginAlbumSelection(bucketId: String) {
+        albumDragBase = _albumSelection.value.selected
+        _albumSelection.update { it.anchorOn(bucketId) }
+    }
+
+    /**
+     * Drag range-select (item 6, parity with the Photos grid): union the pre-drag base with the span
+     * from the anchor to [bucketId] within the currently-shown [ordered] bucketIds. Dragging back
+     * shrinks the range while preserving anything selected before the sweep began.
+     */
+    fun dragOverAlbum(bucketId: String, ordered: List<String>) =
+        _albumSelection.update { it.extendRangeTo(bucketId, ordered, albumDragBase) }
 
     /** Tap while selecting toggles membership; deselecting the last album exits selection mode. */
     fun toggleAlbumSelection(bucketId: String) = _albumSelection.update { it.toggle(bucketId) }

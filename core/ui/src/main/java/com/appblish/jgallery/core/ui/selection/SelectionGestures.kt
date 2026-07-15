@@ -1,6 +1,9 @@
 package com.appblish.jgallery.core.ui.selection
 
-import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.foundation.gestures.drag
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
@@ -30,14 +33,24 @@ fun Modifier.selectableGridDrag(
 ): Modifier {
     if (!enabled) return this
     return this.pointerInput(gridState) {
-        detectDragGesturesAfterLongPress(
-            onDragStart = { offset ->
-                gridState.itemIndexAt(offset)?.let(onSelectStart)
-            },
-            onDrag = { change, _ ->
+        awaitEachGesture {
+            // Don't require the down unconsumed — the grid's scroll/pinch handlers see it too; we only
+            // act if it grows into a long press. A plain tap (up before the long-press timeout) makes
+            // awaitLongPressOrCancellation return null, so we consume nothing and the tile's own click
+            // handler fires normally.
+            val down = awaitFirstDown(requireUnconsumed = false)
+            val longPress = awaitLongPressOrCancellation(down.id) ?: return@awaitEachGesture
+            // Item 5: consume the long press so the child tile's `clickable`/`combinedClickable` does
+            // not also register a tap on release and toggle the just-selected item straight back off.
+            longPress.consume()
+            gridState.itemIndexAt(longPress.position)?.let(onSelectStart)
+            // Range-extend as the finger sweeps; consuming each move keeps the tile from reading it as a
+            // tap and stops the grid from scrolling mid-select.
+            drag(longPress.id) { change ->
                 gridState.itemIndexAt(change.position)?.let(onDragOverIndex)
-            },
-        )
+                change.consume()
+            }
+        }
     }
 }
 

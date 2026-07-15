@@ -237,6 +237,60 @@ class AlbumsCatalogTest {
         assertThat(filtered.map { it.kindOrBucket() }).containsExactly("RECENT", "downloads").inOrder()
     }
 
+    // --- Video-filter covers (G1-D7 item 8) --------------------------------------------------------
+
+    @Test
+    fun `video cover map picks the newest video per folder plus the newest overall for Recent`() {
+        val videos = listOf(
+            video("cam-old", "camera", "Camera", taken = 100),
+            video("cam-new", "camera", "Camera", taken = 400),
+            video("misc-v", "misc", "Misc", taken = 250),
+        )
+        val map = AlbumsCatalog.videoCoverByBucket(videos)
+
+        assertThat(map["camera"]).isEqualTo(MediaId("cam-new")) // newest in the folder
+        assertThat(map["misc"]).isEqualTo(MediaId("misc-v"))
+        // Recent covers with the newest video library-wide.
+        assertThat(map[AlbumsCatalog.RECENT_BUCKET_ID]).isEqualTo(MediaId("cam-new"))
+    }
+
+    @Test
+    fun `video cover map is empty when the library holds no videos`() {
+        assertThat(AlbumsCatalog.videoCoverByBucket(emptyList())).isEmpty()
+    }
+
+    @Test
+    fun `withVideoCovers repaints folder and Recent covers to videos and flags the play badge`() {
+        val albums = listOf(
+            Album(AlbumsCatalog.RECENT_BUCKET_ID, "Recent", 10, MediaId("img-recent"), 500, AlbumKind.RECENT),
+            folder("camera", "Camera", count = 5, newest = 400, cover = "img-cam"),
+        )
+        val map = mapOf(
+            "camera" to MediaId("vid-cam"),
+            AlbumsCatalog.RECENT_BUCKET_ID to MediaId("vid-recent"),
+        )
+        val repainted = AlbumsCatalog.withVideoCovers(albums, map)
+
+        val recent = repainted.single { it.kind == AlbumKind.RECENT }
+        assertThat(recent.cover).isEqualTo(MediaId("vid-recent"))
+        assertThat(recent.coverIsVideo).isTrue()
+
+        val camera = repainted.single { it.bucketId == "camera" }
+        assertThat(camera.cover).isEqualTo(MediaId("vid-cam"))
+        assertThat(camera.coverIsVideo).isTrue()
+    }
+
+    @Test
+    fun `withVideoCovers flags the Video smart album even though it is absent from the map`() {
+        val videoAlbum = Album(
+            AlbumsCatalog.VIDEO_BUCKET_ID, "Video", 8, MediaId("vid-cover"), 400, AlbumKind.VIDEO,
+        )
+        val repainted = AlbumsCatalog.withVideoCovers(listOf(videoAlbum), emptyMap())
+
+        assertThat(repainted.single().coverIsVideo).isTrue()
+        assertThat(repainted.single().cover).isEqualTo(MediaId("vid-cover")) // unchanged — already a video
+    }
+
     private fun image(id: String, bucket: String, mime: String) = MediaItem(
         id = MediaId(id),
         displayName = "$id.${mime.substringAfterLast('/')}",
