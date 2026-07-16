@@ -4,10 +4,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.test.SemanticsNodeInteraction
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsNotDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.longClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -121,13 +122,32 @@ class AlbumsOrganizationTest {
         composeRule.onNodeWithText("Column count").assertIsDisplayed()
     }
 
+    /**
+     * Enter multi-select via a *real* long-press the container detector actually observes.
+     *
+     * `performTouchInput { longClick() }` injects down and up back-to-back and lets the built-in
+     * duration ride on the terminal move event, so `selectableGridDrag`'s hand-rolled `withTimeout`
+     * long-press (APP-493) — which suspends in `awaitPointerEvent()` and fires only when the deadline
+     * elapses with the pointer still down and no intervening event — never sees the deadline pass, so
+     * no selection begins. That is the false negative that reds this suite on-device at `8dd28da`
+     * (the product fix is correct; the oracle was wrong). Instead: press, let the long-press timeout
+     * elapse with NO event in between so `withTimeout` cancels and fires `onSelectStart`, then a
+     * within-slop nudge (kept a long-press, not a scroll) and lift.
+     */
+    private fun SemanticsNodeInteraction.longPressToSelect() = performTouchInput {
+        down(center)
+        advanceEventTime(viewConfiguration.longPressTimeoutMillis + 200)
+        moveBy(Offset(viewConfiguration.touchSlop / 3f, 0f))
+        up()
+    }
+
     // --- Album multi-select (G1-8, APP-467): long-press enters selection; the bar hosts the ops ---
 
     @Test
     fun longPressAlbum_entersMultiSelect_showingSelectionBar() {
         content()
 
-        composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
+        composeRule.onNodeWithTag("album_card_camera").longPressToSelect()
 
         composeRule.onNodeWithTag("selection_top_bar").assertIsDisplayed()
         composeRule.onNodeWithTag("selection_action_bar").assertIsDisplayed()
@@ -141,7 +161,7 @@ class AlbumsOrganizationTest {
     fun inSelection_tapTogglesAdditionalAlbums() {
         content()
 
-        composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
+        composeRule.onNodeWithTag("album_card_camera").longPressToSelect()
         // A plain tap while selecting toggles rather than opening.
         composeRule.onNodeWithTag("album_card_shots").performClick()
         composeRule.onNodeWithText("2 selected").assertIsDisplayed()
@@ -155,7 +175,7 @@ class AlbumsOrganizationTest {
     fun selectionBar_close_exitsSelectionMode() {
         content()
 
-        composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
+        composeRule.onNodeWithTag("album_card_camera").longPressToSelect()
         composeRule.onNodeWithTag("selection_close").performClick()
 
         composeRule.onNodeWithTag("selection_action_bar").assertIsNotDisplayed()
@@ -167,7 +187,7 @@ class AlbumsOrganizationTest {
         var deleted = false
         content(onDeleteSelected = { deleted = true })
 
-        composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
+        composeRule.onNodeWithTag("album_card_camera").longPressToSelect()
         composeRule.onNodeWithTag("selection_action_delete").performClick()
         composeRule.onNodeWithTag("delete_album_dialog").assertIsDisplayed()
         composeRule.onNodeWithTag("delete_album_confirm").performClick()
@@ -180,7 +200,7 @@ class AlbumsOrganizationTest {
         var renamed: Pair<Album, String>? = null
         content(onRenameAlbum = { album, name -> renamed = album to name })
 
-        composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
+        composeRule.onNodeWithTag("album_card_camera").longPressToSelect()
         // Rename is a single-only op in the ⋮ overflow.
         composeRule.onNodeWithTag("selection_action_more").performClick()
         composeRule.onNodeWithTag("selection_action_rename").performClick()
@@ -201,7 +221,7 @@ class AlbumsOrganizationTest {
         content(onCopySelected = { copiedTo = it })
 
         // Select both folders → Copy is a multi-safe bottom-bar action.
-        composeRule.onNodeWithTag("album_card_camera").performTouchInput { longClick() }
+        composeRule.onNodeWithTag("album_card_camera").longPressToSelect()
         composeRule.onNodeWithTag("album_card_shots").performClick()
         composeRule.onNodeWithTag("selection_action_copy").performClick()
         // D4-03: the whole-album Copy/Move path now uses the shared cover-thumbnail MoveDestinationSheet
