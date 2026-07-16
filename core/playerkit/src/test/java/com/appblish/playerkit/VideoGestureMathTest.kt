@@ -62,6 +62,37 @@ class VideoGestureMathTest {
         assertThat(VideoGestureMath.seekDeltaMs(Zone.RIGHT, 0)).isEqualTo(10_000L)
     }
 
+    // ---- double-tap burst accumulation (drives the on-screen seek indicator) ----
+
+    @Test
+    fun `first tap starts a fresh burst at count one`() {
+        assertThat(VideoGestureMath.advanceSeekBurst(previous = null, active = false, zone = Zone.RIGHT))
+            .isEqualTo(VideoGestureMath.SeekBurst(Zone.RIGHT, 1))
+    }
+
+    @Test
+    fun `same-side taps while the indicator is up accumulate the count`() {
+        val first = VideoGestureMath.advanceSeekBurst(null, active = false, zone = Zone.RIGHT)
+        val second = VideoGestureMath.advanceSeekBurst(first, active = true, zone = Zone.RIGHT)
+        val third = VideoGestureMath.advanceSeekBurst(second, active = true, zone = Zone.RIGHT)
+        assertThat(second).isEqualTo(VideoGestureMath.SeekBurst(Zone.RIGHT, 2))
+        assertThat(third).isEqualTo(VideoGestureMath.SeekBurst(Zone.RIGHT, 3))
+    }
+
+    @Test
+    fun `switching sides restarts the burst even while still visible`() {
+        val right = VideoGestureMath.SeekBurst(Zone.RIGHT, 3)
+        assertThat(VideoGestureMath.advanceSeekBurst(right, active = true, zone = Zone.LEFT))
+            .isEqualTo(VideoGestureMath.SeekBurst(Zone.LEFT, 1))
+    }
+
+    @Test
+    fun `a tap after the indicator faded starts over at one`() {
+        val stale = VideoGestureMath.SeekBurst(Zone.RIGHT, 4)
+        assertThat(VideoGestureMath.advanceSeekBurst(stale, active = false, zone = Zone.RIGHT))
+            .isEqualTo(VideoGestureMath.SeekBurst(Zone.RIGHT, 1))
+    }
+
     // ---- seek clamps to the clip bounds ----
 
     @Test

@@ -43,6 +43,30 @@ object VideoGestureMath {
 
     enum class Axis { HORIZONTAL, VERTICAL }
 
+    /** A run of consecutive same-side double-tap seeks, for the cumulative on-screen label. */
+    data class SeekBurst(
+        val zone: Zone,
+        val count: Int,
+    )
+
+    /**
+     * Advances the double-tap seek burst. A tap *continues* the burst (count + 1) only while the
+     * previous indicator is still on screen ([active]) and lands on the same [zone]; a tap on the
+     * other side, or after the indicator faded, starts a fresh burst at count 1. Never returns null,
+     * so the surface always has a burst to render. The seek magnitude the caller applies stays a
+     * single [SEEK_STEP_MS] step per tap — only the *label* (via [seekDeltaMs]) accumulates.
+     */
+    fun advanceSeekBurst(
+        previous: SeekBurst?,
+        active: Boolean,
+        zone: Zone,
+    ): SeekBurst =
+        if (previous != null && active && previous.zone == zone) {
+            SeekBurst(zone, previous.count + 1)
+        } else {
+            SeekBurst(zone, 1)
+        }
+
     /** Which half of the surface the touch started in. Exact midpoint counts as RIGHT. */
     fun zoneFor(
         x: Float,

@@ -2,8 +2,14 @@ package com.appblish.playerkit
 
 import android.view.SurfaceView
 import androidx.annotation.OptIn
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -11,11 +17,15 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AspectRatio
+import androidx.compose.material.icons.filled.FastForward
+import androidx.compose.material.icons.filled.FastRewind
 import androidx.compose.material.icons.filled.Pause
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -89,6 +99,12 @@ fun VideoPlayerSurface(
     var videoError by remember(pageKey) { mutableStateOf<PlaybackException?>(null) }
     var aspectMode by remember(pageKey) { mutableStateOf(VideoScaleMath.AspectMode.FIT) }
     val zoomState = remember(pageKey) { VideoZoomState() }
+    // Transient double-tap seek indicator. Consecutive taps on the same side ratchet the burst count
+    // (−10s, −20s, …) so the label reads the cumulative jump. [seekIndicator] retains the last burst
+    // (so it renders through the fade-out); [seekVisible] drives the fade and drops
+    // [SEEK_INDICATOR_LINGER_MS] after the last tap. Bumping [id] restarts that timer per tap.
+    var seekIndicator by remember(pageKey) { mutableStateOf<SeekIndicator?>(null) }
+    var seekVisible by remember(pageKey) { mutableStateOf(false) }
     val currentChromeVisible by rememberUpdatedState(chromeVisible)
 
     fun startPlayback() {
@@ -154,7 +170,17 @@ fun VideoPlayerSurface(
             firstFrameRendered = false
             positionMs = 0L
             videoError = null
+            seekIndicator = null
+            seekVisible = false
             zoomState.reset()
+        }
+    }
+    // Fade the double-tap seek indicator out a beat after the last tap. Keyed on the tap id so each
+    // new tap in a burst cancels the pending clear and restarts it — the burst reads as one gesture.
+    LaunchedEffect(seekIndicator?.id) {
+        if (seekIndicator != null) {
+            delay(SEEK_INDICATOR_LINGER_MS)
+            seekVisible = false
         }
     }
     // A codec/decode error came in → tear the half-open player down (outside the listener callback)
@@ -201,8 +227,14 @@ fun VideoPlayerSurface(
                 onToggleChrome = { onChromeVisibleChange(!currentChromeVisible) },
                 onDoubleTapSeek = { zone ->
                     val p = player ?: return@videoPlayerGestures
-                    val delta = VideoGestureMath.seekDeltaMs(zone, tapCount = 1)
-                    p.seekTo(VideoGestureMath.seekTo(p.currentPosition, delta, durationMs))
+                    // Each tap jumps a fixed step; the burst count only grows the *label* so a rapid
+                    // triple-tap reads "−30s" while the playhead still moves one honest step at a time.
+                    val step = VideoGestureMath.seekDeltaMs(zone, tapCount = 1)
+                    p.seekTo(VideoGestureMath.seekTo(p.currentPosition, step, durationMs))
+                    val prev = seekIndicator
+                    val burst = VideoGestureMath.advanceSeekBurst(prev?.burst, seekVisible, zone)
+                    seekIndicator = SeekIndicator(burst, (prev?.id ?: 0) + 1)
+                    seekVisible = true
                 },
             ),
         contentAlignment = Alignment.Center,
@@ -234,7 +266,12 @@ fun VideoPlayerSurface(
 
         val showPlayOverlay =
             videoError == null && (player == null || ended || (chromeVisible && !ended))
-        if (showPlayOverlay) {
+        AnimatedVisibility(
+            visible = showPlayOverlay,
+            enter = fadeIn(tween(CHROME_FADE_IN_MS)),
+            exit = fadeOut(tween(CHROME_FADE_OUT_MS)),
+            modifier = Modifier.align(Alignment.Center),
+        ) {
             IconButton(
                 onClick = {
                     when {
@@ -264,39 +301,97 @@ fun VideoPlayerSurface(
             }
         }
 
-        if (videoError == null && player != null && chromeVisible) {
-            // Fit⇄Fill quick toggle (VideoScaleMath.nextDisplayMode); pinch-zoom composes on top.
-            IconButton(
-                onClick = { aspectMode = VideoScaleMath.nextDisplayMode(aspectMode) },
-                modifier = Modifier
-                    .align(Alignment.TopEnd)
-                    .padding(top = 72.dp, end = 12.dp)
-                    .background(Color.Black.copy(alpha = 0.35f), CircleShape)
-                    .testTag("player_aspect_toggle"),
-            ) {
-                Icon(
-                    imageVector = Icons.Filled.AspectRatio,
-                    contentDescription = "Aspect: ${aspectMode.label}",
-                    tint = Color.White,
+        // Transient double-tap seek feedback on the tapped half. [seekIndicator] is retained through
+        // the exit animation (only [seekVisible] flips) so the label doesn't blank mid-fade.
+        AnimatedVisibility(
+            visible = seekVisible,
+            enter = fadeIn(tween(SEEK_INDICATOR_FADE_MS)),
+            exit = fadeOut(tween(SEEK_INDICATOR_FADE_MS)),
+            modifier = Modifier.matchParentSize(),
+        ) {
+            seekIndicator?.let { indicator ->
+                val zone = indicator.burst.zone
+                val deltaMs = VideoGestureMath.seekDeltaMs(zone, indicator.burst.count)
+                Box(
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment =
+                        if (zone == VideoGestureMath.Zone.LEFT) {
+                            Alignment.CenterStart
+                        } else {
+                            Alignment.CenterEnd
+                        },
+                ) {
+                    Column(
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .padding(horizontal = 48.dp)
+                            .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                            .padding(20.dp)
+                            .testTag("player_seek_indicator"),
+                    ) {
+                        Icon(
+                            imageVector =
+                                if (zone == VideoGestureMath.Zone.LEFT) {
+                                    Icons.Filled.FastRewind
+                                } else {
+                                    Icons.Filled.FastForward
+                                },
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(36.dp),
+                        )
+                        Text(
+                            text = VideoGestureMath.seekLabel(deltaMs),
+                            color = Color.White,
+                            style = MaterialTheme.typography.labelLarge,
+                        )
+                    }
+                }
+            }
+        }
+
+        // Aspect toggle + scrub bar fade together with the chrome (design §3, "controls fade").
+        AnimatedVisibility(
+            visible = videoError == null && player != null && chromeVisible,
+            enter = fadeIn(tween(CHROME_FADE_IN_MS)),
+            exit = fadeOut(tween(CHROME_FADE_OUT_MS)),
+            modifier = Modifier.matchParentSize(),
+        ) {
+            Box(modifier = Modifier.fillMaxSize()) {
+                // Fit⇄Fill quick toggle (VideoScaleMath.nextDisplayMode); pinch-zoom composes on top.
+                IconButton(
+                    onClick = { aspectMode = VideoScaleMath.nextDisplayMode(aspectMode) },
+                    modifier = Modifier
+                        .align(Alignment.TopEnd)
+                        .padding(top = 72.dp, end = 12.dp)
+                        .background(Color.Black.copy(alpha = 0.35f), CircleShape)
+                        .testTag("player_aspect_toggle"),
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.AspectRatio,
+                        contentDescription = "Aspect: ${aspectMode.label}",
+                        tint = Color.White,
+                    )
+                }
+                VideoPlayerControls(
+                    positionMs = positionMs,
+                    durationMs = durationMs,
+                    scrubFraction = scrubFraction,
+                    onScrub = { scrubFraction = it },
+                    onScrubFinished = {
+                        val duration = durationMs
+                        scrubFraction?.let { fraction ->
+                            if (duration > 0) player?.seekTo((fraction * duration).toLong())
+                        }
+                        scrubFraction = null
+                    },
+                    color = accentColor,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(start = 16.dp, end = 16.dp, bottom = 92.dp),
                 )
             }
-            VideoPlayerControls(
-                positionMs = positionMs,
-                durationMs = durationMs,
-                scrubFraction = scrubFraction,
-                onScrub = { scrubFraction = it },
-                onScrubFinished = {
-                    val duration = durationMs
-                    scrubFraction?.let { fraction ->
-                        if (duration > 0) player?.seekTo((fraction * duration).toLong())
-                    }
-                    scrubFraction = null
-                },
-                color = accentColor,
-                modifier = Modifier
-                    .align(Alignment.BottomCenter)
-                    .padding(start = 16.dp, end = 16.dp, bottom = 92.dp),
-            )
         }
 
         // Graceful §8 fallback: an undecodable clip shows the poster behind the app's error chrome.
@@ -314,6 +409,20 @@ internal fun coverScale(aspect: Float, containerW: Float, containerH: Float): Fl
     return maxOf(aspect / containerAspect, containerAspect / aspect)
 }
 
+/**
+ * A live double-tap seek indicator: the accumulated [burst] (side + consecutive-tap count, resolved
+ * by [VideoGestureMath.advanceSeekBurst]) plus a monotonic [id] that restarts the fade-out timer on
+ * every tap so a rapid burst reads as one gesture.
+ */
+internal data class SeekIndicator(
+    val burst: VideoGestureMath.SeekBurst,
+    val id: Int,
+)
+
 private const val POSITION_POLL_MS = 250L
 private const val CONTROLS_AUTO_HIDE_MS = 3_000L
 private const val DEFAULT_ASPECT = 16f / 9f
+private const val CHROME_FADE_IN_MS = 150
+private const val CHROME_FADE_OUT_MS = 250
+private const val SEEK_INDICATOR_FADE_MS = 120
+private const val SEEK_INDICATOR_LINGER_MS = 650L
