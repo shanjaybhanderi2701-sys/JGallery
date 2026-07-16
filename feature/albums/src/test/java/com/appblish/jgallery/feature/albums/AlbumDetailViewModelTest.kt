@@ -9,6 +9,7 @@ import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.CaptureKind
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.FileOperationEvent
+import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
@@ -247,6 +248,24 @@ class AlbumDetailViewModelTest {
     }
 
     @Test
+    fun `setGroupBy persists the time-sectioning for the album (APP-499 shared menu)`() =
+        runTest(dispatcher) {
+            val prefs = FakeAlbumViewPreferences()
+            val vm = viewModel(preferences = prefs)
+            val settingsJob = launch { vm.viewSettings.collect {} }
+            advanceUntilIdle()
+
+            // Default matches the Photos tab (DAY) so the shared Group-by menu opens on the same option.
+            assertThat(vm.viewSettings.value.groupBy).isEqualTo(GroupBy.DAY)
+
+            vm.setGroupBy(GroupBy.MONTH)
+            advanceUntilIdle()
+
+            assertThat(vm.viewSettings.value.groupBy).isEqualTo(GroupBy.MONTH)
+            settingsJob.cancel()
+        }
+
+    @Test
     fun `setScope THIS_ALBUM then a change stays scoped to this album, not the global default`() =
         runTest(dispatcher) {
             val prefs = FakeAlbumViewPreferences()
@@ -321,6 +340,7 @@ class AlbumDetailViewModelTest {
         private var global = AlbumViewSettings()
         private val perAlbumSort = mutableMapOf<String, SortSpec>()
         private val perAlbumColumns = mutableMapOf<String, ColumnCount>()
+        private val perAlbumGroup = mutableMapOf<String, GroupBy>()
         private val scopes = mutableMapOf<String, ViewScope>()
         private val flows = mutableMapOf<String, MutableStateFlow<AlbumViewSettings>>()
 
@@ -339,6 +359,12 @@ class AlbumDetailViewModelTest {
             emitAll()
         }
 
+        override suspend fun setGroupBy(bucketId: String, groupBy: GroupBy, scope: ViewScope) {
+            scopes[bucketId] = scope
+            if (scope == ViewScope.ALL_ALBUMS) global = global.copy(groupBy = groupBy) else perAlbumGroup[bucketId] = groupBy
+            emitAll()
+        }
+
         override suspend fun setScope(bucketId: String, scope: ViewScope) {
             scopes[bucketId] = scope
             emitAll()
@@ -352,6 +378,7 @@ class AlbumDetailViewModelTest {
                 AlbumViewSettings(
                     sort = perAlbumSort[bucketId] ?: global.sort,
                     columns = perAlbumColumns[bucketId] ?: global.columns,
+                    groupBy = perAlbumGroup[bucketId] ?: global.groupBy,
                     scope = scope,
                 )
             }

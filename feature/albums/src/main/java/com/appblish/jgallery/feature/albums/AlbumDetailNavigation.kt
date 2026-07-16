@@ -42,12 +42,16 @@ fun NavController.navigateToAlbumDetail(
 }
 
 /**
- * Album-detail destination: a flat media grid scoped to one bucket, with the shared E11 multi-select
- * + bulk-ops chrome. [onMediaClick] opens the viewer scoped to this album; [onBack] pops.
+ * Album-detail destination: a media grid scoped to one bucket, with the shared E11 multi-select +
+ * bulk-ops chrome. [onMediaClick] opens the viewer scoped to this album; [onBack] pops. [onOpenTrash]
+ * and [onAlbumCreated] back the shared 3-dot menu's Recycle Bin / Create album entries (APP-499) so
+ * the album menu matches the home menu.
  */
 fun NavGraphBuilder.albumDetailScreen(
     onBack: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
+    onOpenTrash: () -> Unit = {},
+    onAlbumCreated: (name: String) -> Unit = {},
 ) {
     composable(
         route = ALBUM_DETAIL_ROUTE,
@@ -68,6 +72,11 @@ fun NavGraphBuilder.albumDetailScreen(
             },
         ),
     ) {
-        AlbumDetailScreen(onBack = onBack, onMediaClick = onMediaClick)
+        AlbumDetailScreen(
+            onBack = onBack,
+            onMediaClick = onMediaClick,
+            onOpenTrash = onOpenTrash,
+            onAlbumCreated = onAlbumCreated,
+        )
     }
 }

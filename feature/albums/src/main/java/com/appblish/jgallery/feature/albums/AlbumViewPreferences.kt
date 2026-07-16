@@ -6,6 +6,7 @@ import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
@@ -24,6 +25,7 @@ enum class ViewScope { THIS_ALBUM, ALL_ALBUMS }
 data class AlbumViewSettings(
     val sort: SortSpec = SortSpec(),
     val columns: ColumnCount = ColumnCount.DEFAULT,
+    val groupBy: GroupBy = GroupBy.DAY,
     val scope: ViewScope = ViewScope.ALL_ALBUMS,
 )
 
@@ -48,6 +50,9 @@ interface AlbumViewPreferences {
     /** Persist [columns] for [bucketId] into the store selected by [scope], recording [scope] on the album. */
     suspend fun setColumns(bucketId: String, columns: ColumnCount, scope: ViewScope)
 
+    /** Persist [groupBy] for [bucketId] into the store selected by [scope], recording [scope] on the album. */
+    suspend fun setGroupBy(bucketId: String, groupBy: GroupBy, scope: ViewScope)
+
     /** Flip which store [bucketId] reads from without changing any value (design TB-03 scope toggle). */
     suspend fun setScope(bucketId: String, scope: ViewScope)
 }
@@ -67,6 +72,7 @@ internal class DataStoreAlbumViewPreferences(
             val global = AlbumViewSettings(
                 sort = prefs.sort(GLOBAL_SORT_KEY, GLOBAL_SORT_DIR),
                 columns = prefs.columns(GLOBAL_COLUMNS),
+                groupBy = prefs.groupBy(GLOBAL_GROUP),
                 scope = scope,
             )
             if (scope == ViewScope.ALL_ALBUMS) {
@@ -77,6 +83,7 @@ internal class DataStoreAlbumViewPreferences(
                     // opting an album into THIS_ALBUM seeds from what it was already showing.
                     sort = prefs.sortOrNull(sortKeyKey(bucketId), sortDirKey(bucketId)) ?: global.sort,
                     columns = prefs.columnsOrNull(columnsKey(bucketId)) ?: global.columns,
+                    groupBy = prefs.groupByOrNull(groupKey(bucketId)) ?: global.groupBy,
                     scope = scope,
                 )
             }
@@ -102,6 +109,17 @@ internal class DataStoreAlbumViewPreferences(
                 ViewScope.THIS_ALBUM -> columnsKey(bucketId)
             }
             prefs[key] = columns.value
+        }
+    }
+
+    override suspend fun setGroupBy(bucketId: String, groupBy: GroupBy, scope: ViewScope) {
+        dataStore.edit { prefs ->
+            prefs[scopeKey(bucketId)] = scope.name
+            val key = when (scope) {
+                ViewScope.ALL_ALBUMS -> GLOBAL_GROUP
+                ViewScope.THIS_ALBUM -> groupKey(bucketId)
+            }
+            prefs[key] = groupBy.name
         }
     }
 
@@ -133,14 +151,22 @@ internal class DataStoreAlbumViewPreferences(
     private fun Preferences.columnsOrNull(key: Preferences.Key<Int>): ColumnCount? =
         this[key]?.let(ColumnCount::clamp)
 
+    private fun Preferences.groupBy(key: Preferences.Key<String>): GroupBy =
+        groupByOrNull(key) ?: GroupBy.DAY
+
+    private fun Preferences.groupByOrNull(key: Preferences.Key<String>): GroupBy? =
+        this[key]?.let { name -> GroupBy.entries.firstOrNull { it.name == name } }
+
     private companion object {
         val GLOBAL_SORT_KEY = stringPreferencesKey("album_view_sort_key")
         val GLOBAL_SORT_DIR = stringPreferencesKey("album_view_sort_dir")
         val GLOBAL_COLUMNS = intPreferencesKey("album_view_columns")
+        val GLOBAL_GROUP = stringPreferencesKey("album_view_group")
 
         fun scopeKey(bucketId: String) = stringPreferencesKey("album_view_scope_$bucketId")
         fun sortKeyKey(bucketId: String) = stringPreferencesKey("album_view_sort_key_$bucketId")
         fun sortDirKey(bucketId: String) = stringPreferencesKey("album_view_sort_dir_$bucketId")
         fun columnsKey(bucketId: String) = intPreferencesKey("album_view_columns_$bucketId")
+        fun groupKey(bucketId: String) = stringPreferencesKey("album_view_group_$bucketId")
     }
 }

@@ -1,6 +1,7 @@
 package com.appblish.jgallery.feature.albums
 
 import android.content.ActivityNotFoundException
+import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -15,16 +16,17 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.grid.GridCells
+import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Check
+import androidx.compose.material.icons.outlined.CreateNewFolder
+import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.GridView
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.SortByAlpha
-import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -40,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -51,6 +54,7 @@ import coil3.compose.AsyncImage
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.CaptureKind
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
@@ -58,6 +62,10 @@ import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.thumbs.coverRequest
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
+import com.appblish.jgallery.core.ui.component.GalleryMenuItem
+import com.appblish.jgallery.core.ui.component.GalleryOverflowMenu
+import com.appblish.jgallery.core.ui.component.GroupBySheet
+import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
@@ -65,6 +73,13 @@ import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
+import com.appblish.jgallery.core.ui.grouping.MediaCell
+import com.appblish.jgallery.core.ui.grouping.MediaSections
+import com.appblish.jgallery.core.ui.grouping.GroupSectionHeader
+import com.appblish.jgallery.core.ui.grouping.StickyMediaHeader
+import com.appblish.jgallery.core.ui.grouping.buildMediaSections
+import java.time.LocalDate
+import java.time.ZoneId
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.BulkOperationUiState
 import com.appblish.jgallery.core.ui.selection.SelectionCheckBadge
@@ -88,6 +103,8 @@ fun AlbumDetailScreen(
     onBack: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
     modifier: Modifier = Modifier,
+    onOpenTrash: () -> Unit = {},
+    onAlbumCreated: (name: String) -> Unit = {},
     viewModel: AlbumDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -96,6 +113,7 @@ fun AlbumDetailScreen(
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     val viewSettings by viewModel.viewSettings.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     // Delegated capture (APP-424): the system camera writes the photo into this album's folder via the
     // EXTRA_OUTPUT uri the ViewModel mints — TakePicture returns only a success Boolean and ignores the
@@ -115,6 +133,18 @@ fun AlbumDetailScreen(
         }
     }
 
+    // Create-album from the shared 3-dot menu (APP-499): route success into the new album's empty
+    // "Add photos" prompt (identical to the Photos/Albums tabs); a failure stays a toast.
+    LaunchedEffect(viewModel) {
+        viewModel.createAlbumEvents.collect { result ->
+            when (result) {
+                is CreateAlbumResult.Success -> onAlbumCreated(result.name)
+                is CreateAlbumResult.Failure ->
+                    Toast.makeText(context, result.reason, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     AlbumDetailScreen(
         title = viewModel.title,
         sourceBucketId = viewModel.bucketId,
@@ -129,7 +159,10 @@ fun AlbumDetailScreen(
         onMediaClick = onMediaClick,
         onSortChange = viewModel::setSort,
         onColumnsChange = viewModel::setColumns,
+        onGroupChange = viewModel::setGroupBy,
         onScopeChange = viewModel::setScope,
+        onOpenTrash = onOpenTrash,
+        onCreateAlbum = viewModel::createAlbum,
         onToggle = viewModel::toggleSelection,
         onBeginSelect = viewModel::beginSelection,
         onDragSelect = viewModel::dragSelectTo,
@@ -161,7 +194,10 @@ fun AlbumDetailScreen(
     onRefresh: () -> Unit = {},
     onSortChange: (SortSpec) -> Unit = {},
     onColumnsChange: (ColumnCount) -> Unit = {},
+    onGroupChange: (GroupBy) -> Unit = {},
     onScopeChange: (ViewScope) -> Unit = {},
+    onOpenTrash: () -> Unit = {},
+    onCreateAlbum: (String) -> Unit = {},
     onToggle: (MediaId) -> Unit = {},
     onBeginSelect: (MediaId) -> Unit = {},
     onDragSelect: (MediaId, List<MediaId>) -> Unit = { _, _ -> },
@@ -176,6 +212,8 @@ fun AlbumDetailScreen(
 ) {
     var showSortSheet by remember { mutableStateOf(false) }
     var showColumnSheet by remember { mutableStateOf(false) }
+    var showGroupSheet by remember { mutableStateOf(false) }
+    var showCreateDialog by remember { mutableStateOf(false) }
 
     val header: @Composable () -> Unit = {
         Row(
@@ -194,13 +232,52 @@ fun AlbumDetailScreen(
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.weight(1f).padding(start = 4.dp),
             )
-            // In-album control cluster (G1-9, design APP-465 TB-03): Sort + Grid size + scope toggle,
-            // same structure as the Albums-tab overflow so the surface reads identically.
-            AlbumViewMenu(
-                scope = viewSettings.scope,
-                onSortBy = { showSortSheet = true },
-                onGridSize = { showColumnSheet = true },
-                onScopeChange = onScopeChange,
+            // Shared 3-dot context menu (APP-499): the album's overflow is the SAME styled
+            // GalleryOverflowMenu as the home/Photos tab, with the identical option set (Sort by /
+            // Group by / Column count / Create album / Recycle Bin) so it can't drift. The in-album
+            // "apply to this album only vs all albums" scope toggle (G1-9) renders in the same styled
+            // surface via the menu's footer slot.
+            GalleryOverflowMenu(
+                testTag = "album_detail_overflow_action",
+                items = listOf(
+                    GalleryMenuItem(
+                        label = "Sort by",
+                        icon = Icons.AutoMirrored.Outlined.Sort,
+                        testTag = "album_detail_menu_sort_by",
+                        onClick = { showSortSheet = true },
+                    ),
+                    GalleryMenuItem(
+                        label = "Group by",
+                        icon = Icons.Outlined.DateRange,
+                        testTag = "album_detail_menu_group_by",
+                        onClick = { showGroupSheet = true },
+                    ),
+                    GalleryMenuItem(
+                        label = "Column count",
+                        icon = Icons.Outlined.GridView,
+                        testTag = "album_detail_menu_column_count",
+                        onClick = { showColumnSheet = true },
+                    ),
+                    GalleryMenuItem(
+                        label = "Create album",
+                        icon = Icons.Outlined.CreateNewFolder,
+                        testTag = "album_detail_menu_create_album",
+                        onClick = { showCreateDialog = true },
+                    ),
+                    GalleryMenuItem(
+                        label = "Recycle Bin",
+                        icon = Icons.Outlined.Delete,
+                        testTag = "album_detail_menu_recycle_bin",
+                        onClick = onOpenTrash,
+                        dividerBefore = true,
+                    ),
+                ),
+                footer = { dismiss ->
+                    ScopeSection(
+                        scope = viewSettings.scope,
+                        onScopeChange = { onScopeChange(it); dismiss() },
+                    )
+                },
             )
         }
     }
@@ -249,6 +326,7 @@ fun AlbumDetailScreen(
                         items = state.items,
                         orderedIds = ids,
                         columns = viewSettings.columns,
+                        groupBy = viewSettings.groupBy,
                         selection = selection,
                         onColumnsChange = onColumnsChange,
                         onMediaClick = onMediaClick,
@@ -277,62 +355,59 @@ fun AlbumDetailScreen(
             onDismiss = { showColumnSheet = false },
         )
     }
+    // Group by (APP-499): the same sheet the Photos tab opens, so Day/Month/Year/None reads identically.
+    if (showGroupSheet) {
+        GroupBySheet(
+            current = viewSettings.groupBy,
+            onSelect = onGroupChange,
+            onDismiss = { showGroupSheet = false },
+        )
+    }
+    // Create album (APP-499): the same NameInputDialog the Photos/Albums tabs use.
+    if (showCreateDialog) {
+        NameInputDialog(
+            title = "Create album",
+            label = "Album name",
+            confirmLabel = "Create",
+            onConfirm = { name ->
+                onCreateAlbum(name)
+                showCreateDialog = false
+            },
+            onDismiss = { showCreateDialog = false },
+        )
+    }
 }
 
 /**
- * Album-detail control cluster menu (G1-9, design APP-465 TB-03): Sort by / Grid size plus the
- * "apply to this album only vs. all albums" scope toggle. Kept as an overflow to mirror the Albums-tab
- * overflow (`AlbumsOverflowMenu`) so both grid surfaces expose the same organize/view controls.
+ * The "apply to this album only vs. all albums" scope toggle (G1-9, design APP-465 TB-03), rendered
+ * inside the shared overflow menu's footer slot (APP-499) so it inherits the styled menu surface. This
+ * is the one album-specific control the flat home menu has no equivalent for; everything above it in
+ * the menu is the identical shared item set.
  */
 @Composable
-private fun AlbumViewMenu(
+private fun ScopeSection(
     scope: ViewScope,
-    onSortBy: () -> Unit,
-    onGridSize: () -> Unit,
     onScopeChange: (ViewScope) -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    Box {
-        IconButton(
-            onClick = { expanded = true },
-            modifier = Modifier.testTag("album_detail_overflow_action"),
-        ) {
-            Icon(Icons.Outlined.MoreVert, contentDescription = "View options", tint = JGalleryColors.Text)
-        }
-        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
-            DropdownMenuItem(
-                text = { Text("Sort by") },
-                leadingIcon = { Icon(Icons.Outlined.SortByAlpha, contentDescription = null) },
-                onClick = { expanded = false; onSortBy() },
-                modifier = Modifier.testTag("album_detail_menu_sort_by"),
-            )
-            DropdownMenuItem(
-                text = { Text("Grid size") },
-                leadingIcon = { Icon(Icons.Outlined.GridView, contentDescription = null) },
-                onClick = { expanded = false; onGridSize() },
-                modifier = Modifier.testTag("album_detail_menu_grid_size"),
-            )
-            Text(
-                text = "APPLY TO",
-                color = JGalleryColors.TextSecondary,
-                fontSize = 11.sp,
-                fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 4.dp),
-            )
-            ScopeRow(
-                label = "This album only",
-                selected = scope == ViewScope.THIS_ALBUM,
-                onClick = { expanded = false; onScopeChange(ViewScope.THIS_ALBUM) },
-                testTag = "album_detail_scope_this",
-            )
-            ScopeRow(
-                label = "All albums",
-                selected = scope == ViewScope.ALL_ALBUMS,
-                onClick = { expanded = false; onScopeChange(ViewScope.ALL_ALBUMS) },
-                testTag = "album_detail_scope_all",
-            )
-        }
-    }
+    Text(
+        text = "APPLY TO",
+        color = JGalleryColors.TextSecondary,
+        fontSize = 11.sp,
+        fontWeight = FontWeight.SemiBold,
+        modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 4.dp),
+    )
+    ScopeRow(
+        label = "This album only",
+        selected = scope == ViewScope.THIS_ALBUM,
+        onClick = { onScopeChange(ViewScope.THIS_ALBUM) },
+        testTag = "album_detail_scope_this",
+    )
+    ScopeRow(
+        label = "All albums",
+        selected = scope == ViewScope.ALL_ALBUMS,
+        onClick = { onScopeChange(ViewScope.ALL_ALBUMS) },
+        testTag = "album_detail_scope_all",
+    )
 }
 
 @Composable
@@ -361,6 +436,7 @@ private fun AlbumDetailGrid(
     items: List<MediaItem>,
     orderedIds: List<MediaId>,
     columns: ColumnCount,
+    groupBy: GroupBy,
     selection: SelectionState<MediaId>,
     onColumnsChange: (ColumnCount) -> Unit,
     onMediaClick: (MediaItem) -> Unit,
@@ -373,7 +449,20 @@ private fun AlbumDetailGrid(
     // survive process death. Same callback-driven pinch primitive the Photos tab uses.
     val gridState = rememberLazyGridState()
     val tileShape = JGalleryDimens.tileRadius(columns)
-    val idAtCell: (Int) -> MediaId? = { index -> items.getOrNull(index)?.id }
+
+    // Group-by sectioning (APP-499): the shared core:ui grouping, identical to the Photos timeline, so
+    // the album grid grows sticky Day/Month/Year headers when the shared menu's Group-by is set. NONE
+    // yields a flat run with no headers — byte-identical to the pre-APP-499 flat grid.
+    val zone = remember { ZoneId.systemDefault() }
+    val sections = remember(items, groupBy) {
+        buildMediaSections(items = items, groupBy = groupBy, zone = zone, today = LocalDate.now(zone))
+    }
+    val cells = sections.cells
+    // Resolve a grid adapter index to the media id under it (null for section headers), so range-drag
+    // and long-press only fire on tiles even with headers interleaved.
+    val idAtCell: (Int) -> MediaId? = { index ->
+        (cells.getOrNull(index) as? MediaCell.Tile)?.item?.id
+    }
 
     Box(
         modifier = Modifier
@@ -392,36 +481,64 @@ private fun AlbumDetailGrid(
             verticalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
             modifier = Modifier.fillMaxSize().testTag("album_detail_grid"),
         ) {
-            items(items, key = { it.id.value }) { item ->
-                val scale = rememberTileSelectScale(selection.isSelected(item.id))
-                Box(
-                    modifier = Modifier
-                        .aspectRatio(1f)
-                        .background(JGalleryColors.AccentSoft, tileShape)
-                        .clickable {
-                            if (selection.isActive) onToggle(item.id) else onMediaClick(item)
-                        },
-                ) {
-                    AsyncImage(
-                        model = item.thumbnailRequest(),
-                        contentDescription = item.displayName,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize().tileSelectScale(scale).clip(tileShape)
-                            .background(JGalleryColors.TilePlaceholder),
-                    )
-                    // Item 8 (design C1-08): shared video play-icon overlay so videos are distinguishable
-                    // in the album grid too — same disc/scrim/duration pill as the Photos tab.
-                    if (item.type == MediaType.VIDEO) {
-                        VideoOverlay(durationMillis = item.durationMillis, columns = columns.value)
+            items(
+                count = cells.size,
+                key = { index -> cells[index].key },
+                span = { index ->
+                    when (cells[index]) {
+                        is MediaCell.Header -> GridItemSpan(maxLineSpan)
+                        is MediaCell.Tile -> GridItemSpan(1)
                     }
-                    SelectionCheckBadge(selected = selection.isSelected(item.id), active = selection.isActive)
+                },
+                contentType = { index ->
+                    when (cells[index]) {
+                        is MediaCell.Header -> "section_header"
+                        is MediaCell.Tile -> "media_tile"
+                    }
+                },
+            ) { index ->
+                when (val cell = cells[index]) {
+                    is MediaCell.Header -> GroupSectionHeader(label = cell.label)
+                    is MediaCell.Tile -> {
+                        val item = cell.item
+                        val scale = rememberTileSelectScale(selection.isSelected(item.id))
+                        Box(
+                            modifier = Modifier
+                                .aspectRatio(1f)
+                                .background(JGalleryColors.AccentSoft, tileShape)
+                                .clickable {
+                                    if (selection.isActive) onToggle(item.id) else onMediaClick(item)
+                                },
+                        ) {
+                            AsyncImage(
+                                model = item.thumbnailRequest(),
+                                contentDescription = item.displayName,
+                                contentScale = ContentScale.Crop,
+                                modifier = Modifier.fillMaxSize().tileSelectScale(scale).clip(tileShape)
+                                    .background(JGalleryColors.TilePlaceholder),
+                            )
+                            // Item 8 (design C1-08): shared video play-icon overlay so videos are
+                            // distinguishable in the album grid too — same disc/scrim/duration pill.
+                            if (item.type == MediaType.VIDEO) {
+                                VideoOverlay(durationMillis = item.durationMillis, columns = columns.value)
+                            }
+                            SelectionCheckBadge(
+                                selected = selection.isSelected(item.id),
+                                active = selection.isActive,
+                            )
+                        }
+                    }
                 }
             }
         }
 
+        // Sticky section header (APP-499): the current group's label pinned at the top, identical to the
+        // Photos tab. Draws nothing for GroupBy.NONE (no sections).
+        StickyMediaHeader(gridState = gridState, sections = sections, testTag = "album_detail_sticky_header")
+
         // APP-466: flat-grid fast-scroller (position bubble) so a large album is grabbable — the last
         // of the shared grid set the in-album grid was missing.
-        GridFastScroller(gridState = gridState, itemCount = items.size)
+        GridFastScroller(gridState = gridState, itemCount = cells.size)
 
         // Item 2 (design C1-07): back-to-top FAB; hidden while a selection is active.
         ScrollToTopFab(gridState = gridState, enabled = !selection.isActive)

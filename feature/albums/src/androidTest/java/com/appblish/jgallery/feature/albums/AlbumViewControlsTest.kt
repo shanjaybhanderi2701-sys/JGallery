@@ -15,8 +15,9 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * Instrumented wiring for the in-album control cluster (G1-9, APP-468): the album-detail overflow opens
- * the shared Sort / Grid-size sheets and the scope toggle reports the chosen [ViewScope].
+ * Instrumented wiring for the in-album control cluster (G1-9, APP-468; shared menu APP-499): the
+ * album-detail overflow — now the shared [GalleryOverflowMenu] — opens the Sort / Column-count / Group-by
+ * sheets and the footer scope toggle reports the chosen [ViewScope].
  */
 @RunWith(AndroidJUnit4::class)
 class AlbumViewControlsTest {
@@ -47,7 +48,7 @@ class AlbumViewControlsTest {
     }
 
     @Test
-    fun overflow_opens_the_grid_size_sheet() {
+    fun overflow_opens_the_column_count_sheet() {
         composeRule.setContent {
             JGalleryTheme {
                 AlbumDetailScreen(
@@ -60,8 +61,26 @@ class AlbumViewControlsTest {
             }
         }
         composeRule.onNodeWithTag("album_detail_overflow_action").performClick()
-        composeRule.onNodeWithTag("album_detail_menu_grid_size").performClick()
+        composeRule.onNodeWithTag("album_detail_menu_column_count").performClick()
         composeRule.onNodeWithTag("column_count_sheet").assertIsDisplayed()
+    }
+
+    @Test
+    fun overflow_opens_the_group_by_sheet() {
+        composeRule.setContent {
+            JGalleryTheme {
+                AlbumDetailScreen(
+                    title = "Camera",
+                    sourceBucketId = "camera",
+                    state = AlbumDetailUiState.Content(items),
+                    onBack = {},
+                    onMediaClick = {},
+                )
+            }
+        }
+        composeRule.onNodeWithTag("album_detail_overflow_action").performClick()
+        composeRule.onNodeWithTag("album_detail_menu_group_by").performClick()
+        composeRule.onNodeWithTag("group_by_sheet").assertIsDisplayed()
     }
 
     @Test

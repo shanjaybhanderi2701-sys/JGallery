@@ -9,6 +9,7 @@ import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.CaptureKind
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
@@ -22,7 +23,10 @@ import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.MediaSelectionController
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -159,6 +163,14 @@ class AlbumDetailViewModel @Inject constructor(
     fun setSort(sort: SortSpec) = persistView { viewPreferences.setSort(bucketId, sort, currentScope()) }
 
     /**
+     * Persist a new [groupBy] time-sectioning into the album's current scope (APP-499). Fired by the
+     * shared 3-dot menu's Group-by option, identical to the Photos tab; the grid re-sections in place
+     * with no rescan (composition-order Filter → Sort → Group).
+     */
+    fun setGroupBy(groupBy: GroupBy) =
+        persistView { viewPreferences.setGroupBy(bucketId, groupBy, currentScope()) }
+
+    /**
      * Persist a new [columns] density into the album's current scope. Fired by both the Grid-size sheet
      * and a pinch-zoom, so the two share one persisted source of truth.
      */
@@ -173,6 +185,27 @@ class AlbumDetailViewModel @Inject constructor(
 
     private fun persistView(block: suspend () -> Unit) {
         viewModelScope.launch { block() }
+    }
+
+    // --- Create album from the shared 3-dot menu (APP-499: album menu == home menu) ---------------
+
+    private val createAlbumResults = Channel<CreateAlbumResult>(Channel.BUFFERED)
+
+    /** Create-album outcomes; the screen routes Success into the new album's empty "Add photos" prompt. */
+    val createAlbumEvents: Flow<CreateAlbumResult> = createAlbumResults.receiveAsFlow()
+
+    /** Create a new album folder (spec §6), same op the Albums/Photos tabs fire. */
+    fun createAlbum(name: String) {
+        viewModelScope.launch {
+            val result = operations.createAlbum(name)
+            createAlbumResults.send(
+                if (result.succeeded > 0) {
+                    CreateAlbumResult.Success(name.trim())
+                } else {
+                    CreateAlbumResult.Failure(result.failures.firstOrNull()?.reason ?: "Couldn't create album")
+                },
+            )
+        }
     }
 
     fun toggleSelection(id: MediaId) = selectionController.toggle(id)

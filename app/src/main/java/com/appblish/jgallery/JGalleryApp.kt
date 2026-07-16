@@ -125,6 +125,8 @@ fun JGalleryApp(
             albumDetailScreen(
                 onBack = { navController.popBackStack() },
                 onMediaClick = { item -> navController.navigateToViewer(item.id, item.bucketId) },
+                onOpenTrash = { navController.navigateToTrash() },
+                onAlbumCreated = { name -> navController.navigateToNewAlbum(name) },
             )
             // New-album empty prompt (design C1-09): after Create album, land here to add first photos.
             newAlbumScreen(

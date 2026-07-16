@@ -2,6 +2,7 @@ package com.appblish.jgallery.core.ui.component
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.size
@@ -75,6 +76,13 @@ data class GalleryMenuItem(
  * where it collapsed toward the grid tone. This applies the redlined menu-surface tokens on every
  * tab: 16dp radius, a designed surface a step above the grid, hairline border, soft shadow, 48dp
  * rows with 22dp leading icons.
+ *
+ * This is the single source of truth for the 3-dot menu across the home/Photos tab, the Albums tab
+ * and every album's detail screen, so the menu can't drift between surfaces (APP-499). Per-surface
+ * extras that don't fit the flat [GalleryMenuItem] list (e.g. an album's "apply to this album only /
+ * all albums" scope toggle) render inside this same styled surface via the optional [footer] slot —
+ * so even the extras share the menu's background, shape and spacing. [onDismiss] fires whenever the
+ * menu closes, letting a [footer] row dismiss it after acting.
  */
 @Composable
 fun GalleryOverflowMenu(
@@ -82,6 +90,7 @@ fun GalleryOverflowMenu(
     modifier: Modifier = Modifier,
     testTag: String = "overflow_action",
     contentDescription: String = "More options",
+    footer: (@Composable ColumnScope.(onDismiss: () -> Unit) -> Unit)? = null,
 ) {
     var expanded by remember { mutableStateOf(false) }
     val dark = isSystemInDarkTheme()
@@ -135,6 +144,7 @@ fun GalleryOverflowMenu(
                     modifier = Modifier.testTag(item.testTag),
                 )
             }
+            footer?.invoke(this) { expanded = false }
         }
     }
 }

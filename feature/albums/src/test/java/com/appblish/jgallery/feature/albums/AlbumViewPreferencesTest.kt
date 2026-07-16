@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.PreferenceDataStoreFactory
 import androidx.datastore.preferences.core.Preferences
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
@@ -77,6 +78,28 @@ class AlbumViewPreferencesTest {
 
         assertThat(prefs.settings("camera").first().columns).isEqualTo(ColumnCount(6))
         assertThat(prefs.settings("screenshots").first().columns).isEqualTo(ColumnCount.DEFAULT)
+    }
+
+    @Test
+    fun `default group-by is DAY and THIS_ALBUM group override is scoped to that album (APP-499)`() = runTest {
+        val prefs = newPrefs()
+        assertThat(prefs.settings("camera").first().groupBy).isEqualTo(GroupBy.DAY)
+
+        prefs.setGroupBy("camera", GroupBy.MONTH, ViewScope.THIS_ALBUM)
+
+        assertThat(prefs.settings("camera").first().groupBy).isEqualTo(GroupBy.MONTH)
+        // A different album, untouched, still reads the global DAY default.
+        assertThat(prefs.settings("screenshots").first().groupBy).isEqualTo(GroupBy.DAY)
+    }
+
+    @Test
+    fun `ALL_ALBUMS group-by updates the global default seen by every album on that scope (APP-499)`() = runTest {
+        val prefs = newPrefs()
+
+        prefs.setGroupBy("camera", GroupBy.YEAR, ViewScope.ALL_ALBUMS)
+
+        assertThat(prefs.settings("camera").first().groupBy).isEqualTo(GroupBy.YEAR)
+        assertThat(prefs.settings("downloads").first().groupBy).isEqualTo(GroupBy.YEAR)
     }
 
     @Test
