@@ -28,6 +28,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -46,11 +47,14 @@ enum class BulkAction { COPY, MOVE, TRASH }
  * active. Left close (X) clears the selection; the title is the live "N selected" count; the trailing
  * action is Select All / Deselect All.
  *
- * Item 9 — no "half blue screen" status-bar bleed: the bar is one solid [JGalleryColors.Accent] plane
- * that draws **edge-to-edge from y=0, behind the status bar** ([background] is applied before the
- * [windowInsetsPadding], so the fill covers the inset region too), while only the content row is pushed
- * down by [WindowInsets.statusBars]. Status-bar icons flip to light content while the bar is composed
- * and restore on exit, so the accent header reads as one continuous surface with no seam.
+ * Item 9 / G1-D8 item 5 — no "half blue screen" status-bar bleed and no white status bar: the app
+ * shell hosts every tab surface inside a Material3 [androidx.compose.material3.Scaffold] that owns (and
+ * consumes) the top status-bar inset, so this bar is actually laid out *below* the status bar and the
+ * accent [background] can never reach y=0 on its own — the status bar would otherwise stay the white
+ * window background. So the status-bar plane is painted at the **window** level instead: while the bar
+ * is composed [SelectionStatusBarChrome] tints the real status bar to [JGalleryColors.Accent] and flips
+ * its icons to light content, restoring both on exit. The status bar and this 56dp bar are then the same
+ * accent, flush and seamless — no white gap above, no colour bleed past the bar.
  */
 @Composable
 fun SelectionTopBar(
@@ -61,7 +65,7 @@ fun SelectionTopBar(
     onDeselectAll: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    LightStatusBarIcons()
+    SelectionStatusBarChrome()
     Row(
         modifier = modifier
             .fillMaxWidth()
@@ -99,22 +103,41 @@ fun SelectionTopBar(
 }
 
 /**
- * While composed, forces the window's status-bar icons to light (white) content so they stay legible
- * over the accent selection plane (design G1-D7 item 9); the prior appearance is restored on exit. A
- * no-op in Compose previews / non-Activity hosts.
+ * While composed, tints the window's status bar to match the accent selection top bar (design G1-D7
+ * item 9 / G1-D8 item 5) — the shell's edge-to-edge [androidx.compose.material3.Scaffold] offsets the
+ * bar below the status bar, so painting the plane behind the bar is done at the window level here:
+ *  - the status-bar **background** is set to [JGalleryColors.Accent], so there's no white status bar
+ *    and no seam between it and the 56dp accent bar directly beneath it (contrast enforcement is turned
+ *    off so the opaque accent isn't scrimmed on 3-button navigation);
+ *  - the status-bar **icons** flip to light (white) content so they stay legible over the accent.
+ *
+ * Both the prior status-bar colour and icon appearance are captured on enter and restored on exit, so
+ * leaving selection mode reverts cleanly to the normal (transparent, dark-icon) treatment. A no-op in
+ * Compose previews / non-Activity hosts. (targetSdk 34 → the legacy `statusBarColor` is still honoured.)
  */
 @Composable
-private fun LightStatusBarIcons() {
+private fun SelectionStatusBarChrome() {
     val view = LocalView.current
     if (view.isInEditMode) return
-    DisposableEffect(Unit) {
+    val accent = JGalleryColors.Accent.toArgb()
+    DisposableEffect(accent) {
         val window = (view.context as? Activity)?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
-        val previous = controller?.isAppearanceLightStatusBars
+        val previousColor = window?.statusBarColor
+        val previousContrast = window?.isStatusBarContrastEnforced
+        val previousLightIcons = controller?.isAppearanceLightStatusBars
+        window?.isStatusBarContrastEnforced = false
+        window?.statusBarColor = accent
         controller?.isAppearanceLightStatusBars = false
         onDispose {
-            if (controller != null && previous != null) {
-                controller.isAppearanceLightStatusBars = previous
+            if (window != null && previousColor != null) {
+                window.statusBarColor = previousColor
+            }
+            if (window != null && previousContrast != null) {
+                window.isStatusBarContrastEnforced = previousContrast
+            }
+            if (controller != null && previousLightIcons != null) {
+                controller.isAppearanceLightStatusBars = previousLightIcons
             }
         }
     }
