@@ -513,7 +513,6 @@ private fun PhotosGrid(
 
         GridFastScroller(
             gridState = gridState,
-            sectionStarts = timeline.sectionStarts,
             bubbleLabel = timeline::bubbleLabel,
         )
 

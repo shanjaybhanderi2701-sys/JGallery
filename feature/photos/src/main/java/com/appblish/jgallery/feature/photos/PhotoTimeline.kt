@@ -50,21 +50,48 @@ class PhotosTimeline(
     private val itemOrdinalByCell: List<Int>,
     val itemCount: Int,
     private val locale: Locale = Locale.getDefault(),
+    private val sortKey: SortKey = SortKey.LAST_MODIFIED,
+    private val sizeLabelByCell: List<String> = emptyList(),
+    private val nameLetterByCell: List<String> = emptyList(),
 ) {
     /**
-     * Fast-scroll bubble text for a cell. At a normal drag it reads "Month YYYY · item N of TOTAL"
-     * (design W3-09 at-scale readout) — the ordinal comes straight from the precomputed
-     * [itemOrdinalByCell], so dragging a 61,908-item folder never rescans. A fast fling collapses to
-     * the terse year only ([collapsed]), where an absolute position would just be noise.
+     * Context-aware fast-scroll bubble text for a cell (APP-496 item 7): the readout matches the
+     * active **Sort** dimension — the axis the stream is actually ordered along — the way Google
+     * Photos / Samsung Gallery show the letter when sorted A–Z and the size when sorted by size:
+     *
+     * - [SortKey.LAST_MODIFIED] → "Month YYYY · item N of TOTAL" (terse "YYYY" when [collapsed]),
+     *   the design W3-09 at-scale date readout. Unchanged from before.
+     * - [SortKey.FILE_SIZE] → the file size at that position ("4.2 MB · item N of TOTAL"; terse size
+     *   when [collapsed]).
+     * - [SortKey.FILE_NAME] / [SortKey.FILE_PATH] → the leading letter at that position ("A"), the
+     *   A–Z index reader.
+     *
+     * All labels come straight from the precomputed per-cell arrays, so dragging a 61,908-item folder
+     * never rescans.
      */
-    fun bubbleLabel(cellIndex: Int, collapsed: Boolean): String? {
-        if (collapsed) {
-            return yearByCell.getOrNull(cellIndex.coerceIn(0, yearByCell.size - 1))
+    fun bubbleLabel(cellIndex: Int, collapsed: Boolean): String? = when (sortKey) {
+        SortKey.FILE_SIZE -> {
+            val size = sizeLabelByCell.getOrNull(cellIndex.coerceIn(0, sizeLabelByCell.size - 1)) ?: return null
+            if (collapsed) size else withPosition(size, cellIndex)
         }
-        val month = monthYearByCell.getOrNull(cellIndex.coerceIn(0, monthYearByCell.size - 1)) ?: return null
-        val ordinal = itemOrdinalByCell.getOrNull(cellIndex.coerceIn(0, itemOrdinalByCell.size - 1)) ?: return month
-        val position = FastScrollMath.formatItemPosition(ordinal, itemCount, locale) ?: return month
-        return "$month · $position"
+        SortKey.FILE_NAME, SortKey.FILE_PATH ->
+            nameLetterByCell.getOrNull(cellIndex.coerceIn(0, nameLetterByCell.size - 1))
+        SortKey.LAST_MODIFIED -> {
+            if (collapsed) {
+                yearByCell.getOrNull(cellIndex.coerceIn(0, yearByCell.size - 1))
+            } else {
+                val month = monthYearByCell.getOrNull(cellIndex.coerceIn(0, monthYearByCell.size - 1))
+                    ?: return null
+                withPosition(month, cellIndex)
+            }
+        }
+    }
+
+    /** Append the "· item N of TOTAL" at-scale position suffix (W3-09) to [primary]. */
+    private fun withPosition(primary: String, cellIndex: Int): String {
+        val ordinal = itemOrdinalByCell.getOrNull(cellIndex.coerceIn(0, itemOrdinalByCell.size - 1)) ?: return primary
+        val position = FastScrollMath.formatItemPosition(ordinal, itemCount, locale) ?: return primary
+        return "$primary · $position"
     }
 }
 
@@ -108,6 +135,11 @@ fun buildPhotosTimeline(
     // cell carries the ordinal of the first item beneath it, so a drag that lands on a section boundary
     // reports where that section begins.
     val itemOrdinalByCell = ArrayList<Int>(sorted.size + 64)
+    // Context-aware bubble dimensions (APP-496 item 7): the file size and the leading letter at each
+    // cell, precomputed so a size- or name-sorted drag reads the right axis with no per-frame work. A
+    // header cell inherits the value of the first item beneath it.
+    val sizeLabelByCell = ArrayList<String>(sorted.size + 64)
+    val nameLetterByCell = ArrayList<String>(sorted.size + 64)
 
     var currentSectionKey = Long.MIN_VALUE
     var itemsSoFar = 0
@@ -119,6 +151,8 @@ fun buildPhotosTimeline(
         val date = Instant.ofEpochMilli(item.effectiveTimeMillis).atZone(zone).toLocalDate()
         monthLabel = date.format(monthFormat)
         yearLabel = date.year.toString()
+        val sizeLabel = FastScrollMath.formatByteSize(item.sizeBytes, locale)
+        val nameLetter = leadingLetter(item.displayName, locale)
         // NONE emits no headers: every cell shares one sentinel section so a header is never opened.
         val sectionKey = if (groupBy == GroupBy.NONE) 0L else sectionKeyFor(date, groupBy)
         if (groupBy != GroupBy.NONE && sectionKey != currentSectionKey) {
@@ -138,12 +172,16 @@ fun buildPhotosTimeline(
             monthYearByCell += monthLabel
             yearByCell += yearLabel
             itemOrdinalByCell += itemsSoFar + 1
+            sizeLabelByCell += sizeLabel
+            nameLetterByCell += nameLetter
         }
         itemsSoFar++
         cells += PhotosCell.Tile(item)
         monthYearByCell += monthLabel
         yearByCell += yearLabel
         itemOrdinalByCell += itemsSoFar
+        sizeLabelByCell += sizeLabel
+        nameLetterByCell += nameLetter
     }
 
     return PhotosTimeline(
@@ -154,7 +192,21 @@ fun buildPhotosTimeline(
         itemOrdinalByCell = itemOrdinalByCell,
         itemCount = sorted.size,
         locale = locale,
+        sortKey = sort.key,
+        sizeLabelByCell = sizeLabelByCell,
+        nameLetterByCell = nameLetterByCell,
     )
+}
+
+/**
+ * Leading A–Z letter for the name-sorted fast-scroll bubble (APP-496 item 7). The **first** character
+ * of the name upper-cased when it is a letter; anything else (a name starting with a digit or symbol,
+ * or an empty name) buckets to "#", matching how contact/gallery A–Z indexes read — and matching the
+ * name comparator, which orders on the whole lower-cased name so a digit-leading name sorts ahead of A.
+ */
+private fun leadingLetter(displayName: String, locale: Locale = Locale.getDefault()): String {
+    val first = displayName.trim().firstOrNull() ?: return "#"
+    return if (first.isLetter()) first.toString().uppercase(locale) else "#"
 }
 
 /**

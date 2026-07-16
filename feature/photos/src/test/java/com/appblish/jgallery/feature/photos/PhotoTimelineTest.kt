@@ -27,15 +27,17 @@ class PhotoTimelineTest {
         modifiedAt: LocalDate = LocalDate.of(2020, 1, 1),
         type: MediaType = MediaType.IMAGE,
         durationMillis: Long = 0,
+        sizeBytes: Long = 1,
+        displayName: String = "$id.jpg",
     ) = MediaItem(
         id = MediaId(id),
-        displayName = "$id.jpg",
+        displayName = displayName,
         type = type,
         bucketId = "b1",
         bucketName = "Camera",
         dateTakenMillis = takenAt?.atStartOfDay(zone)?.toInstant()?.toEpochMilli() ?: 0L,
         dateModifiedMillis = modifiedAt.atStartOfDay(zone).toInstant().toEpochMilli(),
-        sizeBytes = 1,
+        sizeBytes = sizeBytes,
         width = 100,
         height = 100,
         durationMillis = durationMillis,
@@ -283,6 +285,53 @@ class PhotoTimelineTest {
         val order = timeline.cells.filterIsInstance<PhotosCell.Tile>().map { it.item.id.value }
         // displayName = "$id.jpg", so ascending name order is apple < banana < cherry.
         assertThat(order).containsExactly("apple", "banana", "cherry").inOrder()
+    }
+
+    @Test
+    fun `bubble reads file size when sorted by size (item 7)`() {
+        // APP-496 item 7: sort=Size → the bubble names the file size at that position, not the month.
+        val timeline = buildPhotosTimeline(
+            items = listOf(
+                item("big", takenAt = LocalDate.of(2026, 7, 9), sizeBytes = 4_509_715),
+                item("small", takenAt = LocalDate.of(2026, 7, 9), sizeBytes = 1_536),
+            ),
+            zone = zone,
+            today = today,
+            locale = Locale.US,
+            groupBy = GroupBy.NONE,
+            sort = com.appblish.jgallery.core.model.SortSpec(
+                key = com.appblish.jgallery.core.model.SortKey.FILE_SIZE,
+                direction = com.appblish.jgallery.core.model.SortDirection.DESCENDING,
+            ),
+        )
+        // Descending size → biggest first. Normal drag reads size + position; a fling collapses to size.
+        assertThat(timeline.bubbleLabel(0, collapsed = false)).isEqualTo("4.3 MB · item 1 of 2")
+        assertThat(timeline.bubbleLabel(1, collapsed = false)).isEqualTo("1.5 KB · item 2 of 2")
+        assertThat(timeline.bubbleLabel(0, collapsed = true)).isEqualTo("4.3 MB")
+    }
+
+    @Test
+    fun `bubble reads leading letter when sorted by name (item 7)`() {
+        // APP-496 item 7: sort=Name → the bubble names the A–Z letter at that position.
+        val timeline = buildPhotosTimeline(
+            items = listOf(
+                item("z2", takenAt = LocalDate.of(2026, 7, 9), displayName = "Beach.jpg"),
+                item("z1", takenAt = LocalDate.of(2026, 7, 9), displayName = "Apple.jpg"),
+                item("z3", takenAt = LocalDate.of(2026, 7, 9), displayName = "42.jpg"),
+            ),
+            zone = zone,
+            today = today,
+            locale = locale,
+            groupBy = GroupBy.NONE,
+            sort = com.appblish.jgallery.core.model.SortSpec(
+                key = com.appblish.jgallery.core.model.SortKey.FILE_NAME,
+                direction = com.appblish.jgallery.core.model.SortDirection.ASCENDING,
+            ),
+        )
+        // Ascending name → "42.jpg" (# bucket) < "Apple" < "Beach".
+        assertThat(timeline.bubbleLabel(0, collapsed = false)).isEqualTo("#")
+        assertThat(timeline.bubbleLabel(1, collapsed = false)).isEqualTo("A")
+        assertThat(timeline.bubbleLabel(2, collapsed = true)).isEqualTo("B")
     }
 
     @Test

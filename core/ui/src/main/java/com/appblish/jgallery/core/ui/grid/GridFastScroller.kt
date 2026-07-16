@@ -1,7 +1,7 @@
 package com.appblish.jgallery.core.ui.grid
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
@@ -36,6 +36,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.testTag
@@ -52,24 +53,27 @@ import kotlin.math.roundToInt
 private const val AUTO_HIDE_MS = 1_500L
 
 // C1-05 (item 14) grabbable pill: the old 1-line thumb failed device testing (too thin to seize), so
-// the handle is a rounded pill big enough to hit — 34×56dp at rest, growing to 38×62dp accent-blue on
-// grab for unmistakable "you've got it" feedback.
-private val ThumbIdleWidth = 34.dp
-private val ThumbIdleHeight = 56.dp
-private val ThumbGrabbedWidth = 38.dp
-private val ThumbGrabbedHeight = 62.dp
+// the handle is a rounded pill big enough to hit — a fixed 34×56dp footprint. Grab feedback (accent
+// fill + a subtle scale-up) is drawn WITHOUT changing the layout size: APP-496 root-caused the drag
+// jank partly to the old grow-on-grab (56→62dp) shifting the travel range `track - thumbHeight`
+// mid-drag, which made the thumb jump under a steady finger. The size is now constant so the
+// finger→fraction map ([FastScrollMath.thumbTravelFraction]) and the render offset stay exact inverses.
+private val ThumbWidth = 34.dp
+private val ThumbHeight = 56.dp
+private const val ThumbGrabScale = 1.12f
 private val TouchTarget = 48.dp
 
 /** Dark date/position bubble (C1-05 callout #4): dark surface, white text, sits left of the handle. */
 private val BubbleSurface = Color(0xFF16181D)
 
 /**
- * Custom fast-scroll thumb + date bubble for a [LazyVerticalGrid] (design W1-07). Overlay this in a
- * [BoxScope] on top of the grid. Appears while scrolling once content is deeper than 4 viewports;
- * dragging maps linearly onto the FULL index ([FastScrollMath.targetIndex]) with an instant
- * `scrollToItem` per frame — no smooth-scroll catch-up, which is what makes 10k-item jumps free.
- * Release snaps to the nearest entry in [sectionStarts]; the bubble text comes from [bubbleLabel]
- * (collapsed = high drag velocity → year-only, design a14).
+ * Custom fast-scroll thumb + context bubble for a [LazyVerticalGrid] (design W1-07). Overlay this in
+ * a [BoxScope] on top of the grid. Appears while scrolling once content is deeper than 4 viewports;
+ * dragging maps the finger (thumb centre) linearly onto the scrollable index
+ * ([FastScrollMath.thumbTravelFraction] → [FastScrollMath.targetIndex]) with an instant `scrollToItem`
+ * per frame — no smooth-scroll catch-up, which is what makes 10k-item jumps free. Release **lands
+ * exactly where dragged** (no section snap — APP-496 item 3, CalcVault parity); the bubble text comes
+ * from [bubbleLabel] (collapsed = high drag velocity → terse form, design a14).
  *
  * Reads of [LazyGridState.layoutInfo] are wrapped in [derivedStateOf], so scrolling recomposes only
  * this overlay — never the grid content.
@@ -77,7 +81,6 @@ private val BubbleSurface = Color(0xFF16181D)
 @Composable
 fun BoxScope.GridFastScroller(
     gridState: LazyGridState,
-    sectionStarts: List<Int>,
     bubbleLabel: (index: Int, collapsed: Boolean) -> String?,
     modifier: Modifier = Modifier,
 ) {
@@ -142,42 +145,53 @@ fun BoxScope.GridFastScroller(
                 .width(TouchTarget)
                 .onSizeChanged { trackHeightPx = it.height }
                 .testTag("fast_scroll_track")
-                .pointerInput(sectionStarts) {
+                .pointerInput(gridState) {
+                    // Fixed thumb height in px — the same basis the render offset uses, so the
+                    // finger→fraction map is the exact inverse of `fraction * (track - thumb)`.
+                    val thumbPx = ThumbHeight.toPx()
+
+                    // Scroll the grid so the drag [fraction] lands exactly under the thumb (item 3):
+                    // targetIndex maps over `[0, total - visible]`, the same range the thumb mirrors
+                    // out of, so on release the thumb settles at the released fraction — no snap.
+                    fun jumpTo(fraction: Float) {
+                        val info = gridState.layoutInfo
+                        scope.launch {
+                            gridState.scrollToItem(
+                                FastScrollMath.targetIndex(
+                                    fraction, info.totalItemsCount, info.visibleItemsInfo.size,
+                                ),
+                            )
+                        }
+                    }
+
                     detectVerticalDragGestures(
                         onDragStart = { offset ->
                             dragging = true
                             bubbleCollapsed = false
                             lastDragAtMs = 0L
-                            dragFraction = fractionForY(offset.y, trackHeightPx)
+                            // Press anywhere on the track jumps there immediately (CalcVault parity).
+                            dragFraction = FastScrollMath.thumbTravelFraction(offset.y, size.height.toFloat(), thumbPx)
+                            jumpTo(dragFraction)
                         },
                         onVerticalDrag = { change, _ ->
+                            change.consume()
                             val previous = dragFraction
-                            dragFraction = fractionForY(change.position.y, trackHeightPx)
+                            dragFraction = FastScrollMath.thumbTravelFraction(
+                                change.position.y, size.height.toFloat(), thumbPx,
+                            )
                             val now = change.uptimeMillis
                             if (lastDragAtMs > 0L && now > lastDragAtMs) {
                                 val speed = (dragFraction - previous) / (now - lastDragAtMs)
                                 bubbleCollapsed = FastScrollMath.bubbleCollapsed(speed)
                             }
                             lastDragAtMs = now
-                            val info = gridState.layoutInfo
-                            scope.launch {
-                                gridState.scrollToItem(
-                                    FastScrollMath.targetIndex(
-                                        dragFraction, info.totalItemsCount, info.visibleItemsInfo.size,
-                                    ),
-                                )
-                            }
+                            jumpTo(dragFraction)
                         },
-                        onDragEnd = {
-                            dragging = false
-                            val info = gridState.layoutInfo
-                            val landed = FastScrollMath.targetIndex(
-                                dragFraction, info.totalItemsCount, info.visibleItemsInfo.size,
-                            )
-                            scope.launch {
-                                gridState.scrollToItem(FastScrollMath.nearestSectionStart(landed, sectionStarts))
-                            }
-                        },
+                        // Land exactly where released — no section snap (APP-496 item 3, CalcVault
+                        // parity). The grid already sits at the dragged index from the last frame, so
+                        // there is nothing more to do; snapping to the nearest month boundary was the
+                        // recurring "lands on the wrong position" report.
+                        onDragEnd = { dragging = false },
                         onDragCancel = { dragging = false },
                     )
                 },
@@ -209,11 +223,11 @@ fun BoxScope.GridFastScroller(
 
 /**
  * Flat-grid convenience overload for grids that have no date sections — folder/in-album grids, the
- * whole-library picker, and the Recycle Bin (APP-466: the shared set on *every* grid). Snaps release
- * to the exact dragged item ([sectionStarts] empty) and shows the absolute-position bubble ("item
- * 3,120 of 8,412", design W3-09) instead of a month label. [itemCount] is the total tile count; the
- * `deepEnough` gate still hides the thumb until the grid is more than 4 viewports deep, so short
- * folders/pickers never grow a handle.
+ * whole-library picker, and the Recycle Bin (APP-466: the shared set on *every* grid). Lands release
+ * on the exact dragged item and shows the absolute-position bubble ("item 3,120 of 8,412", design
+ * W3-09) instead of a month label. [itemCount] is the total tile count; the `deepEnough` gate still
+ * hides the thumb until the grid is more than 4 viewports deep, so short folders/pickers never grow a
+ * handle.
  */
 @Composable
 fun BoxScope.GridFastScroller(
@@ -223,7 +237,6 @@ fun BoxScope.GridFastScroller(
 ) {
     GridFastScroller(
         gridState = gridState,
-        sectionStarts = emptyList(),
         // Grid index is 0-based; the position bubble is 1-based (design W3-09). No collapse — a bare
         // position never has a terser form, so the fling/slow label is identical.
         bubbleLabel = { index, _ -> FastScrollMath.formatItemPosition(index + 1, itemCount) },
@@ -239,16 +252,19 @@ fun BoxScope.GridFastScroller(
 @Composable
 private fun BoxScope.Thumb(fraction: Float, grabbed: Boolean, trackHeightPx: Int) {
     val density = androidx.compose.ui.platform.LocalDensity.current
-    val width by animateDpAsState(if (grabbed) ThumbGrabbedWidth else ThumbIdleWidth, label = "thumbWidth")
-    val height by animateDpAsState(if (grabbed) ThumbGrabbedHeight else ThumbIdleHeight, label = "thumbHeight")
-    val heightPx = with(density) { height.toPx() }
+    // Fixed layout footprint — the travel range `track - thumbHeight` never changes, so the thumb
+    // cannot jump under a steady finger (APP-496). Grab feedback is a graphicsLayer scale that does
+    // not affect layout, plus the accent fill/shadow.
+    val heightPx = with(density) { ThumbHeight.toPx() }
+    val scale by animateFloatAsState(if (grabbed) ThumbGrabScale else 1f, label = "thumbScale")
     val y = (fraction * (trackHeightPx - heightPx).coerceAtLeast(0f)).roundToInt()
     val container = if (grabbed) JGalleryColors.Accent else JGalleryColors.Background
     val gripTint = if (grabbed) JGalleryColors.OnAccent else JGalleryColors.TextSecondary
     Box(
         modifier = Modifier
             .offset { IntOffset(0, y) }
-            .size(width = width, height = height)
+            .graphicsLayer { scaleX = scale; scaleY = scale }
+            .size(width = ThumbWidth, height = ThumbHeight)
             .align(Alignment.TopCenter)
             .shadow(if (grabbed) 6.dp else 3.dp, RoundedCornerShape(percent = 50))
             .background(container, RoundedCornerShape(percent = 50))
@@ -282,7 +298,11 @@ private fun BoxScope.Thumb(fraction: Float, grabbed: Boolean, trackHeightPx: Int
 private fun BoxScope.DateBubble(label: String, fraction: Float, trackHeightPx: Int) {
     val density = androidx.compose.ui.platform.LocalDensity.current
     val bubbleHeightPx = with(density) { 44.dp.toPx() }
-    val y = (fraction * (trackHeightPx - bubbleHeightPx).coerceAtLeast(0f)).roundToInt()
+    val thumbHeightPx = with(density) { ThumbHeight.toPx() }
+    // Ride centred on the thumb: the thumb centre sits at `fraction * travel + thumb/2` over the same
+    // travel range the handle uses, so the bubble tracks the handle exactly through the whole drag.
+    val thumbCenter = fraction * (trackHeightPx - thumbHeightPx).coerceAtLeast(0f) + thumbHeightPx / 2f
+    val y = (thumbCenter - bubbleHeightPx / 2f).roundToInt().coerceAtLeast(0)
     Box(
         modifier = Modifier
             .offset { IntOffset(0, y) }
@@ -305,6 +325,3 @@ private fun BoxScope.DateBubble(label: String, fraction: Float, trackHeightPx: I
         )
     }
 }
-
-private fun fractionForY(y: Float, trackHeightPx: Int): Float =
-    if (trackHeightPx <= 0) 0f else (y / trackHeightPx).coerceIn(0f, 1f)

@@ -43,6 +43,36 @@ class FastScrollMathTest {
     }
 
     @Test
+    fun `finger maps to thumb centre over the travel range`() {
+        // Re-derived from CalcVault (APP-496 item 3): the finger drives the thumb *centre* over the
+        // travel range [0, track - thumb], the exact inverse of the render offset `fraction * travel`.
+        val track = 1_000f
+        val thumb = 100f
+        // Finger at the thumb's half-height → fraction 0 (thumb parked at the very top).
+        assertThat(FastScrollMath.thumbTravelFraction(50f, track, thumb)).isEqualTo(0f)
+        // Finger at track-minus-half → fraction 1 (thumb parked at the very bottom).
+        assertThat(FastScrollMath.thumbTravelFraction(950f, track, thumb)).isEqualTo(1f)
+        // Finger at the track centre → 0.5.
+        assertThat(FastScrollMath.thumbTravelFraction(500f, track, thumb)).isEqualTo(0.5f)
+        // Overshoot past either end clamps into [0,1] rather than escaping the track.
+        assertThat(FastScrollMath.thumbTravelFraction(-40f, track, thumb)).isEqualTo(0f)
+        assertThat(FastScrollMath.thumbTravelFraction(5_000f, track, thumb)).isEqualTo(1f)
+        // Degenerate geometry (thumb taller than track → nowhere to travel) collapses to 0.
+        assertThat(FastScrollMath.thumbTravelFraction(30f, 40f, 100f)).isEqualTo(0f)
+    }
+
+    @Test
+    fun `byte size formats in binary units with one decimal from KB up`() {
+        assertThat(FastScrollMath.formatByteSize(0, Locale.US)).isEqualTo("0 B")
+        assertThat(FastScrollMath.formatByteSize(-10, Locale.US)).isEqualTo("0 B")
+        assertThat(FastScrollMath.formatByteSize(512, Locale.US)).isEqualTo("512 B")
+        assertThat(FastScrollMath.formatByteSize(1_024, Locale.US)).isEqualTo("1.0 KB")
+        assertThat(FastScrollMath.formatByteSize(1_536, Locale.US)).isEqualTo("1.5 KB")
+        assertThat(FastScrollMath.formatByteSize(4_509_715, Locale.US)).isEqualTo("4.3 MB")
+        assertThat(FastScrollMath.formatByteSize(3L * 1_024 * 1_024 * 1_024, Locale.US)).isEqualTo("3.0 GB")
+    }
+
+    @Test
     fun `release snaps to the nearest section start`() {
         val sections = listOf(0, 120, 480, 900)
         assertThat(FastScrollMath.nearestSectionStart(130, sections)).isEqualTo(120)

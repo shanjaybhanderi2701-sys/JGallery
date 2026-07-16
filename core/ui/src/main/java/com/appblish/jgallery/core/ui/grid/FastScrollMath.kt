@@ -32,6 +32,22 @@ object FastScrollMath {
     }
 
     /**
+     * Finger position → thumb fraction (0..1), re-derived from CalcVault's working `FastScrollbar`
+     * (APP-496 item 3). The prior map (`y / trackHeight`) ignored the thumb, so the finger drove the
+     * thumb's *top* edge while the thumb was rendered from its top over the shorter travel range —
+     * the thumb visibly lagged/drifted under the finger and released at the wrong fraction. This maps
+     * the finger to the thumb's **centre** over the exact travel range `[0, track - thumb]` the render
+     * offset uses (`fraction * (track - thumb)`), so the two are precise inverses: the thumb centre
+     * sits under the finger the whole drag and settles exactly where released. Degenerate sizes
+     * (track ≤ thumb, i.e. nowhere to travel) collapse to 0.
+     */
+    fun thumbTravelFraction(y: Float, trackHeightPx: Float, thumbHeightPx: Float): Float {
+        val travel = trackHeightPx - thumbHeightPx
+        if (travel <= 0f) return 0f
+        return ((y - thumbHeightPx / 2f) / travel).coerceIn(0f, 1f)
+    }
+
+    /**
      * True inverse of [thumbFraction]: the *first-visible* index a drag to [fraction] should scroll to
      * (design §3). Maps over the same scrollable range `[0, totalItems - visibleItems]` that
      * [thumbFraction] maps *out* of, so that after `scrollToItem(target)` the thumb settles back at the
@@ -70,5 +86,29 @@ object FastScrollMath {
         val nf = NumberFormat.getIntegerInstance(locale)
         val clamped = ordinal.coerceIn(1, total)
         return "item ${nf.format(clamped)} of ${nf.format(total)}"
+    }
+
+    /** Binary size units for [formatByteSize]; index into by power of 1024. */
+    private val SIZE_UNITS = arrayOf("B", "KB", "MB", "GB", "TB")
+
+    /**
+     * Human-readable file size for the size-sorted fast-scroll bubble (APP-496 item 7): `"4.2 MB"`,
+     * `"512 KB"`, `"0 B"`. Uses binary (1024) steps to match how a file manager reports size, one
+     * decimal place from KB up (bytes stay whole), locale-aware decimal separator. Negative inputs
+     * clamp to 0.
+     */
+    fun formatByteSize(bytes: Long, locale: Locale = Locale.getDefault()): String {
+        if (bytes <= 0L) return "0 B"
+        var value = bytes.toDouble()
+        var unit = 0
+        while (value >= 1024.0 && unit < SIZE_UNITS.size - 1) {
+            value /= 1024.0
+            unit++
+        }
+        return if (unit == 0) {
+            "${bytes} B"
+        } else {
+            String.format(locale, "%.1f %s", value, SIZE_UNITS[unit])
+        }
     }
 }
