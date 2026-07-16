@@ -31,6 +31,9 @@ import com.appblish.jgallery.core.model.MediaId
  * @param onBrowseFolders fall back to the device-folder picker (W2-04, not built yet — keep honest).
  * @param details aggregate properties of the current selection (design G1-D7 item 11); when non-null a
  *   multi-safe **Details** action is added to the bulk bar and opens a read-only summary dialog.
+ * @param onRename single-only **Rename** action (design G1-D8 item 1); when non-null it is added to the
+ *   bulk bar's shared ⋮ overflow, enabled only when exactly one item is selected. The host owns the
+ *   rename dialog + operation (parity with the album selection bar's Rename).
  */
 @Composable
 fun SelectionScaffold(
@@ -50,6 +53,7 @@ fun SelectionScaffold(
     onCreateNew: (action: BulkAction, name: String) -> Unit = { _, _ -> },
     onBrowseFolders: () -> Unit = {},
     details: SelectionDetails? = null,
+    onRename: (() -> Unit)? = null,
     grid: @Composable () -> Unit,
 ) {
     // Which action, if any, is waiting on a destination pick or a delete confirm.
@@ -89,6 +93,12 @@ fun SelectionScaffold(
                     if (isLargeSelection(selection.count)) pendingLarge = action else routeAction(action)
                 },
                 onDetails = details?.let { { showDetails = true } },
+                // G1-D8 item 1: Rename is single-only, tucked behind the shared ⋮ overflow.
+                overflowActions = if (onRename != null) listOf(SelectionAction.RENAME) else emptyList(),
+                selectionCount = selection.count,
+                onOverflowAction = { action ->
+                    if (action == SelectionAction.RENAME) onRename?.invoke()
+                },
             )
         }
     }

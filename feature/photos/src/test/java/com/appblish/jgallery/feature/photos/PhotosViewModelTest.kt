@@ -58,6 +58,35 @@ class PhotosViewModelTest {
     }
 
     @Test
+    fun `renameSelected renames via the shared per-item op and emits Success`() = runTest(dispatcher) {
+        val ops = RecordingOperations()
+        val vm = PhotosViewModel(FakeRepository(), ops, FakePreferences(), dispatcher)
+
+        vm.renameSelected(MediaId("42"), "Beach.jpg")
+        val event = withTimeout(5_000) { vm.renameEvents.first() }
+
+        assertThat(ops.renamed).isEqualTo(MediaId("42") to "Beach.jpg")
+        assertThat(event).isEqualTo(PhotosRenameResult.Success("Beach.jpg"))
+    }
+
+    @Test
+    fun `renameSelected surfaces the failure reason`() = runTest(dispatcher) {
+        val ops = RecordingOperations(
+            result = OperationResult(
+                succeeded = 0,
+                failed = 1,
+                failures = listOf(OperationResult.Failure(MediaId("42"), "Name already in use")),
+            ),
+        )
+        val vm = PhotosViewModel(FakeRepository(), ops, FakePreferences(), dispatcher)
+
+        vm.renameSelected(MediaId("42"), "Beach.jpg")
+        val event = withTimeout(5_000) { vm.renameEvents.first() }
+
+        assertThat(event).isEqualTo(PhotosRenameResult.Failure("Name already in use"))
+    }
+
+    @Test
     fun `refresh re-enumerates the index, toggles isRefreshing, and ignores re-entrant pulls`() =
         runTest(dispatcher) {
             val repository = FakeRepository()
@@ -187,6 +216,17 @@ class PhotosViewModelTest {
         override fun copyAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun moveAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun deleteAlbum(bucketId: String): Flow<FileOperationEvent> = emptyFlow()
+    }
+
+    /** Records the single-item rename (APP-494) and returns a configurable [result]; other seams inert. */
+    private class RecordingOperations(
+        private val result: OperationResult = OperationResult(succeeded = 1, failed = 0),
+    ) : MediaOperationsRepository by NoopOperations {
+        var renamed: Pair<MediaId, String>? = null
+        override suspend fun rename(id: MediaId, newDisplayName: String): OperationResult {
+            renamed = id to newDisplayName
+            return result
+        }
     }
 
     private class FakePreferences : PhotosPreferences {

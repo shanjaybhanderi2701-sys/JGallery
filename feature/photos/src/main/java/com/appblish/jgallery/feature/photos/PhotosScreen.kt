@@ -145,6 +145,18 @@ fun PhotosScreen(
         }
     }
 
+    // Rename outcomes (device-test item 1, APP-494): surface success + failure as a toast (parity with
+    // the Albums tab, which toasts both outcomes of its single-folder rename).
+    LaunchedEffect(viewModel) {
+        viewModel.renameEvents.collect { result ->
+            val message = when (result) {
+                is PhotosRenameResult.Success -> "Renamed"
+                is PhotosRenameResult.Failure -> result.reason
+            }
+            Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
+        }
+    }
+
     PhotosScreen(
         state = state,
         columns = columns,
@@ -173,6 +185,7 @@ fun PhotosScreen(
         onRunBulkToNewAlbum = viewModel::runBulkToNewAlbum,
         onCancelBulk = viewModel::cancelBulk,
         onDismissResult = viewModel::dismissBulkResult,
+        onRenameSelected = viewModel::renameSelected,
         modifier = modifier,
     )
 }
@@ -208,11 +221,13 @@ fun PhotosScreen(
     onRunBulkToNewAlbum: (BulkAction, String) -> Unit = { _, _ -> },
     onCancelBulk: () -> Unit = {},
     onDismissResult: () -> Unit = {},
+    onRenameSelected: (MediaId, String) -> Unit = { _, _ -> },
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
     var showGroupSheet by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
+    var showRenameDialog by remember { mutableStateOf(false) }
 
     // Collapse-on-scroll for the filter chip row (design G1-D8 item 4): reads scroll direction off the
     // grid's nested scroll and hides the chips on scroll-up, restores them on scroll-down.
@@ -293,6 +308,11 @@ fun PhotosScreen(
                     null
                 }
             }
+            // Device-test item 1 (APP-494): the single selected photo, if the selection holds exactly one
+            // — the target of the single-only Rename action.
+            val singleSelected = remember(selection.selected, tileItems) {
+                if (selection.count == 1) tileItems.firstOrNull { selection.isSelected(it.id) } else null
+            }
             SelectionScaffold(
                 selection = selection,
                 bulk = bulk,
@@ -307,6 +327,8 @@ fun PhotosScreen(
                 onCancel = onCancelBulk,
                 onDismissResult = onDismissResult,
                 details = details,
+                // Rename is single-only; the overflow keeps it dimmed until exactly one item is selected.
+                onRename = { showRenameDialog = true },
                 modifier = modifier.testTag("photos_screen"),
             ) {
                 // The nested-scroll connection sits on the ancestor of the grid so it sees each scroll
@@ -345,6 +367,23 @@ fun PhotosScreen(
                         }
                     }
                 }
+            }
+
+            // Rename (single photo/video, device-test item 1). Reuses the shared NameInputDialog the
+            // Albums tab uses; confirming renames via the same per-item op and exits selection.
+            if (showRenameDialog && singleSelected != null) {
+                NameInputDialog(
+                    title = "Rename",
+                    label = "Name",
+                    confirmLabel = "Rename",
+                    initialValue = singleSelected.displayName,
+                    onConfirm = { name ->
+                        onRenameSelected(singleSelected.id, name)
+                        showRenameDialog = false
+                        onClearSelection()
+                    },
+                    onDismiss = { showRenameDialog = false },
+                )
             }
         }
     }

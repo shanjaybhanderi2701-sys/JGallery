@@ -107,7 +107,7 @@ fun SelectionActionBar(
             )
         }
         if (overflowActions.isNotEmpty()) {
-            OverflowActions(
+            SelectionOverflowMenu(
                 actions = overflowActions,
                 // Multi-safe entries are always available; single-only entries need exactly one item.
                 isEnabled = { !it.single || (selectionCount == 1 && isSingleActionEnabled(it)) },
@@ -118,11 +118,15 @@ fun SelectionActionBar(
 }
 
 /**
- * The ⋮ overflow. Multi-safe actions sit at the top (always enabled); single-only actions follow under
- * a "SINGLE ITEM ONLY" header, keeping their slot and showing a "1 only" hint while dimmed (item 12).
+ * The shared ⋮ selection overflow (design G1-D6 / TB-04, re-gated by G1-D7 item 12). Multi-safe actions
+ * sit at the top (always enabled); single-only actions follow under a "SINGLE ITEM ONLY" header, keeping
+ * their slot and showing a "1 only" hint while dimmed. [isEnabled] is the caller's arity gate. Reused by
+ * every selection bar — album selection ([SelectionActionBar]) and media selection ([BulkActionBar], via
+ * the Photos tab / album detail) — so the overflow looks and behaves identically wherever it appears (do
+ * not fork a per-tab variant).
  */
 @Composable
-private fun RowScope.OverflowActions(
+fun RowScope.SelectionOverflowMenu(
     actions: List<SelectionAction>,
     isEnabled: (SelectionAction) -> Boolean,
     onAction: (SelectionAction) -> Unit,

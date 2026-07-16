@@ -159,6 +159,26 @@ class PhotosViewModel @Inject constructor(
         }
     }
 
+    // Rename a single selected photo/video (device-test item 1, APP-494): reuses the same per-item
+    // MediaStore rename Albums uses (operations.rename), surfacing the outcome as a one-shot toast.
+    private val renameResults = Channel<PhotosRenameResult>(Channel.BUFFERED)
+    val renameEvents: Flow<PhotosRenameResult> = renameResults.receiveAsFlow()
+
+    fun renameSelected(id: MediaId, newName: String) {
+        viewModelScope.launch {
+            val result = operations.rename(id, newName)
+            renameResults.send(
+                if (result.succeeded > 0) {
+                    PhotosRenameResult.Success(newName.trim())
+                } else {
+                    PhotosRenameResult.Failure(
+                        result.failures.firstOrNull()?.reason ?: "Couldn't rename",
+                    )
+                },
+            )
+        }
+    }
+
     val columns: StateFlow<ColumnCount> =
         preferences.columns
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), ColumnCount.DEFAULT)
@@ -206,4 +226,10 @@ class PhotosViewModel @Inject constructor(
 sealed interface PhotosCreateAlbumResult {
     data class Success(val name: String) : PhotosCreateAlbumResult
     data class Failure(val reason: String) : PhotosCreateAlbumResult
+}
+
+/** Outcome of a single-select "Rename" (device-test item 1, APP-494). */
+sealed interface PhotosRenameResult {
+    data class Success(val name: String) : PhotosRenameResult
+    data class Failure(val reason: String) : PhotosRenameResult
 }

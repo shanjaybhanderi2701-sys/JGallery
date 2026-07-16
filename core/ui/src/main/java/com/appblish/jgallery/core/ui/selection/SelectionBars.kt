@@ -151,6 +151,11 @@ private fun SelectionStatusBarChrome() {
  * Design G1-D7 item 11: when [onDetails] is supplied the bar also carries a **Details** action, valid
  * for any selection ≥ 1 (no arity gate), so multi-select photos/videos can read their aggregate
  * properties — parity with the album selection bar's multi-safe Details.
+ *
+ * Design G1-D8 item 1: [overflowActions] hang under a ⋮ via the **shared** [SelectionOverflowMenu] (the
+ * same widget the album selection bar uses — no forked Photos-only menu), each gated by its own arity so
+ * a single-only action such as **Rename** is enabled only when exactly one item is selected ([selectionCount]
+ * == 1) and stays dimmed with a "1 only" hint otherwise.
  */
 @Composable
 fun BulkActionBar(
@@ -158,6 +163,10 @@ fun BulkActionBar(
     onAction: (BulkAction) -> Unit,
     modifier: Modifier = Modifier,
     onDetails: (() -> Unit)? = null,
+    overflowActions: List<SelectionAction> = emptyList(),
+    selectionCount: Int = 0,
+    isSingleActionEnabled: (SelectionAction) -> Boolean = { true },
+    onOverflowAction: (SelectionAction) -> Unit = {},
 ) {
     Row(
         modifier = modifier
@@ -176,6 +185,14 @@ fun BulkActionBar(
         if (onDetails != null) {
             // Details is multi-safe: enabled for any selection (independent of a running op).
             BulkActionButton("Details", Icons.Outlined.Info, enabled = true, tag = "bulk_details") { onDetails() }
+        }
+        if (overflowActions.isNotEmpty()) {
+            // Shared ⋮ overflow (G1-D8 item 1): single-only entries (e.g. Rename) need exactly one item.
+            SelectionOverflowMenu(
+                actions = overflowActions,
+                isEnabled = { !it.single || (selectionCount == 1 && isSingleActionEnabled(it)) },
+                onAction = onOverflowAction,
+            )
         }
     }
 }
