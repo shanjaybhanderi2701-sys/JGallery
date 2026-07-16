@@ -21,8 +21,11 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
             configureAndroidCommon(this)
             defaultConfig {
                 targetSdk = BuildConfig.TARGET_SDK
+                // 1.0 launch scheme (APP-513). versionName is the human-facing Play listing
+                // string; versionCode is the monotonic integer Play orders uploads by — bump it
+                // (never reuse or decrease) on every store upload, independent of versionName.
                 versionCode = 1
-                versionName = "0.1.0"
+                versionName = "1.0.0"
                 testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
             }
             // Release signing (APP-455). Perf verification (JD device test, APP-400 finding 1)
@@ -94,9 +97,13 @@ private fun configureReleaseSigning(project: Project, signing: ApkSigningConfig)
         if (f.exists()) f.inputStream().use { load(it) }
     }
 
+    // Resolve an absolute store path as-is; a relative one against the repo root. The real
+    // upload keystore (APP-513) is stored OUTSIDE the repo tree so it can never be committed, so
+    // CI / keystore.properties supplies it by absolute path; the debug-safe fallback stays relative.
     val storePath = envOrProp("RELEASE_STORE_FILE", "storeFile", props)
-    if (storePath != null && File(rootDir, storePath).exists()) {
-        signing.storeFile = File(rootDir, storePath)
+    val storeFile = storePath?.let { File(it).takeIf(File::isAbsolute) ?: File(rootDir, it) }
+    if (storeFile != null && storeFile.exists()) {
+        signing.storeFile = storeFile
         signing.storePassword = envOrProp("RELEASE_STORE_PASSWORD", "storePassword", props)
         signing.keyAlias = envOrProp("RELEASE_KEY_ALIAS", "keyAlias", props)
         signing.keyPassword = envOrProp("RELEASE_KEY_PASSWORD", "keyPassword", props)
