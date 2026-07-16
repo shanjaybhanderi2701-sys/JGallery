@@ -150,8 +150,12 @@ fun JGalleryApp(
             )
             // Full-screen viewer (E7). Grids open it via NavController.navigateToViewer(id, bucketId).
             viewerScreen(onBack = { navController.popBackStack() })
-            // Full-screen Search (C1-01 item 10): opened from the Photos/Collections header search action.
-            searchScreen(onBack = { navController.popBackStack() })
+            // Full-screen Search (C1-01 item 10): opened from the Photos/Collections header search
+            // action. Tapping a result opens the shared viewer (paged across the whole library).
+            searchScreen(
+                onBack = { navController.popBackStack() },
+                onMediaClick = { item -> navController.navigateToViewer(item.id) },
+            )
             // Recycle Bin (E9, spec §7.5). Opened from the Collections (Albums) header overflow.
             trashScreen(onBack = { navController.popBackStack() })
         }

@@ -85,6 +85,30 @@ class DataStoreRecentSearchStoreTest {
     }
 
     @Test
+    fun `remove drops a single entry, leaving the rest in order`() = runTest {
+        store.record(RecentSearch("a"))
+        store.record(RecentSearch("b"))
+        store.record(RecentSearch("c"))
+
+        store.remove(RecentSearch("b"))
+
+        assertThat(recents().map { it.text }).containsExactly("c", "a").inOrder()
+    }
+
+    @Test
+    fun `remove matches on the normalized form and is a no-op for an absent entry`() = runTest {
+        store.record(RecentSearch("hello"))
+
+        store.remove(RecentSearch("  hello  ")) // normalizes to "hello"
+        assertThat(recents()).isEmpty()
+
+        // Removing something that was never there leaves the (now empty) history untouched.
+        store.record(RecentSearch("kept"))
+        store.remove(RecentSearch("gone"))
+        assertThat(recents().map { it.text }).containsExactly("kept")
+    }
+
+    @Test
     fun `clear wipes everything`() = runTest {
         store.record(RecentSearch("a"))
         store.record(RecentSearch("b"))

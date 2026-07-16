@@ -51,6 +51,12 @@ interface RecentSearchStore {
      */
     suspend fun record(query: RecentSearch)
 
+    /**
+     * Remove a single entry (the per-chip ✕, design 502-D §5). Matches on the normalized form of
+     * [query] so removing the chip the UI shows always hits the stored entry; a no-match is a no-op.
+     */
+    suspend fun remove(query: RecentSearch)
+
     /** Wipe the entire history. */
     suspend fun clear()
 

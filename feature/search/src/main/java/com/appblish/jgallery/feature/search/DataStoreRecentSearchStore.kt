@@ -29,6 +29,14 @@ internal class DataStoreRecentSearchStore(
         }
     }
 
+    override suspend fun remove(query: RecentSearch) {
+        val normalized = query.normalized() ?: return
+        dataStore.edit { prefs ->
+            val remaining = read(prefs).filterNot { it == normalized }
+            prefs[KEY] = RecentSearchCodec.encode(remaining)
+        }
+    }
+
     override suspend fun clear() {
         dataStore.edit { it.remove(KEY) }
     }
