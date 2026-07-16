@@ -78,6 +78,7 @@ import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.format.MediaDecodeBox
 import com.appblish.jgallery.core.ui.format.MediaDecodeTilePlaceholder
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
+import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
@@ -637,6 +638,8 @@ private fun SearchResultsGrid(
             ) { index ->
                 val item = results[index]
                 SearchTile(
+                    // Pinch-release column swap slides each tile to its new slot (APP-519).
+                    modifier = Modifier.animateItem(placementSpec = GridReflowPlacementSpec),
                     item = item,
                     shape = tileShape,
                     columns = columns.value,
@@ -660,11 +663,12 @@ private fun SearchTile(
     shape: RoundedCornerShape,
     columns: Int,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val isPano = item.isPanorama
     val badge = item.formatBadge
     Box(
-        modifier = Modifier
+        modifier = modifier
             .aspectRatio(1f)
             .clip(shape)
             .background(if (isPano) Color.Black else JGalleryColors.TilePlaceholder)

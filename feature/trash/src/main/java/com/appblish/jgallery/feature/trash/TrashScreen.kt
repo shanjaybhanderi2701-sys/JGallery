@@ -63,6 +63,7 @@ import com.appblish.jgallery.core.model.TrashEntry
 import com.appblish.jgallery.core.model.TrashPolicy
 import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
+import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.grid.rememberGridZoomState
@@ -421,6 +422,8 @@ private fun TrashGrid(
         ) {
             items(items = entries, key = { it.id.value }) { entry ->
                 TrashTile(
+                    // Pinch-release column swap slides each tile to its new slot (APP-519).
+                    modifier = Modifier.animateItem(placementSpec = GridReflowPlacementSpec),
                     entry = entry,
                     selected = entry.id in selection,
                     daysLeft = TrashPolicy.daysLeft(entry.trashedAtMillis, now),
@@ -445,9 +448,10 @@ private fun TrashTile(
     expiringSoon: Boolean,
     onClick: () -> Unit,
     onLongClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     Box(
-        modifier = Modifier
+        modifier = modifier
             .aspectRatio(1f)
             .clip(RoundedCornerShape(12.dp))
             .background(JGalleryColors.TilePlaceholder)

@@ -1,5 +1,7 @@
 package com.appblish.jgallery.core.ui.grid
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
 import com.appblish.jgallery.core.model.ColumnCount
 import com.google.common.truth.Truth.assertThat
 import org.junit.Test
@@ -60,5 +62,46 @@ class GridZoomTest {
         val bounds = pinchScaleBounds(ColumnCount(3))
         assertThat(bounds.start).isLessThan(settleScaleFor(ColumnCount(3), ColumnCount(6)))
         assertThat(bounds.endInclusive).isGreaterThan(settleScaleFor(ColumnCount(3), ColumnCount(2)))
+    }
+
+    // --- Real layout-animated release reflow (APP-519) ---
+
+    @Test
+    fun `release bridge scale starts the target grid at the pre-release apparent tile size`() {
+        // The release commits the new column count immediately (animateItem reflows POSITION) and
+        // rescales so the fresh target-columns grid opens at exactly the size the tiles had at
+        // finger-up, then springs to 1f. The bridge is releaseScale / settleScaleFor(start, target)
+        // — verify it makes apparent tile size continuous across the swap frame.
+        //
+        // Pinch 3→6, user overshot slightly (finger scale 0.42 vs the exact 0.5 for 6 cols):
+        val start = ColumnCount(3)
+        val target = ColumnCount(6)
+        val releaseScale = 0.42f
+        val bridge = releaseScale / settleScaleFor(start, target)
+        // Apparent size just before swap: baseSize(start) * releaseScale, and just after: baseSize(target)
+        // * bridge. With baseSize(n) ∝ 1/n they must match → no instant size jump at the swap frame.
+        val baseStart = 1f / start.value
+        val baseTarget = 1f / target.value
+        assertThat(baseTarget * bridge).isWithin(1e-6f).of(baseStart * releaseScale)
+    }
+
+    @Test
+    fun `landing exactly on the target needs no size bridge`() {
+        // When the finger scale lands exactly on a column count, the bridge is 1f — size is already
+        // correct at the swap frame and only the position reflow (animateItem) remains.
+        val bridge = 0.5f / settleScaleFor(ColumnCount(3), ColumnCount(6)) // 0.5 == exact 6-col scale
+        assertThat(bridge).isWithin(1e-6f).of(1f)
+    }
+
+    @Test
+    fun `size and position reflow share one spring so they finish together`() {
+        // The whole fix hinges on the tile SIZE morph (the graphicsLayer scale settle) and the tile
+        // POSITION morph (each grid's Modifier.animateItem placement) running on the SAME spring, so
+        // neither snaps while the other animates. Assert both specs carry identical spring timing.
+        val placement = GridReflowPlacementSpec as SpringSpec
+        assertThat(placement.dampingRatio).isEqualTo(REFLOW_DAMPING)
+        assertThat(placement.stiffness).isEqualTo(Spring.StiffnessMediumLow)
+        assertThat(GridReflowScaleSpec.dampingRatio).isEqualTo(placement.dampingRatio)
+        assertThat(GridReflowScaleSpec.stiffness).isEqualTo(placement.stiffness)
     }
 }

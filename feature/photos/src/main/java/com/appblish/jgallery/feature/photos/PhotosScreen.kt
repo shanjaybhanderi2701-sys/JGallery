@@ -82,6 +82,7 @@ import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
+import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
@@ -491,9 +492,13 @@ private fun PhotosGrid(
                     }
                 },
             ) { index ->
+                // A column swap on pinch-release reflows every tile to its new slot over the shared
+                // settle spring (APP-519) — a real layout animation, not the old instant reposition.
+                val reflow = Modifier.animateItem(placementSpec = GridReflowPlacementSpec)
                 when (val cell = timeline.cells[index]) {
-                    is PhotosCell.DateHeader -> GroupHeaderContent(label = cell.label)
+                    is PhotosCell.DateHeader -> GroupHeaderContent(label = cell.label, modifier = reflow)
                     is PhotosCell.Tile -> MediaTile(
+                        modifier = reflow,
                         item = cell.item,
                         shape = tileShape,
                         columns = columns.value,
@@ -727,6 +732,7 @@ private fun MediaTile(
     selectionActive: Boolean,
     selected: Boolean,
     onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val scale = rememberTileSelectScale(selected)
     // Panoramas letterbox the full horizon on a dark cell instead of cropping to a square (W3-03);
@@ -734,7 +740,7 @@ private fun MediaTile(
     val isPano = item.isPanorama
     val badge = item.formatBadge
     Box(
-        modifier = Modifier
+        modifier = modifier
             .aspectRatio(1f)
             .background(JGalleryColors.AccentSoft, shape)
             .clickable(onClick = onClick)

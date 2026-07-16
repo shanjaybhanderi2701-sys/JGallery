@@ -46,6 +46,7 @@ import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.component.EmptyTabState
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
+import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
@@ -203,6 +204,8 @@ private fun AddToAlbumGrid(
                 val isSelected = item.id in selected
                 Box(
                     modifier = Modifier
+                        // Pinch-release column swap slides each tile to its new slot (APP-519).
+                        .animateItem(placementSpec = GridReflowPlacementSpec)
                         .aspectRatio(1f)
                         .background(JGalleryColors.AccentSoft, tileShape)
                         .clickable { onToggle(item.id) },

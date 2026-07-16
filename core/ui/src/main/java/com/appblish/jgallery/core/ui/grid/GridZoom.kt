@@ -1,7 +1,9 @@
 package com.appblish.jgallery.core.ui.grid
 
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.FiniteAnimationSpec
 import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -18,6 +20,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.composed
 import androidx.compose.ui.geometry.isSpecified
@@ -25,8 +28,10 @@ import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.ui.unit.IntOffset
 import com.appblish.jgallery.core.model.ColumnCount
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 
@@ -65,14 +70,51 @@ internal fun pinchScaleBounds(startColumns: ColumnCount): ClosedFloatingPointRan
 private const val OVERSHOOT = 1.12f
 
 /**
- * Continuous pinch-to-zoom column morphing, ported from CalcVault's grid (APP-495, replacing the
- * discrete step-snapping of APP-403). Two fingers rescale the whole grid **smoothly and
+ * The single settle timing shared by BOTH halves of the release reflow (APP-519): the tile **size**
+ * morph (the `graphicsLayer` scale, [GridReflowScaleSpec]) and the tile **position** morph (each
+ * grid's `Modifier.animateItem` placement, [GridReflowPlacementSpec]) run on the same spring, so on a
+ * column swap size and position interpolate together and finish in lockstep instead of one snapping
+ * while the other animates. Lightly damped (no visible ring) and ~250ms — snappy, "Samsung/OnePlus".
+ */
+internal const val REFLOW_DAMPING = 0.9f
+
+/** Size-half of the shared settle spring: springs the bridging `graphicsLayer` scale back to 1f. */
+internal val GridReflowScaleSpec = spring<Float>(
+    dampingRatio = REFLOW_DAMPING,
+    stiffness = Spring.StiffnessMediumLow,
+)
+
+/**
+ * Position-half of the shared settle spring (APP-519). Every pinch-zoomable grid passes this as the
+ * `placementSpec` of `Modifier.animateItem` on its tile content, so when [gridPinchColumns] commits a
+ * new column count the tiles **slide** to their new slots over this spring instead of snapping there.
+ * It intentionally mirrors [GridReflowScaleSpec] (same damping + stiffness) so the horizontal reflow
+ * and the size morph land on the same frame — the reconciliation the board's "kill the release jump"
+ * requires. `animateItem` animates placement only; the coordinated size bridge lives in the release
+ * path of [gridPinchColumns].
+ */
+val GridReflowPlacementSpec: FiniteAnimationSpec<IntOffset> = spring(
+    dampingRatio = REFLOW_DAMPING,
+    stiffness = Spring.StiffnessMediumLow,
+    visibilityThreshold = IntOffset.VisibilityThreshold,
+)
+
+/**
+ * Continuous pinch-to-zoom column morphing, ported from CalcVault's grid (APP-495) and upgraded to a
+ * real release layout animation (APP-519). Two fingers rescale the whole grid **smoothly and
  * continuously** via a `graphicsLayer` scale anchored at the pinch centroid — no hard column jumps
- * mid-gesture. On finger-up the scale springs (bouncily) to the nearest column count's tile size and,
- * in the same frame, the column count is committed and the scale reset to 1f, so the settle is
- * seamless. Single-finger events are left completely untouched, so grid scrolling and taps are
- * unaffected; moves are consumed only once a second pointer is down (the grid must not scroll
- * mid-pinch).
+ * mid-gesture.
+ *
+ * On finger-up the column count is committed **immediately** to the nearest snap target. Because every
+ * pinch-zoomable grid tags its tiles with `Modifier.animateItem(placementSpec = `[GridReflowPlacementSpec]`)`,
+ * that commit makes the tiles **slide** to their new slots (a genuine layout animation) instead of the
+ * old instant reposition — the sideways "hard jump" the board reported. The tile **size** morph is
+ * bridged in the same window: the moment the new count is laid out, the `graphicsLayer` scale is reset
+ * so the target-columns grid starts at exactly the pre-release apparent tile size, then springs to 1f
+ * on [GridReflowScaleSpec] — the same spring the placement uses, so size and position finish together.
+ *
+ * Single-finger events are left completely untouched, so grid scrolling and taps are unaffected; moves
+ * are consumed only once a second pointer is down (the grid must not scroll mid-pinch).
  *
  * Rescaling, not re-decoding: tile size changes are pure layout/`graphicsLayer` transforms — the
  * memory-cache key is size-agnostic, so morphing never triggers new decodes for loaded thumbnails.
@@ -129,30 +171,37 @@ fun Modifier.gridPinchColumns(
                     event.changes.forEach { if (it.positionChanged()) it.consume() }
                 }
 
-                // Release: settle to the nearest column count. Spring first (bouncy overshoot), then
-                // swap columns + reset scale together so there is no visible jump at the swap frame.
+                // Release: settle to the nearest column count with a real layout animation.
                 val start = startColumns
                 if (start != null) {
                     val finalZoom = zoom
+                    // The apparent tile scale on the STILL-start-columns grid at the instant of release.
+                    val releaseScale = scale.value
                     settleJob = scope.launch {
                         val target = columnsForPinch(start, finalZoom)
-                        scale.animateTo(
-                            targetValue = settleScaleFor(start, target),
-                            animationSpec = spring(
-                                dampingRatio = SETTLE_DAMPING,
-                                stiffness = Spring.StiffnessMediumLow,
-                            ),
-                        )
-                        if (target != currentColumns()) onColumnsChange(target)
-                        scale.snapTo(1f)
+                        if (target == currentColumns()) {
+                            // Snapped back to the same count — no reflow; just relax the live scale to 1f.
+                            scale.animateTo(1f, GridReflowScaleSpec)
+                            return@launch
+                        }
+                        // 1. Commit the swap now. Each tile carries animateItem(GridReflowPlacementSpec),
+                        //    so this reflows every tile to its new slot — a slide, not the old hard jump.
+                        onColumnsChange(target)
+                        // 2. Wait until the new count is actually laid out. The count source may be async
+                        //    (a persisted preference round-trips through DataStore), so we bridge the SIZE
+                        //    against the real swap frame rather than blindly, which would flash one frame.
+                        snapshotFlow { currentColumns() }.first { it == target }
+                        // 3. Rescale so the freshly target-columns grid starts at exactly the pre-release
+                        //    apparent tile size (releaseScale / settleScaleFor == releaseScale * target/start),
+                        //    then spring to 1f on the SAME spring the placement uses — size and position
+                        //    morph together and finish on the same frame.
+                        scale.snapTo(releaseScale / settleScaleFor(start, target))
+                        scale.animateTo(1f, GridReflowScaleSpec)
                     }
                 }
             }
         }
 }
-
-/** Bouncy-but-controlled settle: below 1.0 so the tiles overshoot the target size and spring back. */
-private const val SETTLE_DAMPING = 0.62f
 
 /**
  * Self-contained state for a pinch-zoomable grid: the live [columns] count plus the [gridState] the

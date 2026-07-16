@@ -70,6 +70,7 @@ import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
+import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
@@ -497,13 +498,16 @@ private fun AlbumDetailGrid(
                     }
                 },
             ) { index ->
+                // Pinch-release column swap slides every cell to its new slot over the shared settle
+                // spring (APP-519) — a real layout animation instead of the old instant reposition.
+                val reflow = Modifier.animateItem(placementSpec = GridReflowPlacementSpec)
                 when (val cell = cells[index]) {
-                    is MediaCell.Header -> GroupSectionHeader(label = cell.label)
+                    is MediaCell.Header -> GroupSectionHeader(label = cell.label, modifier = reflow)
                     is MediaCell.Tile -> {
                         val item = cell.item
                         val scale = rememberTileSelectScale(selection.isSelected(item.id))
                         Box(
-                            modifier = Modifier
+                            modifier = reflow
                                 .aspectRatio(1f)
                                 .background(JGalleryColors.AccentSoft, tileShape)
                                 .clickable {

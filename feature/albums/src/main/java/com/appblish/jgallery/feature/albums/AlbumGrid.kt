@@ -39,6 +39,7 @@ import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.thumbs.coverRequest
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
+import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.selection.selectableGridDrag
@@ -98,6 +99,8 @@ internal fun AlbumCoverGrid(
         ) {
             items(albums, key = { it.bucketId }) { album ->
                 AlbumCoverCard(
+                    // Pinch-release column swap slides each card to its new slot (APP-519).
+                    modifier = Modifier.animateItem(placementSpec = GridReflowPlacementSpec),
                     album = album,
                     onClick = { onAlbumClick(album) },
                     selecting = selecting,
@@ -122,9 +125,10 @@ internal fun AlbumCoverCard(
     onClick: () -> Unit,
     selecting: Boolean = false,
     selected: Boolean = false,
+    modifier: Modifier = Modifier,
 ) {
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             // Tap only — long-press + drag selection is owned by the grid container (items 5 & 6), so a
             // long-press never resolves as a click here and can't toggle the just-selected card back off.
