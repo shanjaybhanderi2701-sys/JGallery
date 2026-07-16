@@ -70,7 +70,10 @@ import com.appblish.jgallery.core.ui.format.MediaDecodeTilePlaceholder
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.FormatBadgeChip
 import com.appblish.jgallery.core.ui.component.EmptyTabState
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.appblish.jgallery.core.ui.component.CollapsibleContent
 import com.appblish.jgallery.core.ui.component.FormatFilterChips
+import com.appblish.jgallery.core.ui.component.rememberCollapseOnScrollState
 import com.appblish.jgallery.core.ui.component.GalleryMenuItem
 import com.appblish.jgallery.core.ui.component.GalleryTopBar
 import com.appblish.jgallery.core.ui.component.GroupBySheet
@@ -211,6 +214,14 @@ fun PhotosScreen(
     var showSortSheet by remember { mutableStateOf(false) }
     var showCreateDialog by remember { mutableStateOf(false) }
 
+    // Collapse-on-scroll for the filter chip row (design G1-D8 item 4): reads scroll direction off the
+    // grid's nested scroll and hides the chips on scroll-up, restores them on scroll-down.
+    val filterBarCollapse = rememberCollapseOnScrollState()
+    // Leaving selection mode restores the bar so it never re-appears already collapsed.
+    LaunchedEffect(selection.isActive) {
+        if (!selection.isActive) filterBarCollapse.reveal()
+    }
+
     // Canonical top bar (design G1-D7 §1/§2): Search + 3-dot overflow only — the loose Photos
     // grid/group icons are gone. The overflow adopts the Albums item set (Sort / Column count /
     // Create album / Recycle bin), plus Group by (a Photos-only stream control from G1-10 that no
@@ -298,11 +309,16 @@ fun PhotosScreen(
                 details = details,
                 modifier = modifier.testTag("photos_screen"),
             ) {
-                Column(Modifier.fillMaxSize()) {
+                // The nested-scroll connection sits on the ancestor of the grid so it sees each scroll
+                // delta before the grid consumes it (it consumes nothing itself), driving the chip bar.
+                Column(Modifier.fillMaxSize().nestedScroll(filterBarCollapse.connection)) {
                     // Item 3 (design C1-06): the format filter row, directly under the header. Hidden
-                    // while selecting (the selection top bar owns that space).
+                    // while selecting (the selection top bar owns that space). Collapse-on-scroll
+                    // (design G1-D8 item 4): slides/fades away on scroll-up, returns on scroll-down.
                     if (!selection.isActive) {
-                        FormatFilterChips(selected = state.filter, onSelect = onFilterChange)
+                        CollapsibleContent(visible = filterBarCollapse.visible) {
+                            FormatFilterChips(selected = state.filter, onSelect = onFilterChange)
+                        }
                     }
                     if (tileIds.isEmpty()) {
                         // Non-empty library, empty filtered result → filter-scoped empty state (callout 5).

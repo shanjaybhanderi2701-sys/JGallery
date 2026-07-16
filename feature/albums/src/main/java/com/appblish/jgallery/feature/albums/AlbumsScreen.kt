@@ -37,7 +37,10 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.EmptyTabState
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import com.appblish.jgallery.core.ui.component.CollapsibleContent
 import com.appblish.jgallery.core.ui.component.FormatFilterChips
+import com.appblish.jgallery.core.ui.component.rememberCollapseOnScrollState
 import com.appblish.jgallery.core.ui.component.GalleryMenuItem
 import com.appblish.jgallery.core.ui.component.GalleryTopBar
 import com.appblish.jgallery.core.ui.component.NameInputDialog
@@ -213,6 +216,13 @@ fun AlbumsScreen(
     // Which Copy/Move batch is waiting on a destination pick (null = none).
     var pendingBatch by remember { mutableStateOf<BatchOp?>(null) }
 
+    // Collapse-on-scroll for the filter chip row (design G1-D8 item 4): scroll-up hides the chips,
+    // scroll-down restores them — same behavior as the Photos tab, one shared primitive.
+    val filterBarCollapse = rememberCollapseOnScrollState()
+    LaunchedEffect(albumSelection.isActive) {
+        if (!albumSelection.isActive) filterBarCollapse.reveal()
+    }
+
     val allAlbums = (state as? AlbumsUiState.Content)?.albums.orEmpty()
     val selectedAlbums = allAlbums.filter { it.bucketId in albumSelection.selected }
     val singleSelected = selectedAlbums.singleOrNull()
@@ -222,7 +232,14 @@ fun AlbumsScreen(
     // Back exits selection first (spec §7.6 parity with the media grids).
     BackHandler(enabled = albumSelection.isActive) { onClearAlbumSelection() }
 
-    Column(modifier = modifier.fillMaxSize().testTag("albums_screen")) {
+    // nestedScroll on the ancestor Column lets the collapse controller read the album grid's scroll
+    // direction before the grid consumes it (it consumes nothing), driving the chip-bar show/hide.
+    Column(
+        modifier = modifier
+            .fillMaxSize()
+            .nestedScroll(filterBarCollapse.connection)
+            .testTag("albums_screen"),
+    ) {
         if (albumSelection.isActive) {
             SelectionTopBar(
                 count = albumSelection.count,
@@ -273,7 +290,11 @@ fun AlbumsScreen(
             // across both. Shown once the library has albums; filters which albums surface. Hidden while
             // selecting (the selection bar owns that space), mirroring the Photos grid.
             if (state is AlbumsUiState.Content) {
-                FormatFilterChips(selected = filter, onSelect = onFilterChange)
+                // Collapse-on-scroll (design G1-D8 item 4): slides/fades away on scroll-up, returns on
+                // scroll-down. The weight(1f) grid box below eases into the freed space — no jump.
+                CollapsibleContent(visible = filterBarCollapse.visible) {
+                    FormatFilterChips(selected = filter, onSelect = onFilterChange)
+                }
             }
         }
 
