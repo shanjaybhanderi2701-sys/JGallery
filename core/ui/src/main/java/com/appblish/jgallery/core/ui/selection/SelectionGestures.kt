@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.pointer.AwaitPointerEventScope
+import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
@@ -32,8 +33,10 @@ import kotlinx.coroutines.withTimeout
  * long-press-to-select silently does nothing (it only "worked" in isolated `:core:ui` tests, where
  * no scrollable competes). [awaitLongPressAllowingConsumed] instead times the hold itself and only
  * bails on a real lift or a past-slop drag — never on mere consumption — so it fires reliably on
- * device. Once it fires we consume every subsequent change (moves *and* the terminal up) so the
- * tile's click handler can't read a spurious tap and toggle the just-selected item back off (item 5).
+ * device. Once it fires we consume every subsequent change (moves *and* the terminal up) on the
+ * **Initial** pass — which reaches this container before its descendants — so the tile's click handler
+ * sees the up already consumed and can't fire a spurious tap that toggles the just-selected item back
+ * off (item 5). Consuming on the Main pass is too late: the descendant tile reads the up there first.
  *
  * @param enabled when false the gesture is inert (e.g. while a bulk op runs).
  * @param onSelectStart index of the tile under the long-press point.
@@ -56,16 +59,21 @@ fun Modifier.selectableGridDrag(
             // handler keeps working for those.
             val longPress = awaitLongPressAllowingConsumed(down) ?: return@awaitEachGesture
             gridState.itemIndexAt(longPress.position)?.let(onSelectStart)
-            // From here we own the pointer: consume each change so (a) the tile's clickable never reads
-            // a tap on release and toggles the just-selected item back off (item 5), and (b) the grid
-            // doesn't scroll mid-select. Range-extend as the finger sweeps (item 6).
-            var change: PointerInputChange = longPress
-            change.consume()
-            while (change.pressed) {
-                val event = awaitPointerEvent()
-                change = event.changes.firstOrNull { it.id == down.id } ?: break
-                gridState.itemIndexAt(change.position)?.let(onDragOverIndex)
+            // From here we own the pointer. Consume every subsequent change on the INITIAL pass —
+            // which reaches this container BEFORE its descendants — so the tile's `clickable` sees the
+            // terminal up already consumed and cannot fire a tap that toggles the just-selected item
+            // straight back off (item 5 rollback). Consuming on the Main pass (the default) is too late:
+            // the child tile is a descendant and reads the up on the Main pass first, so its tap fires
+            // before we could consume it. Consuming moves here also blocks the grid from scrolling
+            // mid-select and range-extends the sweep to the item under the finger (item 6).
+            while (true) {
+                val event = awaitPointerEvent(PointerEventPass.Initial)
+                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                if (change.pressed) {
+                    gridState.itemIndexAt(change.position)?.let(onDragOverIndex)
+                }
                 change.consume()
+                if (!change.pressed) break
             }
         }
     }

@@ -132,7 +132,9 @@ class AlbumsOrganizationTest {
         composeRule.onNodeWithTag("selection_top_bar").assertIsDisplayed()
         composeRule.onNodeWithTag("selection_action_bar").assertIsDisplayed()
         composeRule.onNodeWithText("1 selected").assertIsDisplayed()
-        composeRule.onNodeWithTag("album_selected_camera").assertIsDisplayed()
+        // The per-card check badge is a descendant of the card's `clickable` (which merges its
+        // semantics), so it is only addressable in the unmerged tree.
+        composeRule.onNodeWithTag("album_selected_camera", useUnmergedTree = true).assertIsDisplayed()
     }
 
     @Test
