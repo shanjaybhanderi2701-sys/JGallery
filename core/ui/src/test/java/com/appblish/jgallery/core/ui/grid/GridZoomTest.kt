@@ -40,4 +40,25 @@ class GridZoomTest {
         assertThat(columnsForPinch(start, 2.4f)).isEqualTo(ColumnCount(3))
         assertThat(columnsForPinch(start, 3.0f)).isEqualTo(ColumnCount(2))
     }
+
+    // --- Continuous settle math (APP-495) ---
+
+    @Test
+    fun `settle scale makes the start grid look exactly like the target grid`() {
+        // 4 columns settling to 2 → tiles double → content scaled 2x.
+        assertThat(settleScaleFor(ColumnCount(4), ColumnCount(2))).isEqualTo(2f)
+        // 3 columns settling to 6 → tiles halve → content scaled 0.5x.
+        assertThat(settleScaleFor(ColumnCount(3), ColumnCount(6))).isEqualTo(0.5f)
+        // No column change → identity scale, the swap-frame is a no-op.
+        assertThat(settleScaleFor(ColumnCount(3), ColumnCount(3))).isEqualTo(1f)
+    }
+
+    @Test
+    fun `live scale bounds span every reachable column count with a springy overshoot`() {
+        // From 3 columns: tightest reaches 6 cols (0.5x), loosest reaches 2 cols (1.5x). Both ends
+        // carry a little headroom past the settle scale so the release can bounce back.
+        val bounds = pinchScaleBounds(ColumnCount(3))
+        assertThat(bounds.start).isLessThan(settleScaleFor(ColumnCount(3), ColumnCount(6)))
+        assertThat(bounds.endInclusive).isGreaterThan(settleScaleFor(ColumnCount(3), ColumnCount(2)))
+    }
 }
