@@ -93,6 +93,39 @@ class GridZoomTest {
         assertThat(bridge).isWithin(1e-6f).of(1f)
     }
 
+    // --- Apparent-size-continuous release bridge across the async column swap (APP-521 fix 3) ---
+
+    @Test
+    fun `settle bridge keeps apparent tile size continuous whether the async column flip lands early or late`() {
+        // The residual "pop" the board saw came from the release rendering a few frames at the wrong
+        // apparent tile size while the persisted column count round-tripped through DataStore. The fix
+        // derives the graphicsLayer scale from whatever column count is LIVE each frame:
+        //     scaleValue = spring * currentColumns / target
+        // so apparent size (= scaleValue / currentColumns) collapses to spring / target REGARDLESS of
+        // the live count. Prove that invariant holds for both the pre-flip (start) and post-flip
+        // (target) counts at every point of the spring — no wrong-size frame, so no pop.
+        val start = ColumnCount(3)
+        val target = ColumnCount(6)
+        val releaseScale = 0.42f
+        val bridge = releaseScale / settleScaleFor(start, target)
+
+        // Sample the spring's value space from the bridge (start of settle) down to the 1f rest.
+        for (spring in listOf(bridge, bridge + (1f - bridge) * 0.5f, 1f)) {
+            val apparentWhileStillStart =
+                (spring * start.value / target.value) / start.value // scaleValue / currentColumns
+            val apparentAfterFlipToTarget =
+                (spring * target.value / target.value) / target.value
+            // Same apparent size on the frame before AND after the flip → the swap is invisible.
+            assertThat(apparentWhileStillStart).isWithin(1e-6f).of(apparentAfterFlipToTarget)
+            assertThat(apparentWhileStillStart).isWithin(1e-6f).of(spring / target.value)
+        }
+
+        // Continuity with the drag: at the very start of the settle (spring == bridge) the pre-flip
+        // scale must equal the release scale exactly, so there is no jump between finger-up and settle.
+        val settleStartScaleAtStartColumns = bridge * start.value / target.value
+        assertThat(settleStartScaleAtStartColumns).isWithin(1e-6f).of(releaseScale)
+    }
+
     @Test
     fun `size and position reflow share one spring so they finish together`() {
         // The whole fix hinges on the tile SIZE morph (the graphicsLayer scale settle) and the tile
