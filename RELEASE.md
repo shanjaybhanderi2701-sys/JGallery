@@ -30,8 +30,10 @@ We use **Play App Signing** (recommended by Google):
 ### Our upload key
 
 - Type: PKCS12, RSA-2048, 10000-day validity, alias **`jgallery-upload`**.
-- Stored **outside the repo tree** at
-  `…/companies/<companyId>/secrets/jgallery-upload.jks` (never committed).
+- Stored **outside the repo tree** in the release engineer's per-agent `secure-release/`
+  directory (mode `0700`), alongside `credentials.env` which holds the `JGALLERY_RELEASE_*`
+  store/key passwords. Never committed; the exact path is registered in `credentials.env`, not in
+  this repo.
 - Fingerprints (record these; Play shows the upload cert on enrollment — they must match):
   - **SHA-1:**   `79:3B:41:4C:40:F4:5B:4E:4B:8A:0A:B5:51:E6:56:9C:FE:D2:74:A7`
   - **SHA-256:** `A4:AC:52:60:1F:6B:2B:FB:B6:44:B4:76:97:03:C9:D3:EF:B0:A3:4D:CC:EB:D3:F0:90:6F:AF:77:16:0F:78:F2`
