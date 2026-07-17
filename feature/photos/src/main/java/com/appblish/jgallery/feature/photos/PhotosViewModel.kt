@@ -14,6 +14,8 @@ import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.model.filteredBy
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.MediaSelectionController
+import com.appblish.jgallery.core.ui.share.MediaShareRequest
+import com.appblish.jgallery.core.ui.share.ShareIntents
 import com.appblish.jgallery.feature.photos.di.TimelineDispatcher
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CoroutineDispatcher
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -220,6 +223,37 @@ class PhotosViewModel @Inject constructor(
         selectionController.runToNewAlbum(action, name)
     fun cancelBulk() = selectionController.cancel()
     fun dismissBulkResult() = selectionController.dismissResult()
+
+    // Share the current selection to the system share sheet (G2 · APP-541). Each selected id is
+    // resolved to its §1.6-sanctioned MediaStore content uri (operations.viewUri — the same deliberate
+    // cross-boundary exposure the viewer's "Set as"/"Open with" use, APP-297); a null means the item
+    // was deleted underneath us and is simply skipped. The narrowed common MIME type is derived from
+    // the selected items' own types so the chooser filters sensibly. The screen owns the platform
+    // Intent + chooser launch (this VM stays free of android.content.Intent).
+    private val shareRequests = Channel<MediaShareRequest>(Channel.BUFFERED)
+    val shareEvents: Flow<MediaShareRequest> = shareRequests.receiveAsFlow()
+
+    fun shareSelected() {
+        val ids = selectionController.selection.value.selected.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val byId = repository.observeMedia(MediaQuery()).first().associateBy { it.id }
+            val resolved = ids.mapNotNull { id ->
+                val uri = operations.viewUri(id) ?: return@mapNotNull null
+                uri to byId[id]?.mimeType
+            }
+            shareRequests.send(
+                if (resolved.isEmpty()) {
+                    MediaShareRequest.Empty
+                } else {
+                    MediaShareRequest.Ready(
+                        uris = resolved.map { it.first },
+                        mimeType = ShareIntents.commonMimeType(resolved.map { it.second }),
+                    )
+                },
+            )
+        }
+    }
 }
 
 /** Outcome of a Photos-overflow "Create album" (design G1-D7 §2). */
@@ -233,3 +267,4 @@ sealed interface PhotosRenameResult {
     data class Success(val name: String) : PhotosRenameResult
     data class Failure(val reason: String) : PhotosRenameResult
 }
+

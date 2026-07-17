@@ -94,6 +94,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import com.appblish.jgallery.core.ui.selection.SelectionScaffold
+import com.appblish.jgallery.core.ui.share.MediaShareRequest
+import com.appblish.jgallery.core.ui.share.ShareIntents
 import com.appblish.jgallery.core.ui.selection.SelectionState
 import com.appblish.jgallery.core.ui.selection.rememberTileSelectScale
 import com.appblish.jgallery.core.ui.selection.selectableGridDrag
@@ -158,6 +160,18 @@ fun PhotosScreen(
         }
     }
 
+    // Share outcomes (G2 · APP-541): fire the system share sheet for the resolved content uris, or
+    // toast when nothing shareable remained (every selected item was deleted underneath us).
+    LaunchedEffect(viewModel) {
+        viewModel.shareEvents.collect { request ->
+            when (request) {
+                is MediaShareRequest.Ready -> context.launchShareSheet(request.uris, request.mimeType)
+                MediaShareRequest.Empty ->
+                    Toast.makeText(context, "Nothing left to share", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
     PhotosScreen(
         state = state,
         columns = columns,
@@ -187,8 +201,21 @@ fun PhotosScreen(
         onCancelBulk = viewModel::cancelBulk,
         onDismissResult = viewModel::dismissBulkResult,
         onRenameSelected = viewModel::renameSelected,
+        onShare = viewModel::shareSelected,
         modifier = modifier,
     )
+}
+
+/**
+ * Fire the system share sheet for [uris] (G2 · APP-541). The uris are the §1.6-sanctioned MediaStore
+ * `content://` uris; [ShareIntents] tags the intent read-only + temporary and attaches every uri as
+ * ClipData so the grant reaches the chosen app. Wrapped in `runCatching` (like the viewer's intents)
+ * so a device with no share target degrades to a no-op instead of crashing.
+ */
+private fun android.content.Context.launchShareSheet(uris: List<android.net.Uri>, mimeType: String) {
+    if (uris.isEmpty()) return
+    val intent = ShareIntents.buildSendIntent(uris, mimeType)
+    runCatching { startActivity(android.content.Intent.createChooser(intent, "Share")) }
 }
 
 /** Stateless body — instrumented tests drive this without Hilt (10k-item fixture, no device index). */
@@ -223,6 +250,7 @@ fun PhotosScreen(
     onCancelBulk: () -> Unit = {},
     onDismissResult: () -> Unit = {},
     onRenameSelected: (MediaId, String) -> Unit = { _, _ -> },
+    onShare: () -> Unit = {},
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
     var showGroupSheet by remember { mutableStateOf(false) }
@@ -330,6 +358,8 @@ fun PhotosScreen(
                 details = details,
                 // Rename is single-only; the overflow keeps it dimmed until exactly one item is selected.
                 onRename = { showRenameDialog = true },
+                // Share (G2 · APP-541): multi-safe overflow entry → resolve selection to content uris.
+                onShare = onShare,
                 modifier = modifier.testTag("photos_screen"),
             ) {
                 // The nested-scroll connection sits on the ancestor of the grid so it sees each scroll
