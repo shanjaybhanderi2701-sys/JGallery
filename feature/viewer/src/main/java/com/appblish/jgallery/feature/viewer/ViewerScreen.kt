@@ -278,16 +278,24 @@ private fun ViewerPager(
         chromeVisible = true
     }
 
-    // Auto-advance driver (APP-544). Runs only while the slideshow is on and not paused. After each
-    // dwell it advances by the pure [Slideshow.nextPage] rule (loop on). A video page pauses the timer —
-    // we skip advancing while one is on screen so playback isn't cut off — and resumes once it's gone.
+    // Auto-advance driver (APP-544, video-dwell fix APP-548). Runs only while the slideshow is on and
+    // not paused. It dwells per slide, then advances by the pure [Slideshow.nextPage] rule (loop on).
+    // A video is given a longer, *bounded* dwell — long enough to let the clip play through, but capped
+    // by [Slideshow.videoDwellMs] so a long/looping video can never pin lean-back auto-play forever
+    // (the earlier "skip while a video is current" rule silently halted the run on the first video).
     LaunchedEffect(slideshowOn, slideshowPaused, items) {
         if (!slideshowOn || slideshowPaused) return@LaunchedEffect
         while (true) {
-            delay(Slideshow.DEFAULT_INTERVAL_MS)
-            val current = pagerState.currentPage
-            if (items.getOrNull(current)?.type == MediaType.VIDEO) continue // pause on video
-            val next = Slideshow.nextPage(current, items.size, loop = true) ?: break
+            val onScreen = items.getOrNull(pagerState.currentPage)
+            val dwell = if (onScreen?.type == MediaType.VIDEO) {
+                Slideshow.videoDwellMs(onScreen.durationMillis)
+            } else {
+                Slideshow.DEFAULT_INTERVAL_MS
+            }
+            delay(dwell)
+            // Re-read the page after the dwell so a manual swipe mid-slideshow advances from where the
+            // user actually is, not from where the timer started.
+            val next = Slideshow.nextPage(pagerState.currentPage, items.size, loop = true) ?: break
             pagerState.animateScrollToPage(next)
         }
     }

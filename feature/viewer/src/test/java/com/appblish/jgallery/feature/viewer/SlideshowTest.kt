@@ -46,4 +46,37 @@ class SlideshowTest {
     fun `default interval is a sane lean-back dwell`() {
         assertThat(Slideshow.DEFAULT_INTERVAL_MS).isEqualTo(3_000L)
     }
+
+    // Video-dwell fallback (APP-548): auto-play must never stall forever on a video page. The driver
+    // dwells for the clip's duration, but [videoDwellMs] clamps it into a bounded window so the run
+    // always makes progress.
+
+    @Test
+    fun `a video plays through for roughly its own duration`() {
+        // Between the floor and the cap, the dwell tracks the clip length so it isn't cut off.
+        assertThat(Slideshow.videoDwellMs(10_000L)).isEqualTo(10_000L)
+    }
+
+    @Test
+    fun `a zero or unknown duration video still advances at the default interval`() {
+        assertThat(Slideshow.videoDwellMs(0L)).isEqualTo(Slideshow.DEFAULT_INTERVAL_MS)
+        assertThat(Slideshow.videoDwellMs(-1L)).isEqualTo(Slideshow.DEFAULT_INTERVAL_MS)
+    }
+
+    @Test
+    fun `a very short video is not left below the default interval`() {
+        assertThat(Slideshow.videoDwellMs(500L)).isEqualTo(Slideshow.DEFAULT_INTERVAL_MS)
+    }
+
+    @Test
+    fun `a long or looping video cannot pin the slideshow past the hard cap`() {
+        assertThat(Slideshow.videoDwellMs(2 * 60 * 60 * 1_000L)).isEqualTo(Slideshow.MAX_VIDEO_DWELL_MS)
+        assertThat(Slideshow.videoDwellMs(Long.MAX_VALUE)).isEqualTo(Slideshow.MAX_VIDEO_DWELL_MS)
+    }
+
+    @Test
+    fun `the video dwell window is a sane bounded range`() {
+        assertThat(Slideshow.MAX_VIDEO_DWELL_MS).isEqualTo(60_000L)
+        assertThat(Slideshow.MAX_VIDEO_DWELL_MS).isGreaterThan(Slideshow.DEFAULT_INTERVAL_MS)
+    }
 }
