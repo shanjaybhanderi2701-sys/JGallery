@@ -149,4 +149,48 @@ class GridPinchGestureInstrumentedTest {
             abs(restTileWidth - expectedRestWidth) <= tolerance,
         )
     }
+
+    /**
+     * APP-521 rebuild: the live scale now rubber-bands past the sensible range instead of hitting a
+     * hard `coerceIn` wall (that wall — grid freezes while fingers travel on — was the "step function"
+     * the board felt). A very WIDE spread drives the scale deep into the rubber-band regime; assert on
+     * the REAL handler that it still (a) settles to the minimum column count and (b) rests at the exact
+     * target tile size with no residual scale — i.e. the new soft-clamp path does not corrupt the
+     * release the way an unbounded or stuck scale would.
+     */
+    @Test
+    fun `wideSpread_intoRubberBandRegime_stillSettlesToMinColumnsAtExactRestSize`() {
+        composeRule.setContent { JGalleryTheme { ZoomGrid() } }
+        composeRule.waitForIdle()
+        assertTrue("precondition: starts at 3 columns", zoom.columns == ColumnCount(3))
+
+        val rootWidthDp = composeRule.onNodeWithTag("zoom_grid").getUnclippedBoundsInRoot().width.value
+
+        // Spread as wide as the node allows — well past the 1.5x sensible top for a 3-col start, so the
+        // live scale spends most of the gesture in the rubber-band region.
+        composeRule.onNodeWithTag("zoom_grid").performTouchInput {
+            pinch(
+                start0 = center + Offset(-20f, 0f),
+                end0 = center + Offset(-width * 0.48f, 0f),
+                start1 = center + Offset(20f, 0f),
+                end1 = center + Offset(width * 0.48f, 0f),
+            )
+        }
+        composeRule.waitForIdle()
+
+        val settled = zoom.columns
+        assertTrue(
+            "a wide spread must settle to the minimum column count (2), was ${settled.value}",
+            settled == ColumnCount(ColumnCount.MIN),
+        )
+
+        val restTileWidth = composeRule.onNodeWithTag("tile_0").getUnclippedBoundsInRoot().width.value
+        val expectedRestWidth = rootWidthDp / settled.value
+        val tolerance = expectedRestWidth * 0.06f
+        assertTrue(
+            "even after a rubber-band spread the rested tile must be ~rootWidth/columns " +
+                "(=$expectedRestWidth dp), not $restTileWidth dp (no residual scale)",
+            abs(restTileWidth - expectedRestWidth) <= tolerance,
+        )
+    }
 }

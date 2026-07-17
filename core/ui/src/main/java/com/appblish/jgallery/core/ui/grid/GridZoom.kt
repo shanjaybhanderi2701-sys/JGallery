@@ -35,6 +35,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
+import kotlin.math.tanh
 
 /**
  * Nearest column count for an accumulated pinch [zoom], relative to the count when the gesture
@@ -57,18 +58,44 @@ fun settleScaleFor(startColumns: ColumnCount, targetColumns: ColumnCount): Float
     startColumns.value.toFloat() / targetColumns.value.toFloat()
 
 /**
- * How far the live pinch scale may travel while still on [startColumns]: from the scale that reaches
- * the most columns ([ColumnCount.MAX]) up to the fewest ([ColumnCount.MIN]). A little [OVERSHOOT]
- * headroom past each end lets the fingers stretch slightly beyond the range so the spring settle
- * bounces back — the "rubber-band" edge feel ported from CalcVault.
+ * The sensible live-scale range while still on [startColumns]: from the scale that reaches the most
+ * columns ([ColumnCount.MAX]) down-sizing to the fewest ([ColumnCount.MIN]). Inside this range the
+ * grid tracks the fingers 1:1; [rubberBandScale] lets the scale ease PAST either end with resistance
+ * instead of hitting a hard wall, so the gesture stays continuous the whole way (APP-521).
  */
 internal fun pinchScaleBounds(startColumns: ColumnCount): ClosedFloatingPointRange<Float> {
     val tightest = startColumns.value.toFloat() / ColumnCount.MAX // most columns → smallest scale
     val loosest = startColumns.value.toFloat() / ColumnCount.MIN  // fewest columns → largest scale
-    return (tightest / OVERSHOOT)..(loosest * OVERSHOOT)
+    return tightest..loosest
 }
 
-private const val OVERSHOOT = 1.12f
+/**
+ * Soft "rubber-band" clamp of the live pinch [scale] into [bounds] — the APP-521 rebuild of the live
+ * producer. Inside the range the scale is returned unchanged (tiles track the fingers 1:1); past
+ * either end it keeps moving but with progressively more resistance, asymptotically approaching a
+ * fixed [RUBBER_MARGIN] of headroom, so a wide spread never DEAD-STOPS under still-moving fingers.
+ *
+ * The hard `coerceIn` wall it replaces was the "step function" the board felt on device: spread wide,
+ * the grid grows to the clamp then freezes while the fingers travel on, and the only remaining change
+ * is the on-release column snap — which reads as a discrete jump, not a continuous zoom. `tanh` makes
+ * the response C¹-continuous at each boundary (unit slope, no kink) and bounded, so the settle spring
+ * still has a finite overshoot to relax from.
+ */
+internal fun rubberBandScale(
+    scale: Float,
+    bounds: ClosedFloatingPointRange<Float>,
+): Float {
+    val lo = bounds.start
+    val hi = bounds.endInclusive
+    return when {
+        scale > hi -> hi * (1f + RUBBER_MARGIN * tanh((scale / hi - 1f) / RUBBER_MARGIN))
+        scale < lo -> lo / (1f + RUBBER_MARGIN * tanh((lo / scale - 1f) / RUBBER_MARGIN))
+        else -> scale
+    }
+}
+
+/** Asymptotic headroom the live scale may rubber-band past each sensible end (±30% apparent size). */
+private const val RUBBER_MARGIN = 0.3f
 
 /**
  * The single settle timing shared by BOTH halves of the release reflow (APP-519): the tile **size**
@@ -186,8 +213,10 @@ fun Modifier.gridPinchColumns(
                         currentColumns().also { startColumns = it }
                     }
                     zoom *= event.calculateZoom()
-                    // Write the live scale synchronously in the gesture loop (APP-521 fix 2).
-                    scaleValue = zoom.coerceIn(pinchScaleBounds(start))
+                    // Write the live scale synchronously in the gesture loop (APP-521 fix 2), through
+                    // a rubber-band soft clamp so a wide spread keeps flowing instead of hitting a
+                    // hard wall (APP-521 rebuild — the wall read as a "step function" on device).
+                    scaleValue = rubberBandScale(zoom, pinchScaleBounds(start))
                     event.changes.forEach { if (it.positionChanged()) it.consume() }
                 }
 

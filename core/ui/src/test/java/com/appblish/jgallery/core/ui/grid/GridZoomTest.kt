@@ -56,12 +56,69 @@ class GridZoomTest {
     }
 
     @Test
-    fun `live scale bounds span every reachable column count with a springy overshoot`() {
-        // From 3 columns: tightest reaches 6 cols (0.5x), loosest reaches 2 cols (1.5x). Both ends
-        // carry a little headroom past the settle scale so the release can bounce back.
+    fun `live scale bounds span exactly every reachable column count`() {
+        // From 3 columns: tightest reaches 6 cols (0.5x), loosest reaches 2 cols (1.5x). The sensible
+        // range now sits EXACTLY on those settle scales — headroom past each end is no longer baked
+        // into the bounds, it is produced continuously by rubberBandScale (APP-521 rebuild).
         val bounds = pinchScaleBounds(ColumnCount(3))
-        assertThat(bounds.start).isLessThan(settleScaleFor(ColumnCount(3), ColumnCount(6)))
-        assertThat(bounds.endInclusive).isGreaterThan(settleScaleFor(ColumnCount(3), ColumnCount(2)))
+        assertThat(bounds.start).isWithin(1e-6f).of(settleScaleFor(ColumnCount(3), ColumnCount(6)))
+        assertThat(bounds.endInclusive).isWithin(1e-6f).of(settleScaleFor(ColumnCount(3), ColumnCount(2)))
+    }
+
+    // --- Rubber-band live scale: gesture never dead-stops at a hard wall (APP-521 rebuild) ---
+
+    @Test
+    fun `inside the range the live scale tracks the fingers one to one`() {
+        val bounds = pinchScaleBounds(ColumnCount(3)) // 0.5 .. 1.5
+        assertThat(rubberBandScale(0.5f, bounds)).isWithin(1e-6f).of(0.5f)
+        assertThat(rubberBandScale(1.0f, bounds)).isWithin(1e-6f).of(1.0f)
+        assertThat(rubberBandScale(1.5f, bounds)).isWithin(1e-6f).of(1.5f)
+    }
+
+    @Test
+    fun `past the ends the scale keeps moving but with resistance and never dead-stops`() {
+        val bounds = pinchScaleBounds(ColumnCount(3)) // 0.5 .. 1.5
+        // A wide spread past the top: the old hard coerceIn froze the grid at 1.5 while the fingers
+        // travelled on (the "step function"). Now every wider spread still produces a larger — and
+        // strictly increasing — scale, so the grid keeps flowing under the fingers.
+        val a = rubberBandScale(1.8f, bounds)
+        val b = rubberBandScale(2.4f, bounds)
+        val c = rubberBandScale(4.0f, bounds)
+        assertThat(a).isGreaterThan(1.5f)   // moved past the wall...
+        assertThat(b).isGreaterThan(a)      // ...and keeps responding...
+        assertThat(c).isGreaterThan(b)      // ...monotonically, no dead-stop.
+        // Symmetric on a hard pinch-in past the bottom.
+        val d = rubberBandScale(0.4f, bounds)
+        val e = rubberBandScale(0.25f, bounds)
+        assertThat(d).isLessThan(0.5f)
+        assertThat(e).isLessThan(d)
+    }
+
+    @Test
+    fun `rubber-band resistance is bounded so the settle spring has a finite overshoot to relax`() {
+        val bounds = pinchScaleBounds(ColumnCount(3)) // 0.5 .. 1.5
+        // tanh asymptote caps the headroom at RUBBER_MARGIN (30%): the scale can never exceed
+        // hi * 1.3 no matter how far the fingers spread, so the release always springs back a bounded,
+        // physical amount rather than from an unbounded runaway scale.
+        val extreme = rubberBandScale(100f, bounds)
+        assertThat(extreme).isAtMost(1.5f * 1.3f) // asymptote: hi * (1 + RUBBER_MARGIN)
+        assertThat(extreme).isGreaterThan(1.5f)
+        val extremeLow = rubberBandScale(0.001f, bounds)
+        assertThat(extremeLow).isAtLeast(0.5f / 1.3f) // asymptote: lo / (1 + RUBBER_MARGIN)
+        assertThat(extremeLow).isLessThan(0.5f)
+    }
+
+    @Test
+    fun `the rubber band is continuous at each boundary so there is no visible kink`() {
+        val bounds = pinchScaleBounds(ColumnCount(3)) // 0.5 .. 1.5
+        // Approaching each boundary from just inside and just outside must converge — a discontinuity
+        // here would itself be a visible jump mid-gesture.
+        val justInsideHi = rubberBandScale(1.499f, bounds)
+        val justOutsideHi = rubberBandScale(1.501f, bounds)
+        assertThat(Math.abs(justOutsideHi - justInsideHi)).isLessThan(0.01f)
+        val justInsideLo = rubberBandScale(0.501f, bounds)
+        val justOutsideLo = rubberBandScale(0.499f, bounds)
+        assertThat(Math.abs(justOutsideLo - justInsideLo)).isLessThan(0.01f)
     }
 
     // --- Real layout-animated release reflow (APP-519) ---
