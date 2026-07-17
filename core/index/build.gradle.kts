@@ -18,6 +18,10 @@ dependencies {
     implementation(project(":core:storage"))
     implementation(libs.androidx.collection)
 
+    // Persisted favorite-media flag (G2 · APP-543) — a flat Set<MediaId>, same DataStore idiom as the
+    // Albums pin flag. Lives here so Photos / Viewer / Albums share one source of truth.
+    implementation(libs.androidx.datastore.preferences)
+
     // Persistent cached index (spec §1 rule 4). Room = queryable, Flow-native, survives process death
     // so opening the app reads the cache instead of re-scanning MediaStore.
     implementation(libs.room.runtime)

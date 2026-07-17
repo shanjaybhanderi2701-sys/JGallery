@@ -42,6 +42,15 @@ fun NavController.navigateToAlbumDetail(
 }
 
 /**
+ * Open the Favorites smart view (G2 · APP-543): the album-detail grid backed by the [FavoritesStore]
+ * sentinel bucket, which the detail ViewModel maps to a live "starred ids" query. Reuses the whole
+ * album-detail surface (sort / group / grid-size / selection) for free.
+ */
+fun NavController.navigateToFavorites() {
+    navigateToAlbumDetail(AlbumsCatalog.FAVORITES_BUCKET_ID, AlbumsCatalog.FAVORITES_NAME)
+}
+
+/**
  * Album-detail destination: a media grid scoped to one bucket, with the shared E11 multi-select +
  * bulk-ops chrome. [onMediaClick] opens the viewer scoped to this album; [onBack] pops. [onOpenTrash]
  * and [onAlbumCreated] back the shared 3-dot menu's Recycle Bin / Create album entries (APP-499) so

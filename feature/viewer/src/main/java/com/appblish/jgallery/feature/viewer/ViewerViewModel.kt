@@ -4,6 +4,7 @@ import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.appblish.jgallery.core.index.FavoritesStore
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
@@ -50,10 +51,21 @@ sealed interface ViewerUiState {
 class ViewerViewModel @Inject constructor(
     repository: MediaIndexRepository,
     private val operations: MediaOperationsRepository,
+    private val favoritesStore: FavoritesStore,
     savedStateHandle: SavedStateHandle,
     /** Boundary-routed Media3 sources, handed to the video pages (§1.6 — no uri ever reaches the UI). */
     val playback: PlaybackSources,
 ) : ViewModel() {
+
+    /** Favorited ids (G2 · APP-543); the header heart reflects the current page's membership. */
+    val favorites: StateFlow<Set<MediaId>> =
+        favoritesStore.favoriteIds
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /** Star / un-star the item currently on screen from the viewer header. */
+    fun toggleFavorite(id: MediaId) {
+        viewModelScope.launch { favoritesStore.toggle(id) }
+    }
 
     private val initialId = MediaId(checkNotNull(savedStateHandle.get<String>(VIEWER_MEDIA_ID_ARG)))
     private val bucketId: String? = savedStateHandle.get<String>(VIEWER_BUCKET_ID_ARG)

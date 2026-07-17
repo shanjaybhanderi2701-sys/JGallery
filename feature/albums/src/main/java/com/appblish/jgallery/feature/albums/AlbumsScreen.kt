@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.AlertDialog
@@ -75,6 +76,7 @@ fun AlbumsScreen(
     onAlbumCreated: (name: String) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
+    onOpenFavorites: () -> Unit = {},
     viewModel: AlbumsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -141,6 +143,7 @@ fun AlbumsScreen(
         onAlbumClick = { album -> onAlbumClick(album, filter) },
         onOpenSearch = onOpenSearch,
         onOpenTrash = onOpenTrash,
+        onOpenFavorites = onOpenFavorites,
         albumSelection = albumSelection,
         onAlbumLongPress = { viewModel.beginAlbumSelection(it.bucketId) },
         onAlbumDragSelect = viewModel::dragOverAlbum,
@@ -184,6 +187,7 @@ fun AlbumsScreen(
     onAlbumClick: (Album) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
+    onOpenFavorites: () -> Unit = {},
     // Multi-select action bar (G1-11, APP-471): the selection top bar swaps for the tab header while
     // selecting; a bottom action bar carries the multi-safe ops (Pin/Copy/Move/Delete) and a ⋮ overflow
     // the single-only ops (Rename/Set-cover/Details), disabled when >1 is selected.
@@ -274,6 +278,14 @@ fun AlbumsScreen(
                         icon = Icons.Outlined.CreateNewFolder,
                         testTag = "albums_menu_create_album",
                         onClick = { showCreateDialog = true },
+                    ),
+                    // Favorites smart view (G2 · APP-543): opens the starred-media grid. A positive
+                    // destination, so it sits above the destructive-adjacent Recycle Bin divider.
+                    GalleryMenuItem(
+                        label = "Favorites",
+                        icon = Icons.Outlined.FavoriteBorder,
+                        testTag = "albums_menu_favorites",
+                        onClick = onOpenFavorites,
                     ),
                     // Recycle Bin re-homed here (C1-01 item 10): destructive-adjacent, so a divider above.
                     GalleryMenuItem(

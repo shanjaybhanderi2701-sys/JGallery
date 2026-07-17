@@ -4,6 +4,7 @@ import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.appblish.jgallery.core.index.AlbumCapture
+import com.appblish.jgallery.core.index.FavoritesStore
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
@@ -33,8 +34,10 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flatMapLatest
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -60,6 +63,7 @@ class AlbumDetailViewModel @Inject constructor(
     private val repository: MediaIndexRepository,
     private val operations: MediaOperationsRepository,
     private val viewPreferences: AlbumViewPreferences,
+    private val favoritesStore: FavoritesStore,
 ) : ViewModel() {
 
     /** The bucket being viewed; excluded from Copy/Move destinations so you can't target the source. */
@@ -94,11 +98,26 @@ class AlbumDetailViewModel @Inject constructor(
                 types = setOf(MediaType.VIDEO),
                 sort = SortSpec(SortKey.LAST_MODIFIED, SortDirection.DESCENDING),
             )
+        // Favorites (G2 · APP-543): a library-wide query restricted to the starred [ids] — those come
+        // from [FavoritesStore] and are applied reactively in [state], not baked in here (they change).
+        AlbumsCatalog.FAVORITES_BUCKET_ID ->
+            MediaQuery(sort = SortSpec(SortKey.LAST_MODIFIED, SortDirection.DESCENDING))
         else -> MediaQuery(
             bucketId = bucketId,
             types = if (videoOnly) setOf(MediaType.VIDEO) else setOf(MediaType.IMAGE, MediaType.VIDEO),
         )
     }
+
+    /** True only for the Favorites smart view — its media set is the starred ids, not a folder. */
+    private val isFavorites: Boolean = bucketId == AlbumsCatalog.FAVORITES_BUCKET_ID
+
+    /**
+     * Reactive id restriction: for Favorites, the live starred set (un-starring an item inside the view
+     * drops it immediately); for every other bucket, `null` = no restriction, so [combine] below reduces
+     * to the same sort-only re-query the folder views have always used.
+     */
+    private val idRestriction: Flow<Set<MediaId>?> =
+        if (isFavorites) favoritesStore.favoriteIds else flowOf(null)
 
     /**
      * Effective in-album view settings (G1-9, design APP-465 TB-03): the persisted per-album Sort +
@@ -115,15 +134,32 @@ class AlbumDetailViewModel @Inject constructor(
      * the query; a column-count change is UI-only, so it is filtered out here via [distinctUntilChanged].
      */
     val state: StateFlow<AlbumDetailUiState> =
-        viewSettings
-            .map { it.sort }
-            .distinctUntilChanged()
-            .flatMapLatest { sort -> repository.observeMedia(baseQuery.copy(sort = sort)) }
+        combine(
+            viewSettings.map { it.sort }.distinctUntilChanged(),
+            idRestriction,
+        ) { sort, ids -> sort to ids }
+            .flatMapLatest { (sort, ids) ->
+                // For Favorites, an empty starred set means "match nothing" (empty ids) → Empty state.
+                repository.observeMedia(baseQuery.copy(sort = sort, ids = ids ?: baseQuery.ids))
+            }
             .map { items ->
                 val filtered = items.filteredBy(filter)
                 if (filtered.isEmpty()) AlbumDetailUiState.Empty else AlbumDetailUiState.Content(filtered)
             }
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), AlbumDetailUiState.Loading)
+
+    /**
+     * The starred ids (G2 · APP-543), for the per-tile heart. In the Favorites view this is also the
+     * membership set, so un-starring a tile drops it from the grid via [state]'s reactive [idRestriction].
+     */
+    val favorites: StateFlow<Set<MediaId>> =
+        favoritesStore.favoriteIds
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /** Star / un-star a tile in place from an album (or the Favorites) grid. */
+    fun toggleFavorite(id: MediaId) {
+        viewModelScope.launch { favoritesStore.toggle(id) }
+    }
 
     val selectionController = MediaSelectionController(
         scope = viewModelScope,
@@ -224,7 +260,9 @@ class AlbumDetailViewModel @Inject constructor(
 
     /** Only a real device folder is a valid capture target; the smart-album sentinels never are. */
     private val isRealFolder: Boolean =
-        bucketId != AlbumsCatalog.RECENT_BUCKET_ID && bucketId != AlbumsCatalog.ALL_VIDEOS_BUCKET_ID
+        bucketId != AlbumsCatalog.RECENT_BUCKET_ID &&
+            bucketId != AlbumsCatalog.ALL_VIDEOS_BUCKET_ID &&
+            !isFavorites
 
     /** The pending capture awaiting its camera result; held across the activity-result round-trip. */
     private var pendingCapture: AlbumCapture? = null

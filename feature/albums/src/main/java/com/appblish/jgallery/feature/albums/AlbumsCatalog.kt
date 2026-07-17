@@ -37,9 +37,13 @@ internal object AlbumsCatalog {
     const val VIDEO_BUCKET_ID = "__jgallery_video__"
     const val ALL_VIDEOS_BUCKET_ID = "__jgallery_all_videos__"
 
+    /** Favorites smart view (G2 · APP-543): the user's starred media, served from [FavoritesStore]. */
+    const val FAVORITES_BUCKET_ID = "__jgallery_favorites__"
+
     const val RECENT_NAME = "Recent"
     const val VIDEO_NAME = "Video"
     const val ALL_VIDEOS_NAME = "All Videos"
+    const val FAVORITES_NAME = "Favorites"
 
     private const val CAMERA = "Camera"
     private const val SCREENSHOTS = "Screenshots"

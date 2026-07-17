@@ -27,6 +27,7 @@ import com.appblish.jgallery.feature.albums.albumDetailScreen
 import com.appblish.jgallery.feature.albums.navigateToAddToAlbum
 import com.appblish.jgallery.feature.albums.navigateToNewAlbum
 import com.appblish.jgallery.feature.albums.newAlbumScreen
+import com.appblish.jgallery.feature.albums.navigateToFavorites
 import com.appblish.jgallery.feature.albums.openAlbum
 import com.appblish.jgallery.feature.albums.openVideoMemberAlbum
 import com.appblish.jgallery.feature.albums.videoAlbumsScreen
@@ -84,6 +85,7 @@ fun JGalleryApp(
                 onAlbumCreated = { name -> navController.navigateToNewAlbum(name) },
                 onOpenSearch = { navController.navigateToSearch() },
                 onOpenTrash = { navController.navigateToTrash() },
+                onOpenFavorites = { navController.navigateToFavorites() },
             )
         }
     }

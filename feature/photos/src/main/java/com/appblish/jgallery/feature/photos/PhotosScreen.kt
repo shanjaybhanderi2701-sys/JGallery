@@ -68,6 +68,7 @@ import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.format.MediaDecodeBox
 import com.appblish.jgallery.core.ui.format.MediaDecodeTilePlaceholder
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
+import com.appblish.jgallery.core.ui.component.FavoriteHeartBadge
 import com.appblish.jgallery.core.ui.component.FormatBadgeChip
 import com.appblish.jgallery.core.ui.component.EmptyTabState
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -132,6 +133,7 @@ fun PhotosScreen(
     val bulk by viewModel.bulk.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val favorites by viewModel.favorites.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Create-album outcomes (design G1-D7 §2 / C1-09): on success route into the new album's empty
@@ -177,6 +179,8 @@ fun PhotosScreen(
         onOpenSearch = onOpenSearch,
         onOpenTrash = onOpenTrash,
         onCreateAlbum = viewModel::createAlbum,
+        favorites = favorites,
+        onToggleFavorite = viewModel::toggleFavorite,
         onToggle = viewModel::toggleSelection,
         onBeginSelect = viewModel::beginSelection,
         onDragSelect = viewModel::dragSelectTo,
@@ -213,6 +217,8 @@ fun PhotosScreen(
     onOpenSearch: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
     onCreateAlbum: (String) -> Unit = {},
+    favorites: Set<MediaId> = emptySet(),
+    onToggleFavorite: (MediaId) -> Unit = {},
     onToggle: (MediaId) -> Unit = {},
     onBeginSelect: (MediaId) -> Unit = {},
     onDragSelect: (MediaId, List<MediaId>) -> Unit = { _, _ -> },
@@ -359,8 +365,10 @@ fun PhotosScreen(
                                 columns = columns,
                                 selection = selection,
                                 orderedIds = tileIds,
+                                favorites = favorites,
                                 onColumnsChange = onColumnsChange,
                                 onMediaClick = onMediaClick,
+                                onToggleFavorite = onToggleFavorite,
                                 onToggle = onToggle,
                                 onBeginSelect = onBeginSelect,
                                 onDragSelect = onDragSelect,
@@ -441,8 +449,10 @@ private fun PhotosGrid(
     columns: ColumnCount,
     selection: SelectionState<MediaId>,
     orderedIds: List<MediaId>,
+    favorites: Set<MediaId>,
     onColumnsChange: (ColumnCount) -> Unit,
     onMediaClick: (MediaItem) -> Unit,
+    onToggleFavorite: (MediaId) -> Unit,
     onToggle: (MediaId) -> Unit,
     onBeginSelect: (MediaId) -> Unit,
     onDragSelect: (MediaId, List<MediaId>) -> Unit,
@@ -504,6 +514,8 @@ private fun PhotosGrid(
                         columns = columns.value,
                         selectionActive = selection.isActive,
                         selected = selection.isSelected(cell.item.id),
+                        favorite = cell.item.id in favorites,
+                        onToggleFavorite = { onToggleFavorite(cell.item.id) },
                         onClick = {
                             if (selection.isActive) onToggle(cell.item.id) else onMediaClick(cell.item)
                         },
@@ -733,6 +745,8 @@ private fun MediaTile(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    favorite: Boolean = false,
+    onToggleFavorite: (() -> Unit)? = null,
 ) {
     val scale = rememberTileSelectScale(selected)
     // Panoramas letterbox the full horizon on a dark cell instead of cropping to a square (W3-03);
@@ -791,5 +805,14 @@ private fun MediaTile(
             }
         }
         SelectionCheckBadge(selected = selected, active = selectionActive)
+        // Star in place from the grid (G2 · APP-543). Hidden in selection mode — the tile tap then
+        // belongs to selection, so a competing heart hit-target would be ambiguous.
+        if (onToggleFavorite != null) {
+            FavoriteHeartBadge(
+                favorite = favorite,
+                visible = !selectionActive,
+                onClick = onToggleFavorite,
+            )
+        }
     }
 }

@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -25,6 +26,7 @@ import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.Check
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.DateRange
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.DropdownMenuItem
@@ -46,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -67,6 +70,7 @@ import com.appblish.jgallery.core.ui.component.GalleryOverflowMenu
 import com.appblish.jgallery.core.ui.component.GroupBySheet
 import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
+import com.appblish.jgallery.core.ui.component.FavoriteHeartBadge
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
@@ -114,6 +118,7 @@ fun AlbumDetailScreen(
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     val viewSettings by viewModel.viewSettings.collectAsStateWithLifecycle()
     val isRefreshing by viewModel.isRefreshing.collectAsStateWithLifecycle()
+    val favorites by viewModel.favorites.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     // Delegated capture (APP-424): the system camera writes the photo into this album's folder via the
@@ -149,8 +154,11 @@ fun AlbumDetailScreen(
     AlbumDetailScreen(
         title = viewModel.title,
         sourceBucketId = viewModel.bucketId,
+        isFavoritesView = viewModel.bucketId == AlbumsCatalog.FAVORITES_BUCKET_ID,
         state = state,
         viewSettings = viewSettings,
+        favorites = favorites,
+        onToggleFavorite = viewModel::toggleFavorite,
         selection = selection,
         bulk = bulk,
         destinations = destinations,
@@ -187,6 +195,9 @@ fun AlbumDetailScreen(
     onBack: () -> Unit,
     onMediaClick: (MediaItem) -> Unit,
     modifier: Modifier = Modifier,
+    isFavoritesView: Boolean = false,
+    favorites: Set<MediaId> = emptySet(),
+    onToggleFavorite: (MediaId) -> Unit = {},
     viewSettings: AlbumViewSettings = AlbumViewSettings(),
     selection: SelectionState<MediaId> = SelectionState(),
     bulk: BulkOperationUiState = BulkOperationUiState.Idle,
@@ -289,10 +300,16 @@ fun AlbumDetailScreen(
         }
         AlbumDetailUiState.Empty -> Column(modifier.fillMaxSize().testTag("album_detail_screen")) {
             header()
-            EmptyAlbumState(
-                onAddPhotos = onAddPhotos,
-                onOpenCamera = onOpenCamera,
-            )
+            // Favorites has no "add photos / camera" affordances — starring is how you fill it, so it
+            // gets its own guidance rather than the folder empty state (G2 · APP-543).
+            if (isFavoritesView) {
+                FavoritesEmptyState()
+            } else {
+                EmptyAlbumState(
+                    onAddPhotos = onAddPhotos,
+                    onOpenCamera = onOpenCamera,
+                )
+            }
         }
         is AlbumDetailUiState.Content -> {
             val ids = state.items.map { it.id }
@@ -329,8 +346,10 @@ fun AlbumDetailScreen(
                         columns = viewSettings.columns,
                         groupBy = viewSettings.groupBy,
                         selection = selection,
+                        favorites = favorites,
                         onColumnsChange = onColumnsChange,
                         onMediaClick = onMediaClick,
+                        onToggleFavorite = onToggleFavorite,
                         onToggle = onToggle,
                         onBeginSelect = onBeginSelect,
                         onDragSelect = onDragSelect,
@@ -375,6 +394,40 @@ fun AlbumDetailScreen(
                 showCreateDialog = false
             },
             onDismiss = { showCreateDialog = false },
+        )
+    }
+}
+
+/**
+ * Favorites empty state (G2 · APP-543): shown when the smart view has no starred media yet. Unlike a
+ * real folder there is nothing to "add" here — the guidance is simply to tap the heart on any photo.
+ */
+@Composable
+private fun FavoritesEmptyState() {
+    Column(
+        modifier = Modifier.fillMaxSize().padding(32.dp).testTag("favorites_empty"),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            imageVector = Icons.Outlined.FavoriteBorder,
+            contentDescription = null,
+            tint = JGalleryColors.TextSecondary,
+            modifier = Modifier.size(48.dp),
+        )
+        Text(
+            text = "No favorites yet",
+            color = JGalleryColors.Text,
+            fontSize = 18.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier.padding(top = 16.dp),
+        )
+        Text(
+            text = "Tap the heart on any photo or video to add it here.",
+            color = JGalleryColors.TextSecondary,
+            fontSize = 14.sp,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(top = 6.dp),
         )
     }
 }
@@ -439,8 +492,10 @@ private fun AlbumDetailGrid(
     columns: ColumnCount,
     groupBy: GroupBy,
     selection: SelectionState<MediaId>,
+    favorites: Set<MediaId>,
     onColumnsChange: (ColumnCount) -> Unit,
     onMediaClick: (MediaItem) -> Unit,
+    onToggleFavorite: (MediaId) -> Unit,
     onToggle: (MediaId) -> Unit,
     onBeginSelect: (MediaId) -> Unit,
     onDragSelect: (MediaId, List<MediaId>) -> Unit,
@@ -529,6 +584,13 @@ private fun AlbumDetailGrid(
                             SelectionCheckBadge(
                                 selected = selection.isSelected(item.id),
                                 active = selection.isActive,
+                            )
+                            // Star in place (G2 · APP-543); hidden in selection mode. In the Favorites
+                            // view, un-starring here drops the tile from the grid reactively.
+                            FavoriteHeartBadge(
+                                favorite = item.id in favorites,
+                                visible = !selection.isActive,
+                                onClick = { onToggleFavorite(item.id) },
                             )
                         }
                     }

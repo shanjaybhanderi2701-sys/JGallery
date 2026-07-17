@@ -1,6 +1,7 @@
 package com.appblish.jgallery.feature.viewer
 
 import androidx.lifecycle.SavedStateHandle
+import com.appblish.jgallery.core.index.FavoritesStore
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
@@ -18,6 +19,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.flowOf
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.TestScope
@@ -46,9 +48,12 @@ class ViewerViewModelTest {
         Dispatchers.resetMain()
     }
 
+    private val favoritesStore = FakeFavoritesStore()
+
     private fun viewModel(mediaId: String, bucketId: String? = null) = ViewerViewModel(
         repository = index,
         operations = operations,
+        favoritesStore = favoritesStore,
         savedStateHandle = SavedStateHandle(
             buildMap {
                 put(VIEWER_MEDIA_ID_ARG, mediaId)
@@ -57,6 +62,22 @@ class ViewerViewModelTest {
         ),
         playback = UnusedPlayback,
     )
+
+    @Test
+    fun `toggleFavorite round-trips through the store into the favorites flow`() = runTest {
+        index.mediaFlow.value = listOf(item("a"))
+        val vm = viewModel(mediaId = "a")
+        val job = launch { vm.favorites.collect {} } // WhileSubscribed: needs a live collector to pull
+
+        vm.toggleFavorite(MediaId("a"))
+        advanceUntilIdle()
+        assertThat(vm.favorites.value).containsExactly(MediaId("a"))
+
+        vm.toggleFavorite(MediaId("a"))
+        advanceUntilIdle()
+        assertThat(vm.favorites.value).isEmpty()
+        job.cancel()
+    }
 
     @Test
     fun `opens on the tapped item`() = runTest {
@@ -297,5 +318,15 @@ class ViewerViewModelTest {
             flowOf(FileOperationEvent.Completed(result))
         override fun deleteAlbum(bucketId: String): Flow<FileOperationEvent> =
             flowOf(FileOperationEvent.Completed(result))
+    }
+
+    private class FakeFavoritesStore : FavoritesStore {
+        private val ids = MutableStateFlow<Set<MediaId>>(emptySet())
+        override val favoriteIds: Flow<Set<MediaId>> = ids
+        override fun isFavorite(id: MediaId): Flow<Boolean> = ids.map { id in it }
+        override suspend fun setFavorite(id: MediaId, favorite: Boolean) {
+            ids.value = if (favorite) ids.value + id else ids.value - id
+        }
+        override suspend fun toggle(id: MediaId) = setFavorite(id, id !in ids.value)
     }
 }

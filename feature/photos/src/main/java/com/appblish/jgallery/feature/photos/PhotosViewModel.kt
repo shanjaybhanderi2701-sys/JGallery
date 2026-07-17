@@ -2,6 +2,7 @@ package com.appblish.jgallery.feature.photos
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.appblish.jgallery.core.index.FavoritesStore
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
@@ -59,8 +60,19 @@ class PhotosViewModel @Inject constructor(
     private val repository: MediaIndexRepository,
     private val operations: MediaOperationsRepository,
     private val preferences: PhotosPreferences,
+    private val favoritesStore: FavoritesStore,
     @TimelineDispatcher timelineDispatcher: CoroutineDispatcher,
 ) : ViewModel() {
+
+    /** The user's favorited ids (G2 · APP-543); drives the per-tile heart. One source of truth. */
+    val favorites: StateFlow<Set<MediaId>> =
+        favoritesStore.favoriteIds
+            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /** Star / un-star a tile in place from the grid (does not open it). */
+    fun toggleFavorite(id: MediaId) {
+        viewModelScope.launch { favoritesStore.toggle(id) }
+    }
 
     // The top-bar format filter (design C1-06). In-session state, All by default; re-filters the
     // in-memory index with no rescan. A truly empty library still shows the whole-library empty state;

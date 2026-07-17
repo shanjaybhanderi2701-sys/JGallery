@@ -3,6 +3,7 @@ package com.appblish.jgallery.feature.albums
 import android.net.Uri
 import androidx.lifecycle.SavedStateHandle
 import com.appblish.jgallery.core.index.AlbumCapture
+import com.appblish.jgallery.core.index.FavoritesStore
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
@@ -24,6 +25,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.emptyFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
@@ -66,6 +68,7 @@ class AlbumDetailViewModelTest {
         FakeRepository(),
         operations,
         preferences,
+        FakeFavoritesStore(),
     )
 
     @Test
@@ -203,7 +206,59 @@ class AlbumDetailViewModelTest {
             MediaRepository(media),
             FakeOperations(),
             FakeAlbumViewPreferences(),
+            FakeFavoritesStore(),
         )
+    }
+
+    // --- Favorites smart view (G2 · APP-543) ------------------------------------------------------
+
+    @Test
+    fun `favorites smart view queries the index restricted to the live starred ids`() =
+        runTest(dispatcher) {
+            val repo = RecordingRepository(emptyList())
+            val store = FakeFavoritesStore()
+            val vm = AlbumDetailViewModel(
+                SavedStateHandle(
+                    mapOf(
+                        ALBUM_DETAIL_BUCKET_ID_ARG to AlbumsCatalog.FAVORITES_BUCKET_ID,
+                        ALBUM_DETAIL_NAME_ARG to AlbumsCatalog.FAVORITES_NAME,
+                    ),
+                ),
+                repo,
+                FakeOperations(),
+                FakeAlbumViewPreferences(),
+                store,
+            )
+            store.setFavorite(MediaId("a"), true)
+            store.setFavorite(MediaId("b"), true)
+            val stateJob = launch { vm.state.collect {} }
+            advanceUntilIdle()
+
+            // The index is queried with exactly the starred set — the real index resolves those rows.
+            assertThat(repo.queries.last().ids).isEqualTo(setOf(MediaId("a"), MediaId("b")))
+
+            // Un-starring one re-queries with the smaller set (live membership).
+            store.setFavorite(MediaId("a"), false)
+            advanceUntilIdle()
+            assertThat(repo.queries.last().ids).isEqualTo(setOf(MediaId("b")))
+            stateJob.cancel()
+        }
+
+    @Test
+    fun `a real folder is never id-restricted`() = runTest(dispatcher) {
+        val repo = RecordingRepository(mixedMedia())
+        val vm = AlbumDetailViewModel(
+            SavedStateHandle(mapOf(ALBUM_DETAIL_BUCKET_ID_ARG to "camera", ALBUM_DETAIL_NAME_ARG to "Camera")),
+            repo,
+            FakeOperations(),
+            FakeAlbumViewPreferences(),
+            FakeFavoritesStore(),
+        )
+        val stateJob = launch { vm.state.collect {} }
+        advanceUntilIdle()
+        assertThat(repo.queries.last().ids).isNull()
+        assertThat(repo.queries.last().bucketId).isEqualTo("camera")
+        stateJob.cancel()
     }
 
     // --- In-album Sort + Grid size + per-album scope (G1-9, APP-468) ------------------------------
@@ -218,6 +273,7 @@ class AlbumDetailViewModelTest {
                 repo,
                 FakeOperations(),
                 prefs,
+                FakeFavoritesStore(),
             )
             val stateJob = launch { vm.state.collect {} }
             val settingsJob = launch { vm.viewSettings.collect {} }
@@ -430,5 +486,15 @@ class AlbumDetailViewModelTest {
         override fun copyAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun moveAlbum(bucketId: String, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun deleteAlbum(bucketId: String): Flow<FileOperationEvent> = emptyFlow()
+    }
+
+    private class FakeFavoritesStore : FavoritesStore {
+        private val ids = MutableStateFlow<Set<MediaId>>(emptySet())
+        override val favoriteIds: Flow<Set<MediaId>> = ids
+        override fun isFavorite(id: MediaId): Flow<Boolean> = ids.map { id in it }
+        override suspend fun setFavorite(id: MediaId, favorite: Boolean) {
+            ids.value = if (favorite) ids.value + id else ids.value - id
+        }
+        override suspend fun toggle(id: MediaId) = setFavorite(id, id !in ids.value)
     }
 }

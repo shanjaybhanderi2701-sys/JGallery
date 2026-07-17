@@ -33,6 +33,7 @@ import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.DriveFileMove
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -74,6 +75,7 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.playback.PlaybackSources
 import com.appblish.jgallery.core.thumbs.coverRequest
+import com.appblish.jgallery.core.ui.component.FavoriteRed
 import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
 import com.appblish.jgallery.core.ui.selection.MoveDestinationSheet
@@ -114,6 +116,7 @@ internal fun ViewerRoute(
     val state by viewModel.uiState.collectAsStateWithLifecycle()
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     val actionState by viewModel.action.collectAsStateWithLifecycle()
+    val favorites by viewModel.favorites.collectAsStateWithLifecycle()
     val context = LocalContext.current
     LaunchedEffect(viewModel) {
         // A resolved boundary uri → launch the system "Set as" (ACTION_ATTACH_DATA) chooser (spec §7.4).
@@ -139,6 +142,8 @@ internal fun ViewerRoute(
             onOpenWith = viewModel::openWith,
             onResultShown = viewModel::dismissActionResult,
         ),
+        favorites = favorites,
+        onToggleFavorite = viewModel::toggleFavorite,
         onBack = onBack,
     )
 }
@@ -150,6 +155,8 @@ internal fun ViewerScreen(
     destinations: List<Album>,
     actionState: ViewerActionUiState,
     handlers: ViewerActionHandlers,
+    favorites: Set<MediaId> = emptySet(),
+    onToggleFavorite: (MediaId) -> Unit = {},
     onBack: () -> Unit,
 ) {
     JGalleryViewerTheme {
@@ -166,7 +173,10 @@ internal fun ViewerScreen(
                 ViewerUiState.Loading -> Unit // black canvas for the (near-instant) first index read
                 ViewerUiState.Empty -> EmptyViewer(onBack)
                 is ViewerUiState.Ready ->
-                    ViewerPager(state, playback, destinations, actionState, handlers, onBack)
+                    ViewerPager(
+                        state, playback, destinations, actionState, handlers,
+                        favorites, onToggleFavorite, onBack,
+                    )
             }
         }
     }
@@ -241,6 +251,8 @@ private fun ViewerPager(
     destinations: List<Album>,
     actionState: ViewerActionUiState,
     handlers: ViewerActionHandlers,
+    favorites: Set<MediaId>,
+    onToggleFavorite: (MediaId) -> Unit,
     onBack: () -> Unit,
 ) {
     val items by rememberUpdatedState(state.items)
@@ -300,7 +312,13 @@ private fun ViewerPager(
             enter = fadeIn() + slideInVertically { -it },
             exit = fadeOut() + slideOutVertically { -it },
         ) {
-            ViewerHeader(item = currentItem, onBack = onBack, onStubAction = onStubAction)
+            ViewerHeader(
+                item = currentItem,
+                favorite = currentItem?.id in favorites,
+                onToggleFavorite = { currentItem?.let { onToggleFavorite(it.id) } },
+                onBack = onBack,
+                onStubAction = onStubAction,
+            )
         }
         AnimatedVisibility(
             visible = chromeVisible,
@@ -391,10 +409,12 @@ private fun ViewerPager(
     }
 }
 
-/** Header (design W1-08): back, filename, favorite, rotate — the latter two are Wave-2 stubs. */
+/** Header (design W1-08): back, filename, favorite (live G2 · APP-543), rotate (still a Wave-2 stub). */
 @Composable
 private fun ViewerHeader(
     item: MediaItem?,
+    favorite: Boolean,
+    onToggleFavorite: () -> Unit,
     onBack: () -> Unit,
     onStubAction: (String) -> Unit,
 ) {
@@ -420,8 +440,16 @@ private fun ViewerHeader(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
-        IconButton(onClick = { onStubAction("Favorite") }) {
-            Icon(Icons.Outlined.FavoriteBorder, contentDescription = "Favorite", tint = Color.White)
+        IconButton(
+            onClick = onToggleFavorite,
+            enabled = item != null,
+            modifier = Modifier.testTag(if (favorite) "viewer_favorited" else "viewer_unfavorited"),
+        ) {
+            Icon(
+                imageVector = if (favorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                contentDescription = if (favorite) "Unfavorite" else "Favorite",
+                tint = if (favorite) FavoriteRed else Color.White,
+            )
         }
         IconButton(onClick = { onStubAction("Rotate") }) {
             Icon(Icons.Filled.RotateRight, contentDescription = "Rotate", tint = Color.White)

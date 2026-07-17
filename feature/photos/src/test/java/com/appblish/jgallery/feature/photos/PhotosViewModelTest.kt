@@ -1,5 +1,6 @@
 package com.appblish.jgallery.feature.photos
 
+import com.appblish.jgallery.core.index.FavoritesStore
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
@@ -21,6 +22,7 @@ import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
@@ -47,7 +49,23 @@ class PhotosViewModelTest {
     private fun viewModel(
         repository: FakeRepository = FakeRepository(),
         preferences: FakePreferences = FakePreferences(),
-    ) = PhotosViewModel(repository, NoopOperations, preferences, dispatcher)
+    ) = PhotosViewModel(repository, NoopOperations, preferences, FakeFavoritesStore(), dispatcher)
+
+    @Test
+    fun `toggleFavorite round-trips through the store into the favorites flow`() = runTest(dispatcher) {
+        val store = FakeFavoritesStore()
+        val vm = PhotosViewModel(FakeRepository(), NoopOperations, FakePreferences(), store, dispatcher)
+        val job = launch { vm.favorites.collect {} } // WhileSubscribed: needs a live collector to pull
+
+        vm.toggleFavorite(MediaId("7"))
+        advanceUntilIdle()
+        assertThat(vm.favorites.value).containsExactly(MediaId("7"))
+
+        vm.toggleFavorite(MediaId("7"))
+        advanceUntilIdle()
+        assertThat(vm.favorites.value).isEmpty()
+        job.cancel()
+    }
 
     @Test
     fun `starts Loading, empty index lands on Empty`() = runTest(dispatcher) {
@@ -60,7 +78,7 @@ class PhotosViewModelTest {
     @Test
     fun `renameSelected renames via the shared per-item op and emits Success`() = runTest(dispatcher) {
         val ops = RecordingOperations()
-        val vm = PhotosViewModel(FakeRepository(), ops, FakePreferences(), dispatcher)
+        val vm = PhotosViewModel(FakeRepository(), ops, FakePreferences(), FakeFavoritesStore(), dispatcher)
 
         vm.renameSelected(MediaId("42"), "Beach.jpg")
         val event = withTimeout(5_000) { vm.renameEvents.first() }
@@ -78,7 +96,7 @@ class PhotosViewModelTest {
                 failures = listOf(OperationResult.Failure(MediaId("42"), "Name already in use")),
             ),
         )
-        val vm = PhotosViewModel(FakeRepository(), ops, FakePreferences(), dispatcher)
+        val vm = PhotosViewModel(FakeRepository(), ops, FakePreferences(), FakeFavoritesStore(), dispatcher)
 
         vm.renameSelected(MediaId("42"), "Beach.jpg")
         val event = withTimeout(5_000) { vm.renameEvents.first() }
@@ -247,5 +265,16 @@ class PhotosViewModelTest {
         override suspend fun setSort(sort: SortSpec) {
             storedSort.value = sort
         }
+    }
+
+    /** In-memory [FavoritesStore] for the toggle/flow wiring test. */
+    private class FakeFavoritesStore : FavoritesStore {
+        private val ids = MutableStateFlow<Set<MediaId>>(emptySet())
+        override val favoriteIds: Flow<Set<MediaId>> = ids
+        override fun isFavorite(id: MediaId): Flow<Boolean> = ids.map { id in it }
+        override suspend fun setFavorite(id: MediaId, favorite: Boolean) {
+            ids.value = if (favorite) ids.value + id else ids.value - id
+        }
+        override suspend fun toggle(id: MediaId) = setFavorite(id, id !in ids.value)
     }
 }
