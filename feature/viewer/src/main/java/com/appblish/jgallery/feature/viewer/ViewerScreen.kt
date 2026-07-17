@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.view.View
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -79,6 +80,7 @@ import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
 import com.appblish.jgallery.core.ui.selection.MoveDestinationSheet
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryViewerTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** The single-item file actions the viewer runs, bundled so the pager takes one param, not six. */
@@ -251,6 +253,10 @@ private fun ViewerPager(
     var infoItem by remember { mutableStateOf<MediaItem?>(null) }
     var picker by remember { mutableStateOf<PickerMode?>(null) }
     var renaming by remember { mutableStateOf(false) }
+    // Slideshow / auto-play (APP-544): `on` gates the lean-back mode; `paused` halts the timer without
+    // leaving it. Both survive config changes so a rotation mid-slideshow doesn't drop the user out.
+    var slideshowOn by rememberSaveable { mutableStateOf(false) }
+    var slideshowPaused by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val onStubAction: (String) -> Unit = { action ->
@@ -262,6 +268,28 @@ private fun ViewerPager(
         val finished = actionState as? ViewerActionUiState.Finished ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(finished.message())
         handlers.onResultShown()
+    }
+
+    // While a slideshow runs, back-press stops it and returns to normal viewing rather than exiting
+    // the viewer — one predictable "escape" that matches the on-screen Stop button.
+    BackHandler(enabled = slideshowOn) {
+        slideshowOn = false
+        slideshowPaused = false
+        chromeVisible = true
+    }
+
+    // Auto-advance driver (APP-544). Runs only while the slideshow is on and not paused. After each
+    // dwell it advances by the pure [Slideshow.nextPage] rule (loop on). A video page pauses the timer —
+    // we skip advancing while one is on screen so playback isn't cut off — and resumes once it's gone.
+    LaunchedEffect(slideshowOn, slideshowPaused, items) {
+        if (!slideshowOn || slideshowPaused) return@LaunchedEffect
+        while (true) {
+            delay(Slideshow.DEFAULT_INTERVAL_MS)
+            val current = pagerState.currentPage
+            if (items.getOrNull(current)?.type == MediaType.VIDEO) continue // pause on video
+            val next = Slideshow.nextPage(current, items.size, loop = true) ?: break
+            pagerState.animateScrollToPage(next)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -294,8 +322,9 @@ private fun ViewerPager(
         }
 
         val currentItem = items.getOrNull(pagerState.currentPage)
+        // Chrome is suppressed entirely while a slideshow runs — the slideshow overlay is the only UI.
         AnimatedVisibility(
-            visible = chromeVisible,
+            visible = chromeVisible && !slideshowOn,
             modifier = Modifier.align(Alignment.TopCenter),
             enter = fadeIn() + slideInVertically { -it },
             exit = fadeOut() + slideOutVertically { -it },
@@ -303,19 +332,43 @@ private fun ViewerPager(
             ViewerHeader(item = currentItem, onBack = onBack, onStubAction = onStubAction)
         }
         AnimatedVisibility(
-            visible = chromeVisible,
+            visible = chromeVisible && !slideshowOn,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = fadeIn() + slideInVertically { it },
             exit = fadeOut() + slideOutVertically { it },
         ) {
             ViewerActionBar(
                 item = currentItem,
+                canSlideshow = items.size > 1,
                 onCopyTo = { picker = PickerMode.COPY },
                 onMoveTo = { picker = PickerMode.MOVE },
                 onRename = { renaming = true },
                 onSetAs = { currentItem?.let { handlers.onSetAs(it.id) } },
                 onDelete = { currentItem?.let { handlers.onDelete(it.id) } },
                 onInfo = { currentItem?.let { infoItem = it } },
+                onStartSlideshow = {
+                    slideshowPaused = false
+                    chromeVisible = false
+                    slideshowOn = true
+                },
+            )
+        }
+        AnimatedVisibility(
+            visible = slideshowOn,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            SlideshowControls(
+                position = pagerState.currentPage + 1,
+                count = items.size,
+                paused = slideshowPaused,
+                onTogglePause = { slideshowPaused = !slideshowPaused },
+                onStop = {
+                    slideshowOn = false
+                    slideshowPaused = false
+                    chromeVisible = true
+                },
             )
         }
         SnackbarHost(
@@ -437,18 +490,21 @@ private fun ViewerHeader(
 @Composable
 private fun ViewerActionBar(
     item: MediaItem?,
+    canSlideshow: Boolean,
     onCopyTo: () -> Unit,
     onMoveTo: () -> Unit,
     onRename: () -> Unit,
     onSetAs: () -> Unit,
     onDelete: () -> Unit,
     onInfo: () -> Unit,
+    onStartSlideshow: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
     // Overflow subset (spec §5); deferred reference items are omitted entirely, not shown disabled
     // (design deviation #3). "Set as" is image-only — ACTION_ATTACH_DATA has no meaning for video.
     val overflow = buildList<Pair<String, () -> Unit>> {
+        if (canSlideshow) add("Slideshow" to onStartSlideshow) // G2 auto-play (APP-544)
         add("Copy to" to onCopyTo)
         add("Move to" to onMoveTo)
         add("Rename" to onRename)

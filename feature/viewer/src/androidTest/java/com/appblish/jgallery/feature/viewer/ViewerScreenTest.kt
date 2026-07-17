@@ -209,4 +209,44 @@ class ViewerScreenTest {
             playback.sourceRequests >= 1,
         )
     }
+
+    @Test
+    fun slideshow_startFromOverflow_hidesChrome_andStopRestoresIt() {
+        // APP-544: "More" → "Slideshow" enters lean-back auto-play — the normal chrome (header +
+        // action bar) is replaced by the compact slideshow overlay; Stop returns to normal viewing.
+        setViewer(items = List(3) { imageItem(it) }, initialIndex = 0)
+        composeRule.onNodeWithTag("viewer_header").assertIsDisplayed()
+
+        composeRule.onNodeWithContentDescription("More").performClick()
+        composeRule.onNodeWithTag("viewer_overflow_Slideshow").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("slideshow_controls").assertIsDisplayed()
+        composeRule.onNodeWithTag("slideshow_position").assertIsDisplayed()
+        composeRule.onNodeWithTag("viewer_header").assertDoesNotExist()
+
+        composeRule.onNodeWithTag("slideshow_stop").performClick()
+        composeRule.waitForIdle()
+
+        composeRule.onNodeWithTag("slideshow_controls").assertDoesNotExist()
+        composeRule.onNodeWithTag("viewer_header").assertIsDisplayed()
+    }
+
+    @Test
+    fun slideshow_pauseToggle_swapsPlayPauseControl() {
+        // The overlay's primary button flips Pause↔Resume so the user can hold on a favourite slide.
+        setViewer(items = List(3) { imageItem(it) }, initialIndex = 0)
+
+        composeRule.onNodeWithContentDescription("More").performClick()
+        composeRule.onNodeWithTag("viewer_overflow_Slideshow").performClick()
+        composeRule.waitForIdle()
+
+        // Running → offers Pause.
+        composeRule.onNodeWithContentDescription("Pause slideshow").assertIsDisplayed()
+        composeRule.onNodeWithTag("slideshow_toggle").performClick()
+        composeRule.waitForIdle()
+
+        // Paused → offers Resume.
+        composeRule.onNodeWithContentDescription("Resume slideshow").assertIsDisplayed()
+    }
 }
