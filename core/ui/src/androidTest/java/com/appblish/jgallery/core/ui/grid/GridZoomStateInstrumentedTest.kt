@@ -9,16 +9,22 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.getUnclippedBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.performTouchInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.ui.theme.JGalleryTheme
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -116,5 +122,69 @@ class GridZoomStateInstrumentedTest {
             "column swap must animate placement, not snap (mid=$midLeft end=$endLeft)",
             midLeft != endLeft,
         )
+    }
+
+    /**
+     * APP-546 regression. A second pinch must anchor to the **live** column count, not the count that
+     * existed when the gesture modifier was first composed. The pinch loop lives inside
+     * `pointerInput(Unit)`, whose block is launched once and captures its lambdas from first
+     * composition; without `rememberUpdatedState` the `currentColumns` closure freezes at the initial
+     * value, so after the first change the number the indicator shows and the layout committed to the
+     * grid diverge (the board's exact report: indicator moves, grid stays at the starting count).
+     *
+     * This drives two real two-finger gestures on the SAME modifier instance (only the backing column
+     * state changes between them, which does not restart `pointerInput(Unit)`), and asserts the second
+     * gesture stepped relative to the live count reached by the first.
+     */
+    @Test
+    fun secondPinch_anchorsToLiveColumnCount_notTheStaleFirstCompositionValue() {
+        var columns by mutableStateOf(ColumnCount(4))
+        composeRule.setContent {
+            JGalleryTheme {
+                // A minimal single-cell grid wired exactly like the production screens (Photos/Albums/
+                // Search): the pinch source and the grid both read the SAME `columns` state.
+                val cols = columns
+                LazyVerticalGrid(
+                    columns = GridCells.Fixed(cols.value),
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .gridPinchColumns(
+                            currentColumns = { columns },
+                            onColumnsChange = { columns = it },
+                        )
+                        .testTag("pinch_grid"),
+                ) {
+                    items(count = 60) { i -> Box(Modifier.aspectRatio(1f).testTag("tile_$i")) { Text("$i") } }
+                }
+            }
+        }
+
+        // Gesture 1: pinch the fingers TOGETHER (zoom ≈ 0.5) → raise 4 → 6 columns.
+        composeRule.onNodeWithTag("pinch_grid").performTouchInput {
+            val c = center
+            down(0, c - Offset(120f, 0f))
+            down(1, c + Offset(120f, 0f))
+            moveTo(0, c - Offset(60f, 0f))
+            moveTo(1, c + Offset(60f, 0f))
+            up(0)
+            up(1)
+        }
+        composeRule.waitForIdle()
+        assertEquals(ColumnCount(6), columns)
+
+        // Gesture 2 on the SAME modifier instance: spread the fingers APART (zoom ≈ 2.0). Anchored to
+        // the live count 6 this lands on 6/2 = 3. The stale bug would anchor to the frozen 4 and land
+        // on 4/2 = 2 — the tell-tale divergence. Asserting exactly 3 fails on the old capture.
+        composeRule.onNodeWithTag("pinch_grid").performTouchInput {
+            val c = center
+            down(0, c - Offset(60f, 0f))
+            down(1, c + Offset(60f, 0f))
+            moveTo(0, c - Offset(120f, 0f))
+            moveTo(1, c + Offset(120f, 0f))
+            up(0)
+            up(1)
+        }
+        composeRule.waitForIdle()
+        assertEquals(ColumnCount(3), columns)
     }
 }
