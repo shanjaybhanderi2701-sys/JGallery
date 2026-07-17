@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -109,6 +110,17 @@ fun Modifier.gridPinchColumns(
     var indicatorColumns by remember { mutableStateOf<ColumnCount?>(null) }
     var indicatorAlpha by remember { mutableFloatStateOf(0f) }
 
+    // APP-546: the gesture below runs inside `pointerInput(Unit)`, whose block is launched ONCE (constant
+    // key) and captures whatever lambdas existed at first composition. `currentColumns`/`onColumnsChange`
+    // are re-supplied every recomposition — `currentColumns` in particular closes over the live column
+    // count, which changes as the user pinches. Reading the captured (first-frame) lambdas would anchor
+    // `startColumns`/`committed` to a STALE count after the very first change, so the number the indicator
+    // shows (driven off that anchor) and the layout actually committed to the grid would diverge. Route
+    // both through `rememberUpdatedState` so the gesture always reads the current lambda instance — one
+    // single source of truth for the displayed value and the applied column count.
+    val liveColumns by rememberUpdatedState(currentColumns)
+    val liveOnColumnsChange by rememberUpdatedState(onColumnsChange)
+
     this
         .pointerInput(Unit) {
             var indicatorJob: Job? = null
@@ -127,7 +139,7 @@ fun Modifier.gridPinchColumns(
                         // fade the indicator in (one launch for the whole gesture, from wherever the
                         // alpha currently sits so a quick re-pinch stays continuous).
                         indicatorJob?.cancel()
-                        val live = currentColumns()
+                        val live = liveColumns()
                         indicatorColumns = live
                         indicatorJob = scope.launch {
                             animate(indicatorAlpha, 1f, animationSpec = tween(INDICATOR_FADE_IN_MS)) { v, _ ->
@@ -145,7 +157,7 @@ fun Modifier.gridPinchColumns(
                     // shared animateItem spring — a clean size/position transition, no whole-grid scale.
                     if (target != committed) {
                         committed = target
-                        onColumnsChange(target)
+                        liveOnColumnsChange(target)
                     }
                     event.changes.forEach { if (it.positionChanged()) it.consume() }
                 }
