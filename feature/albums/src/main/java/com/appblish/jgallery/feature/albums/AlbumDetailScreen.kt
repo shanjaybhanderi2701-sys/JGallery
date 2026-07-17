@@ -590,6 +590,7 @@ private fun AlbumDetailGrid(
                             FavoriteHeartBadge(
                                 favorite = item.id in favorites,
                                 visible = !selection.isActive,
+                                columns = columns.value,
                                 onClick = { onToggleFavorite(item.id) },
                             )
                         }

@@ -811,6 +811,7 @@ private fun MediaTile(
             FavoriteHeartBadge(
                 favorite = favorite,
                 visible = !selectionActive,
+                columns = columns,
                 onClick = onToggleFavorite,
             )
         }

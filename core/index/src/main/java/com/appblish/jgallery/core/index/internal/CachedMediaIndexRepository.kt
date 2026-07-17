@@ -72,8 +72,15 @@ internal class CachedMediaIndexRepository @Inject constructor(
     }
 
     private fun List<MediaItem>.applyQuery(query: MediaQuery): List<MediaItem> {
+        // MediaQuery.ids contract: null = no restriction; a (possibly empty) set restricts to exactly
+        // those ids, so an empty set matches nothing. Load-bearing for the Favorites smart view
+        // (APP-543) — it queries ids = starredSet, and an empty starred set must reduce to the Empty
+        // state, not the whole library. Bound to a local so it smart-casts across the module boundary.
+        val ids = query.ids
         val filtered = filter { item ->
-            (query.bucketId == null || item.bucketId == query.bucketId) && item.type in query.types
+            (query.bucketId == null || item.bucketId == query.bucketId) &&
+                item.type in query.types &&
+                (ids == null || item.id in ids)
         }
         return filtered.sortedWith(query.sort.comparator())
     }
