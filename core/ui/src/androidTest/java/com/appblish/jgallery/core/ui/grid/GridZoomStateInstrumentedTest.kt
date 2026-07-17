@@ -142,14 +142,22 @@ class GridZoomStateInstrumentedTest {
         composeRule.setContent {
             JGalleryTheme {
                 // A minimal single-cell grid wired exactly like the production screens (Photos/Albums/
-                // Search): the pinch source and the grid both read the SAME `columns` state.
+                // Search): those call sites pass the column count as a by-VALUE composable parameter
+                // (`PhotosGrid(columns: ColumnCount)` at PhotosScreen.kt:449, same in AlbumGrid/
+                // AlbumDetailScreen/SearchScreen), NOT a raw MutableState read. `cols` is that snapshot:
+                // a per-recomposition val frozen at the value read THIS frame. The pinch closure must
+                // close over `cols`, not the live `columns` state — closing over the stable state lets
+                // ANY lambda instance (stale first-frame or fresh) read the live value, so the
+                // stale-`pointerInput(Unit)`-capture bug the fix targets never manifests and the test
+                // false-greens (APP-554). With `{ cols }` the first-frame closure freezes cols=4, so on
+                // the pre-fix code gesture 2 anchors to the frozen 4 (4/2=2) and this test FAILS.
                 val cols = columns
                 LazyVerticalGrid(
                     columns = GridCells.Fixed(cols.value),
                     modifier = Modifier
                         .fillMaxSize()
                         .gridPinchColumns(
-                            currentColumns = { columns },
+                            currentColumns = { cols },
                             onColumnsChange = { columns = it },
                         )
                         .testTag("pinch_grid"),
