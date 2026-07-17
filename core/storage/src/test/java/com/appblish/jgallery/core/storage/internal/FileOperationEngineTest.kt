@@ -118,6 +118,61 @@ class FileOperationEngineTest {
             assertThat(ops.namesInBucket("dst")).containsExactly("ok.jpg")
         }
 
+    // --- exportCopy ("Save a copy" into a user-picked SAF tree — G2 · APP-549) ---
+
+    @Test
+    fun `exportCopy streams exact bytes into the tree, leaves originals, and reports full success`() =
+        runTest {
+            val tree = "content://tree/downloads"
+            val ops = FakeStorageOps().apply {
+                put("1", "a.jpg", "image/jpeg", bytesOf(1, size = 10), bucket = "src")
+                put("2", "b.mp4", "video/mp4", bytesOf(2, size = 1_000_003), bucket = "src")
+            }
+            val engine = FileOperationEngine(ops, StandardTestDispatcher(testScheduler), bufferSize = 64)
+
+            val events = engine.exportCopy(listOf(MediaId("1"), MediaId("2")), tree).toList()
+
+            // Originals untouched (export copies, never moves).
+            assertThat(ops.namesInBucket("src")).containsExactly("a.jpg", "b.mp4")
+            // Exact bytes landed in the picked tree, even for a large file through a tiny buffer.
+            assertThat(ops.bytesInBucket(tree, "a.jpg")).isEqualTo(bytesOf(1, size = 10))
+            assertThat(ops.bytesInBucket(tree, "b.mp4")).isEqualTo(bytesOf(2, size = 1_000_003))
+            assertThat(summaryOf(events)).isEqualTo(OperationResult(succeeded = 2, failed = 0))
+        }
+
+    @Test
+    fun `exportCopy suffixes a name that already exists in the destination tree`() = runTest {
+        val tree = "content://tree/downloads"
+        val ops = FakeStorageOps().apply {
+            put("1", "photo.jpg", "image/jpeg", bytesOf(9, size = 8), bucket = "src")
+            put("blocker", "photo.jpg", "image/jpeg", bytesOf(0, size = 1), bucket = tree)
+        }
+        val engine = FileOperationEngine(ops, StandardTestDispatcher(testScheduler))
+
+        engine.exportCopy(listOf(MediaId("1")), tree).toList()
+
+        // The user's existing file is never clobbered — the export lands beside it.
+        assertThat(ops.namesInBucket(tree)).containsExactly("photo.jpg", "photo (1).jpg")
+    }
+
+    @Test
+    fun `exportCopy isolates a missing source as a failure without aborting the batch`() = runTest {
+        val tree = "content://tree/downloads"
+        val ops = FakeStorageOps().apply {
+            put("1", "ok.jpg", "image/jpeg", bytesOf(1, size = 4), bucket = "src")
+            // id "2" absent -> reported failed, the rest still exports.
+        }
+        val engine = FileOperationEngine(ops, StandardTestDispatcher(testScheduler))
+
+        val events = engine.exportCopy(listOf(MediaId("2"), MediaId("1")), tree).toList()
+
+        val summary = summaryOf(events)
+        assertThat(summary.succeeded).isEqualTo(1)
+        assertThat(summary.failed).isEqualTo(1)
+        assertThat(summary.failures.single().id).isEqualTo(MediaId("2"))
+        assertThat(ops.namesInBucket(tree)).containsExactly("ok.jpg")
+    }
+
     // --- move ---
 
     @Test
@@ -306,6 +361,15 @@ class FileOperationEngineTest {
 
         override suspend fun createSink(destinationBucketId: String, name: String, mimeType: String): Sink =
             FakeSink(destinationBucketId, name, mimeType)
+
+        // Export (APP-549) treats the SAF tree uri as just another destination key, so the fake can reuse
+        // the same item map: names under a tree = items whose bucket equals the tree uri; a tree sink is
+        // a FakeSink keyed by the tree uri. This lets the pure engine test exercise export end-to-end.
+        override suspend fun namesInTree(treeUri: String): Set<String> =
+            items.values.filter { it.bucketId == treeUri }.map { it.name }.toSet()
+
+        override suspend fun createTreeSink(treeUri: String, name: String, mimeType: String): Sink =
+            FakeSink(treeUri, name, mimeType)
 
         override suspend fun rename(id: MediaId, newName: String): Boolean {
             val entry = items[id.value] ?: return false

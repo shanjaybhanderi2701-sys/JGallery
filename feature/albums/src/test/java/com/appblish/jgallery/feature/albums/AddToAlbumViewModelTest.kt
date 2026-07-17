@@ -98,6 +98,7 @@ class AddToAlbumViewModelTest {
         override suspend fun viewUri(id: MediaId): android.net.Uri? = null
         override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
+        override fun exportCopy(ids: List<MediaId>, treeUri: android.net.Uri): Flow<FileOperationEvent> = emptyFlow()
         override fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> = emptyFlow()
         override suspend fun beginCapture(
             albumName: String,

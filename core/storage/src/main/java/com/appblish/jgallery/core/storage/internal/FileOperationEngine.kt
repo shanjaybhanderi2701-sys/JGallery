@@ -48,6 +48,17 @@ internal class FileOperationEngine(
     }.flowOn(io)
 
     /**
+     * "Save a copy" — export every id into the user-picked SAF tree [treeUri] (G2 · APP-549). Reuses
+     * the exact copy machinery (streaming, cancellation, collision naming, per-item failure isolation,
+     * progress + summary); only the *destination* differs — a document created in the granted tree
+     * instead of a MediaStore bucket row. Originals remain, like [copy].
+     */
+    fun exportCopy(ids: List<MediaId>, treeUri: String): Flow<FileOperationEvent> = flow {
+        val reserved = ops.namesInTree(treeUri).toMutableSet()
+        runBulk(ids) { id, name -> exportOne(id, name, treeUri, reserved) }
+    }.flowOn(io)
+
+    /**
      * Move every id into [destinationBucketId]: copy, then remove the source (spec §7.2). Name
      * collisions in the destination are resolved just like copy. If the copy succeeds but the
      * source cannot be removed, the item is reported as failed and the copy is intentionally kept
@@ -166,10 +177,31 @@ internal class FileOperationEngine(
         destinationBucketId: String,
         reserved: MutableSet<String>,
     ) {
+        val target = reserveTarget(name, reserved)
+        streamInto(id, ops.createSink(destinationBucketId, target, ops.mimeType(id)))
+    }
+
+    /** Export one id into the SAF tree [treeUri] — copy semantics with a tree-document sink (APP-549). */
+    private suspend fun exportOne(
+        id: MediaId,
+        name: String?,
+        treeUri: String,
+        reserved: MutableSet<String>,
+    ) {
+        val target = reserveTarget(name, reserved)
+        streamInto(id, ops.createTreeSink(treeUri, target, ops.mimeType(id)))
+    }
+
+    /** Resolve [name]'s collision-free target and reserve it so two items never race onto one name. */
+    private fun reserveTarget(name: String?, reserved: MutableSet<String>): String {
         requireNotNull(name) { "source no longer exists" }
         val target = resolveCollision(name, reserved)
-        reserved += target // reserve within this batch so two copies never race onto one name
-        val sink = ops.createSink(destinationBucketId, target, ops.mimeType(id))
+        reserved += target
+        return target
+    }
+
+    /** Stream a source id's bytes into [sink], committing on success and aborting the partial on failure. */
+    private suspend fun streamInto(id: MediaId, sink: Sink) {
         try {
             ops.openInput(id).use { input -> sink.output.use { out -> streamCopy(input, out) } }
             sink.commit()

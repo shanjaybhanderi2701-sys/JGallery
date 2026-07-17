@@ -198,9 +198,13 @@ class PhotosViewModel @Inject constructor(
         trash = operations::moveToTrash,
         copyToNew = operations::copyToNewAlbum,
         moveToNew = operations::moveToNewAlbum,
+        export = operations::exportCopy,
     )
     val selection get() = selectionController.selection
     val bulk get() = selectionController.bulk
+
+    /** Export ("Save a copy") the current selection into the SAF folder [treeUri] (G2 · APP-549). */
+    fun exportSelected(treeUri: android.net.Uri) = selectionController.runExport(treeUri)
 
     /** Destination list for the Copy to / Move to picker (spec §7.1/§7.2). */
     val destinations: StateFlow<List<Album>> =

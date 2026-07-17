@@ -368,8 +368,9 @@ fun AlbumsScreen(
                         SelectionAction.RENAME -> showRename = true
                         SelectionAction.SET_COVER -> singleSelected?.let { onCoverPickerOpen(it); showCoverPicker = true }
                         SelectionAction.DETAILS -> showDetails = true
-                        // Share is media-only (G2 · APP-541), never offered on the album-entity bar.
-                        SelectionAction.SHARE -> Unit
+                        // Share (APP-541) and Save a copy (APP-549) are media-only, never offered on the
+                        // album-entity bar.
+                        SelectionAction.SHARE, SelectionAction.EXPORT -> Unit
                     }
                 },
             )

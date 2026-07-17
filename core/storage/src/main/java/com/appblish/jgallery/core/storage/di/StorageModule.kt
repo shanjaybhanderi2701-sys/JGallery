@@ -59,7 +59,7 @@ object StorageModule {
         @IoDispatcher io: CoroutineDispatcher,
     ): StorageAccess {
         val trashStore: TrashMetadataStore = DataStoreTrashMetadataStore(context.trashDataStore)
-        return MediaStoreStorageAccess(resolver, io, trashStore)
+        return MediaStoreStorageAccess(context, resolver, io, trashStore)
     }
 
     /**

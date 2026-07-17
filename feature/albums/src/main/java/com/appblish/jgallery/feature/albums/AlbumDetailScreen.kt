@@ -160,6 +160,13 @@ fun AlbumDetailScreen(
         }
     }
 
+    // "Save a copy" folder pick (G2 · APP-549, Security gate APP-542 §5): the SAF tree picker returns a
+    // transient, user-scoped grant — stream into it immediately, never persist. Null = user backed out
+    // (no-op; selection preserved). Identical to the Photos tab.
+    val exportFolderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { treeUri -> if (treeUri != null) viewModel.exportSelected(treeUri) }
+
     AlbumDetailScreen(
         title = viewModel.title,
         sourceBucketId = viewModel.bucketId,
@@ -189,6 +196,7 @@ fun AlbumDetailScreen(
         onDismissResult = viewModel::dismissBulkResult,
         onOpenCamera = { viewModel.requestCapture(CaptureKind.PHOTO) },
         onShare = viewModel::shareSelected,
+        onExport = { exportFolderPicker.launch(null) },
         modifier = modifier,
     )
 }
@@ -237,6 +245,7 @@ fun AlbumDetailScreen(
     onAddPhotos: () -> Unit = {},
     onOpenCamera: () -> Unit = {},
     onShare: () -> Unit = {},
+    onExport: () -> Unit = {},
 ) {
     var showSortSheet by remember { mutableStateOf(false) }
     var showColumnSheet by remember { mutableStateOf(false) }
@@ -348,6 +357,8 @@ fun AlbumDetailScreen(
                 details = details,
                 // Share (G2 · APP-541): multi-safe overflow entry, identical to the Photos tab.
                 onShare = onShare,
+                // Save a copy (G2 · APP-549): multi-safe overflow entry → SAF folder pick then export.
+                onExport = onExport,
                 modifier = modifier.testTag("album_detail_screen"),
             ) {
                 // Pull-to-refresh (design G1-D7 item 13): shared wrapper, identical to the other grids.

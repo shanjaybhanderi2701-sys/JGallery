@@ -101,6 +101,19 @@ interface StorageAccess {
     fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent>
 
     /**
+     * "Save a copy" — export [ids] into the user-picked SAF folder [treeUri] (G2 · APP-549, Security
+     * gate APP-542 §5). Originals remain; each source is read through its MediaStore `content://` and
+     * streamed into a freshly-created document in the granted tree. [treeUri] is the transient,
+     * user-scoped grant returned by `ACTION_OPEN_DOCUMENT_TREE` — the ONE sanctioned write target that
+     * crosses the boundary, exactly as [viewUri] is the one sanctioned read exposure (APP-297): no
+     * filesystem path is constructed, no `WRITE_EXTERNAL_STORAGE` is held, and the grant is not
+     * persisted. Emits a per-item [FileOperationEvent.InProgress] then one terminal
+     * [FileOperationEvent.Completed] with the "X saved, Y failed" summary; streams (no whole-file
+     * buffer) and cancelling collection stops the batch and discards the in-flight partial document.
+     */
+    fun exportCopy(ids: List<MediaId>, treeUri: Uri): Flow<FileOperationEvent>
+
+    /**
      * Create album [name] (like [createAlbum]) and copy [ids] into it in one flow, so the new album is
      * born already holding its contents — its first item becomes the cover. This backs the copy/move
      * sheet's "New album" tile with a Copy verb (C6 item 12).

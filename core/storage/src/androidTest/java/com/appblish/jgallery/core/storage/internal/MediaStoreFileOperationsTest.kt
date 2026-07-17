@@ -60,7 +60,7 @@ class MediaStoreFileOperationsTest {
         context = ApplicationProvider.getApplicationContext()
         // This suite exercises copy/move/rename/delete only — the Recycle Bin is not touched here,
         // so a minimal in-memory metadata store satisfies the constructor without a DataStore.
-        storage = MediaStoreStorageAccess(context.contentResolver, Dispatchers.IO, InMemoryTrashStore())
+        storage = MediaStoreStorageAccess(context, context.contentResolver, Dispatchers.IO, InMemoryTrashStore())
     }
 
     @After

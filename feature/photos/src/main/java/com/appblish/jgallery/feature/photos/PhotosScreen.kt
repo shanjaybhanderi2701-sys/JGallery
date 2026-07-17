@@ -1,6 +1,8 @@
 package com.appblish.jgallery.feature.photos
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -172,6 +174,13 @@ fun PhotosScreen(
         }
     }
 
+    // "Save a copy" folder pick (G2 · APP-549, Security gate APP-542 §5): the SAF tree picker returns a
+    // transient, user-scoped grant — we stream into it immediately and never persist it. A null result
+    // (user backed out) is a no-op; the selection is untouched so they can retry.
+    val exportFolderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { treeUri -> if (treeUri != null) viewModel.exportSelected(treeUri) }
+
     PhotosScreen(
         state = state,
         columns = columns,
@@ -202,6 +211,7 @@ fun PhotosScreen(
         onDismissResult = viewModel::dismissBulkResult,
         onRenameSelected = viewModel::renameSelected,
         onShare = viewModel::shareSelected,
+        onExport = { exportFolderPicker.launch(null) },
         modifier = modifier,
     )
 }
@@ -251,6 +261,7 @@ fun PhotosScreen(
     onDismissResult: () -> Unit = {},
     onRenameSelected: (MediaId, String) -> Unit = { _, _ -> },
     onShare: () -> Unit = {},
+    onExport: () -> Unit = {},
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
     var showGroupSheet by remember { mutableStateOf(false) }
@@ -360,6 +371,8 @@ fun PhotosScreen(
                 onRename = { showRenameDialog = true },
                 // Share (G2 · APP-541): multi-safe overflow entry → resolve selection to content uris.
                 onShare = onShare,
+                // Save a copy (G2 · APP-549): multi-safe overflow entry → SAF folder pick then export.
+                onExport = onExport,
                 modifier = modifier.testTag("photos_screen"),
             ) {
                 // The nested-scroll connection sits on the ancestor of the grid so it sees each scroll

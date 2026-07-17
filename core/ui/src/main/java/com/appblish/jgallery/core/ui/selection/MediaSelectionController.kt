@@ -1,5 +1,6 @@
 package com.appblish.jgallery.core.ui.selection
 
+import android.net.Uri
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import kotlinx.coroutines.CoroutineScope
@@ -35,6 +36,9 @@ class MediaSelectionController(
     // Default to an empty flow so existing tests that only exercise Copy/Move/Trash keep compiling.
     private val copyToNew: (ids: List<MediaId>, name: String) -> Flow<FileOperationEvent> = { _, _ -> emptyFlow() },
     private val moveToNew: (ids: List<MediaId>, name: String) -> Flow<FileOperationEvent> = { _, _ -> emptyFlow() },
+    // "Save a copy" export into a user-picked SAF folder (G2 · APP-549). Defaults to an empty flow so
+    // existing tests that only exercise Copy/Move/Trash keep compiling.
+    private val export: (ids: List<MediaId>, treeUri: Uri) -> Flow<FileOperationEvent> = { _, _ -> emptyFlow() },
 ) {
     private val _selection = MutableStateFlow(SelectionState<MediaId>())
     val selection: StateFlow<SelectionState<MediaId>> = _selection.asStateFlow()
@@ -82,6 +86,7 @@ class MediaSelectionController(
             BulkAction.COPY -> copy(ids, destinationBucketId!!)
             BulkAction.MOVE -> move(ids, destinationBucketId!!)
             BulkAction.TRASH -> trash(ids)
+            BulkAction.EXPORT -> return // Export has its own entry point ([runExport], SAF tree uri).
         }
         launchOp(action, events)
     }
@@ -98,9 +103,20 @@ class MediaSelectionController(
         val events: Flow<FileOperationEvent> = when (action) {
             BulkAction.COPY -> copyToNew(ids, name)
             BulkAction.MOVE -> moveToNew(ids, name)
-            BulkAction.TRASH -> return
+            BulkAction.TRASH, BulkAction.EXPORT -> return // no create-new destination for these verbs
         }
         launchOp(action, events)
+    }
+
+    /**
+     * "Save a copy" — export the current selection into the user-picked SAF folder [treeUri] (G2 ·
+     * APP-549). Called by the host after `ACTION_OPEN_DOCUMENT_TREE` returns a grant. Streams through the
+     * same progress → summary machinery as [run]; no-ops on an empty selection.
+     */
+    fun runExport(treeUri: Uri) {
+        val ids = _selection.value.selected.toList()
+        if (ids.isEmpty()) return
+        launchOp(BulkAction.EXPORT, export(ids, treeUri))
     }
 
     /** Shared streaming collector for [run] / [runToNewAlbum]: progress → summary, then exit selection. */

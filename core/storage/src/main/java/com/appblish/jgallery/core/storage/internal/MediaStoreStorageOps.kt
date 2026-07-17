@@ -3,10 +3,12 @@ package com.appblish.jgallery.core.storage.internal
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
+import android.content.Context
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
+import androidx.documentfile.provider.DocumentFile
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaType
 import kotlinx.coroutines.CoroutineDispatcher
@@ -27,6 +29,7 @@ import java.io.OutputStream
  * the module's instrumented test; [FileOperationEngine] carries the JVM-unit coverage.
  */
 internal class MediaStoreStorageOps(
+    private val context: Context,
     private val resolver: ContentResolver,
     private val io: CoroutineDispatcher,
 ) : StorageOps, TrashOps {
@@ -61,6 +64,13 @@ internal class MediaStoreStorageOps(
         }.orEmpty()
     }
 
+    override suspend fun namesInTree(treeUri: String): Set<String> = withContext(io) {
+        // Names already directly under the picked SAF folder, so export resolves collisions the same
+        // way a bucket copy does. A tree we can't read (grant revoked, folder gone) yields no names →
+        // nothing is reserved and createTreeSink surfaces the real failure per item.
+        treeDir(treeUri)?.listFiles()?.mapNotNull { it.name }?.toSet().orEmpty()
+    }
+
     // Ownership of the returned stream transfers to the caller, who closes it (see FileOperationEngine's
     // `.use {}`). Closing it here would defeat the API, so Recycle is a false positive.
     @Suppress("Recycle")
@@ -83,6 +93,21 @@ internal class MediaStoreStorageOps(
         val uri = resolver.insert(collection, values)
             ?: error("MediaStore refused an entry for '$name' in $destinationBucketId")
         MediaStoreSink(uri)
+    }
+
+    override suspend fun createTreeSink(
+        treeUri: String,
+        name: String,
+        mimeType: String,
+    ): Sink = withContext(io) {
+        // Create a new document under the user-picked SAF tree (G2 · APP-549, Security gate APP-542 §5):
+        // this is the only write that leaves the app, and it does so through the transient, user-scoped
+        // ACTION_OPEN_DOCUMENT_TREE grant — no filesystem path, no WRITE_EXTERNAL_STORAGE. DocumentFile
+        // never overwrites an existing name (it auto-suffixes), so a copy can't clobber a user's file.
+        val dir = treeDir(treeUri) ?: error("The chosen folder is no longer available")
+        val doc = dir.createFile(mimeType, name)
+            ?: error("Could not create '$name' in the chosen folder")
+        DocumentFileSink(doc)
     }
 
     override suspend fun rename(id: MediaId, newName: String): Boolean = withContext(io) {
@@ -206,6 +231,37 @@ internal class MediaStoreStorageOps(
             Unit
         }
     }
+
+    /**
+     * A [Sink] over a document freshly created in a SAF tree (G2 · APP-549). Unlike [MediaStoreSink]
+     * there is no IS_PENDING lifecycle — a DocumentFile is visible immediately — so [commit] is a no-op
+     * and [abort] deletes the partially written document so a cancelled/failed export leaves nothing
+     * behind (mirroring the pending-row discard).
+     */
+    private inner class DocumentFileSink(private val doc: DocumentFile) : Sink {
+        override val output: OutputStream =
+            resolver.openOutputStream(doc.uri) ?: error("Unable to open destination stream for ${doc.uri}")
+
+        override suspend fun commit() {
+            // Nothing to publish: a tree document is already visible. The bytes were flushed + closed by
+            // the engine's `use {}` before commit() is called.
+        }
+
+        override suspend fun abort() = withContext(NonCancellable + io) {
+            // Delete the partial document on failure/cancellation. NonCancellable for the same reason as
+            // MediaStoreSink.abort: this is the cancel-cleanup path, so the Job is already cancelled.
+            runCatching { doc.delete() }
+            Unit
+        }
+    }
+
+    /**
+     * The [DocumentFile] for the picked folder [treeUri] (an `ACTION_OPEN_DOCUMENT_TREE` grant), or
+     * null if the grant is gone / the uri isn't a tree. `fromTreeUri` needs only the app context for
+     * its ContentResolver — no Context leaves this boundary module.
+     */
+    private fun treeDir(treeUri: String): DocumentFile? =
+        DocumentFile.fromTreeUri(context, Uri.parse(treeUri))?.takeIf { it.isDirectory }
 
     private suspend fun readString(id: MediaId, column: String): String? = withContext(io) {
         resolver.query(idToUri(id), arrayOf(column), null, null, null)?.use { cursor ->

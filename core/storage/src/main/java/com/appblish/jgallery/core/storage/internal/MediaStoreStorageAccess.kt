@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
+import android.content.Context
 import android.database.ContentObserver
 import android.database.Cursor
 import android.graphics.Bitmap
@@ -54,6 +55,7 @@ import java.io.InputStream
  * directly under All Files Access, since MediaStore has no empty-bucket concept (W2-E10).
  */
 internal class MediaStoreStorageAccess(
+    context: Context,
     private val resolver: ContentResolver,
     private val io: CoroutineDispatcher,
     trashStore: TrashMetadataStore,
@@ -61,8 +63,9 @@ internal class MediaStoreStorageAccess(
 ) : StorageAccess, ThumbnailBitmapSource {
 
     // The single platform SPI (copy/move/rename/trash/restore/delete primitives) — the only part that
-    // talks to MediaStore. Both engines share it so there is exactly one MediaStore surface.
-    private val storageOps = MediaStoreStorageOps(resolver, io)
+    // talks to MediaStore. Both engines share it so there is exactly one MediaStore surface. The app
+    // context backs SAF-export DocumentFile access (APP-549); it stays inside this boundary module.
+    private val storageOps = MediaStoreStorageOps(context, resolver, io)
 
     // Bulk/rename policy (streaming, collisions, progress, cancellation, result summary) lives here;
     // the platform SPI below it is the only part that talks to MediaStore.
@@ -406,6 +409,12 @@ internal class MediaStoreStorageAccess(
 
     override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> =
         fileOps.move(ids, destinationBucketId)
+
+    // "Save a copy" into a user-picked SAF folder (G2 · APP-549, Security gate APP-542 §5). The opaque
+    // tree-grant uri is passed to the engine as a string, exactly as a bucket id is — no MediaStore or
+    // path concept crosses; the DocumentFile mechanics live entirely in MediaStoreStorageOps.
+    override fun exportCopy(ids: List<MediaId>, treeUri: Uri): Flow<FileOperationEvent> =
+        fileOps.exportCopy(ids, treeUri.toString())
 
     override fun moveToTrash(ids: List<MediaId>): Flow<FileOperationEvent> =
         trashEngine.moveToTrash(ids)
