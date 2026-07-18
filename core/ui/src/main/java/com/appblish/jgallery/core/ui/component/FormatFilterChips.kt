@@ -17,6 +17,7 @@ import androidx.compose.material.icons.outlined.Gif
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Videocam
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -29,7 +30,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.appblish.jgallery.core.model.MediaFilter
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * The top-bar format filter row (design C1-06, item 3): one consistent single-select chip row —
@@ -76,8 +76,11 @@ private fun FormatFilterChip(
     count: Int?,
     onClick: () -> Unit,
 ) {
-    val background = if (selected) JGalleryColors.Accent else JGalleryColors.Surface
-    val content = if (selected) JGalleryColors.OnAccent else JGalleryColors.Text
+    // Theme tokens (APP-572): the unselected pill + its text stayed light in Dark mode while the rest
+    // of the app re-themed. surfaceVariant/onSurface map byte-identical to the old static values in
+    // Light (Surface/Text) and follow the dark scheme in Dark.
+    val background = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant
+    val content = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface
     val glyph = filter.glyph()
 
     Row(
