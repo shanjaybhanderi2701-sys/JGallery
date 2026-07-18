@@ -20,7 +20,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.MediaItem
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -127,7 +126,8 @@ fun GroupSectionHeader(label: String, modifier: Modifier = Modifier) {
     Text(
         text = label,
         style = MaterialTheme.typography.headlineSmall,
-        color = JGalleryColors.Text,
+        // Theme token so the shared header re-themes in Dark alongside the Photos tab (APP-572).
+        color = MaterialTheme.colorScheme.onBackground,
         modifier = modifier.padding(start = 4.dp, top = 18.dp, bottom = 8.dp),
     )
 }
@@ -170,7 +170,8 @@ fun BoxScope.StickyMediaHeader(
                 .fillMaxWidth()
                 .graphicsLayer { translationY = header.pushPx.toFloat() }
                 .onSizeChanged { headerHeightPx = it.height }
-                .background(JGalleryColors.Background)
+                // Opaque pinned band follows the theme so it doesn't stay light-on-dark (APP-572).
+                .background(MaterialTheme.colorScheme.background)
                 .testTag(testTag),
         ) {
             GroupSectionHeader(label = header.label)

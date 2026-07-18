@@ -559,7 +559,9 @@ private fun GroupHeaderContent(label: String, modifier: Modifier = Modifier) {
     Text(
         text = label,
         style = MaterialTheme.typography.headlineSmall,
-        color = JGalleryColors.Text,
+        // Theme token, not the static light value, so the header re-themes in Dark (APP-572): the
+        // date bands stayed black-on-white while the rest of the app went dark.
+        color = MaterialTheme.colorScheme.onBackground,
         modifier = modifier.padding(start = 4.dp, top = 18.dp, bottom = 8.dp),
     )
 }
@@ -608,7 +610,9 @@ private fun BoxScope.StickyGroupHeader(
                 .fillMaxWidth()
                 .graphicsLayer { translationY = header.pushPx.toFloat() }
                 .onSizeChanged { headerHeightPx = it.height }
-                .background(JGalleryColors.Background)
+                // Opaque pinned background must follow the theme too (APP-572) — a static white band
+                // showed through as light-on-dark once the app went Dark.
+                .background(MaterialTheme.colorScheme.background)
                 .testTag("photos_sticky_header"),
         ) {
             GroupHeaderContent(label = header.label)
