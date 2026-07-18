@@ -138,7 +138,7 @@ class MediaStoreFileOperationsTest {
     @SdkSuppress(minSdkVersion = Build.VERSION_CODES.R) // MATCH_PENDING query lane (via displayNameByName) is R+
     @Test
     fun abortAfterCancellationStillDeletesThePendingEntry() = runBlocking {
-        val ops = MediaStoreStorageOps(context.contentResolver, Dispatchers.IO)
+        val ops = MediaStoreStorageOps(context, context.contentResolver, Dispatchers.IO)
         val name = uniqueName("cancelabort")
         val ready = arrayOfNulls<Sink>(1)
 
