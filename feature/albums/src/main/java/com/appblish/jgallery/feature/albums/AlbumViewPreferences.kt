@@ -10,8 +10,9 @@ import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
+import com.appblish.jgallery.core.viewdefaults.ViewDefaults
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.combine
 
 /**
  * Whether a per-album view change (Sort / Grid size) applies to **this album only** or to **all
@@ -61,17 +62,27 @@ interface AlbumViewPreferences {
  * DataStore-backed [AlbumViewPreferences]. Global keys (`album_sort_*`, `album_columns`) hold the
  * shared default; per-album keys are the global key suffixed with the bucket id. Unknown/legacy
  * stored values fall back to the defaults, and stored column counts are clamped on read.
+ *
+ * APP-569 seed: when the shared global default has never been set, sort/density seed from the app-wide
+ * [ViewDefaults] (the "Default sort" / "Grid density" written in Settings) instead of a hard-coded
+ * constant. An explicit global value — or a per-album `THIS_ALBUM` override — still wins, so existing
+ * overrides are untouched.
  */
 internal class DataStoreAlbumViewPreferences(
     private val dataStore: DataStore<Preferences>,
+    private val viewDefaults: ViewDefaults,
 ) : AlbumViewPreferences {
 
     override fun settings(bucketId: String): Flow<AlbumViewSettings> =
-        dataStore.data.map { prefs ->
+        combine(
+            dataStore.data,
+            viewDefaults.defaultSort,
+            viewDefaults.defaultColumns,
+        ) { prefs, defaultSort, defaultColumns ->
             val scope = prefs.scopeFor(bucketId)
             val global = AlbumViewSettings(
-                sort = prefs.sort(GLOBAL_SORT_KEY, GLOBAL_SORT_DIR),
-                columns = prefs.columns(GLOBAL_COLUMNS),
+                sort = prefs.sortOrNull(GLOBAL_SORT_KEY, GLOBAL_SORT_DIR) ?: defaultSort,
+                columns = prefs.columnsOrNull(GLOBAL_COLUMNS) ?: defaultColumns,
                 groupBy = prefs.groupBy(GLOBAL_GROUP),
                 scope = scope,
             )
@@ -132,9 +143,6 @@ internal class DataStoreAlbumViewPreferences(
             ?.let { name -> ViewScope.entries.firstOrNull { it.name == name } }
             ?: ViewScope.ALL_ALBUMS
 
-    private fun Preferences.sort(keyKey: Preferences.Key<String>, dirKey: Preferences.Key<String>): SortSpec =
-        sortOrNull(keyKey, dirKey) ?: SortSpec()
-
     private fun Preferences.sortOrNull(
         keyKey: Preferences.Key<String>,
         dirKey: Preferences.Key<String>,
@@ -144,9 +152,6 @@ internal class DataStoreAlbumViewPreferences(
             ?: SortSpec().direction
         return SortSpec(key = key, direction = dir)
     }
-
-    private fun Preferences.columns(key: Preferences.Key<Int>): ColumnCount =
-        columnsOrNull(key) ?: ColumnCount.DEFAULT
 
     private fun Preferences.columnsOrNull(key: Preferences.Key<Int>): ColumnCount? =
         this[key]?.let(ColumnCount::clamp)

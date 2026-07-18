@@ -42,6 +42,7 @@ include(":core:thumbs")  // cached thumbnail pipeline (in-memory LRU + on-disk)
 include(":core:playback") // Media3 playback sources routed through the §1.6 boundary (viewer video)
 include(":core:playerkit") // APP-402: app-agnostic video-player kit (pluggable DataSource seam + gesture/scale/zoom core) shared with CalcVault
 include(":core:ui")      // theme scaffolding + shared Compose components
+include(":core:viewdefaults") // APP-569: app-wide view-defaults seam (default sort + grid density) — Settings writes, Photos/Albums seed-read
 
 // --- Features ---
 include(":feature:onboarding") // language → primer → All Files Access flow (drives the §1.6 permission boundary)

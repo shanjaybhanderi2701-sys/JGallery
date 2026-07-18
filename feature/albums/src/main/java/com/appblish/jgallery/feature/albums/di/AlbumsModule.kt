@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.appblish.jgallery.core.viewdefaults.ViewDefaults
 import com.appblish.jgallery.feature.albums.AlbumViewPreferences
 import com.appblish.jgallery.feature.albums.AlbumsPreferences
 import com.appblish.jgallery.feature.albums.DataStoreAlbumViewPreferences
@@ -35,5 +36,6 @@ object AlbumsModule {
     @Singleton
     fun provideAlbumViewPreferences(
         @ApplicationContext context: Context,
-    ): AlbumViewPreferences = DataStoreAlbumViewPreferences(context.albumsDataStore)
+        viewDefaults: ViewDefaults,
+    ): AlbumViewPreferences = DataStoreAlbumViewPreferences(context.albumsDataStore, viewDefaults)
 }
