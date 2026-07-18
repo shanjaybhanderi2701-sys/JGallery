@@ -4,6 +4,7 @@ import android.content.Context
 import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.preferencesDataStore
+import com.appblish.jgallery.core.viewdefaults.ViewDefaults
 import com.appblish.jgallery.feature.photos.DataStorePhotosPreferences
 import com.appblish.jgallery.feature.photos.PhotosPreferences
 import dagger.Module
@@ -34,7 +35,8 @@ object PhotosModule {
     @Singleton
     fun providePhotosPreferences(
         @ApplicationContext context: Context,
-    ): PhotosPreferences = DataStorePhotosPreferences(context.photosDataStore)
+        viewDefaults: ViewDefaults,
+    ): PhotosPreferences = DataStorePhotosPreferences(context.photosDataStore, viewDefaults)
 
     @Provides
     @TimelineDispatcher

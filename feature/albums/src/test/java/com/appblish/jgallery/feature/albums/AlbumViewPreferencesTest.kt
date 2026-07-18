@@ -8,8 +8,11 @@ import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
+import com.appblish.jgallery.core.viewdefaults.ViewDefaults
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.test.TestScope
 import kotlinx.coroutines.test.runTest
@@ -20,19 +23,35 @@ import org.junit.rules.TemporaryFolder
 /**
  * Scope-routing semantics of the real [DataStoreAlbumViewPreferences] (G1-9, APP-468): the effective
  * settings for a bucket resolve to its own override when scoped THIS_ALBUM, otherwise the shared
- * global default — and a global change reaches every album still left on ALL_ALBUMS.
+ * global default — and a global change reaches every album still left on ALL_ALBUMS. Also the APP-569
+ * seed: an unset shared default falls back to the app-wide [ViewDefaults].
  */
 @OptIn(ExperimentalCoroutinesApi::class)
 class AlbumViewPreferencesTest {
 
     @get:Rule val tmp = TemporaryFolder()
 
-    private fun TestScope.newPrefs(): AlbumViewPreferences {
+    /** In-memory [ViewDefaults] whose app-wide defaults the test can preset before reading. */
+    private class FakeViewDefaults(
+        sort: SortSpec = SortSpec(),
+        columns: ColumnCount = ColumnCount.DEFAULT,
+    ) : ViewDefaults {
+        private val sortState = MutableStateFlow(sort)
+        private val columnsState = MutableStateFlow(columns)
+        override val defaultSort: Flow<SortSpec> = sortState
+        override val defaultColumns: Flow<ColumnCount> = columnsState
+        override suspend fun setDefaultSort(sort: SortSpec) { sortState.value = sort }
+        override suspend fun setDefaultColumns(columns: ColumnCount) { columnsState.value = columns }
+    }
+
+    private fun TestScope.newPrefs(
+        viewDefaults: ViewDefaults = FakeViewDefaults(),
+    ): AlbumViewPreferences {
         val dataStore: DataStore<Preferences> = PreferenceDataStoreFactory.create(
             scope = backgroundScope,
             produceFile = { tmp.newFile("album_view_${counter++}.preferences_pb") },
         )
-        return DataStoreAlbumViewPreferences(dataStore)
+        return DataStoreAlbumViewPreferences(dataStore, viewDefaults)
     }
 
     @Test
@@ -121,6 +140,27 @@ class AlbumViewPreferencesTest {
         prefs.setScope("camera", ViewScope.THIS_ALBUM)
         assertThat(prefs.settings("camera").first().sort)
             .isEqualTo(SortSpec(SortKey.FILE_NAME, SortDirection.ASCENDING))
+    }
+
+    @Test
+    fun `an unset global default seeds from the app-wide ViewDefaults (APP-569)`() = runTest {
+        val seeded = SortSpec(SortKey.FILE_NAME, SortDirection.ASCENDING)
+        val prefs = newPrefs(FakeViewDefaults(sort = seeded, columns = ColumnCount(5)))
+
+        val settings = prefs.settings("camera").first()
+        assertThat(settings.sort).isEqualTo(seeded)
+        assertThat(settings.columns).isEqualTo(ColumnCount(5))
+    }
+
+    @Test
+    fun `an existing global override is untouched by the ViewDefaults seed (APP-569)`() = runTest {
+        val prefs = newPrefs(FakeViewDefaults(sort = SortSpec(SortKey.FILE_NAME, SortDirection.ASCENDING)))
+        val bySizeDesc = SortSpec(SortKey.FILE_SIZE, SortDirection.DESCENDING)
+
+        // Album sets its own global sort; the app-wide seed must not override it.
+        prefs.setSort("camera", bySizeDesc, ViewScope.ALL_ALBUMS)
+
+        assertThat(prefs.settings("camera").first().sort).isEqualTo(bySizeDesc)
     }
 
     private companion object {

@@ -20,7 +20,8 @@ android {
 
 dependencies {
     // Settings reuses the shared design system (SortBySheet, ColumnCountSheet, JGallerySheet, theme).
-    // It owns no media state — its DataStore holds only view-default prefs — so it needs no :core:index.
+    // It owns no media state — its DataStore holds only theme + slideshow prefs — so it needs no :core:index.
+    implementation(project(":core:viewdefaults")) // WRITES the app-wide default sort + grid density (APP-569).
     implementation(libs.androidx.activity.compose) // BackHandler + Custom Tab / ACTION_VIEW launch.
     implementation(libs.androidx.datastore.preferences)
 }

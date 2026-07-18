@@ -90,11 +90,10 @@ class PhotosViewModel @Inject constructor(
 
     // Sort order for the stream (design G1-D7 §3). Persisted per tab, independent of Albums; changing
     // it re-derives the same in-memory index on the timeline dispatcher — no rescan, like [groupBy].
-    // APP-545 §3: the app-wide "Default sort" in Settings is meant to SEED this per-tab pref's initial
-    // value; the per-tab overflow sort above still overrides and persists per tab. Wiring the seed
-    // requires the Photos DataStore to fall back to the Settings default on first read (or a one-shot
-    // migration) — deferred to avoid a cross-module dependency from :feature:photos onto
-    // :feature:settings. The Settings pref is stored today; this is the consumption point.
+    // APP-569 §3: the app-wide "Default sort" in Settings now SEEDS this pref — [PhotosPreferences.sort]
+    // falls back to the shared `:core:viewdefaults` value when the tab has no override yet, so no
+    // :feature:photos → :feature:settings edge is introduced. The per-tab overflow sort still overrides
+    // and persists per tab; once set, later default changes leave it untouched.
     val sort: StateFlow<SortSpec> =
         preferences.sort
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), SortSpec())

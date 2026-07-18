@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.model.ThemeMode
+import com.appblish.jgallery.core.viewdefaults.ViewDefaults
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -22,20 +23,23 @@ data class SettingsUiState(
 )
 
 /**
- * Backs the Settings screen (design G2 Settings). Reads the four view-default prefs off
- * [SettingsPreferences] and exposes them as one [SettingsUiState]; each setter persists immediately
- * (no confirm — the dialog/sheet applies on select, §3). No loading/error states by design.
+ * Backs the Settings screen (design G2 Settings). Reads theme + slideshow off [SettingsPreferences]
+ * and the app-wide default sort + grid density off the shared [ViewDefaults] seam (APP-569), exposing
+ * them as one [SettingsUiState]; each setter persists immediately (no confirm — the dialog/sheet applies
+ * on select, §3). Writing the defaults through [ViewDefaults] is what seeds the Photos/Albums tabs.
+ * No loading/error states by design.
  */
 @HiltViewModel
 class SettingsViewModel @Inject constructor(
     private val preferences: SettingsPreferences,
+    private val viewDefaults: ViewDefaults,
 ) : ViewModel() {
 
     val state: StateFlow<SettingsUiState> =
         combine(
             preferences.themeMode,
-            preferences.defaultSort,
-            preferences.defaultColumns,
+            viewDefaults.defaultSort,
+            viewDefaults.defaultColumns,
             preferences.slideshowIntervalMs,
         ) { theme, sort, columns, slideshow ->
             SettingsUiState(theme, sort, columns, slideshow)
@@ -47,10 +51,10 @@ class SettingsViewModel @Inject constructor(
 
     fun setThemeMode(mode: ThemeMode) = viewModelScope.launch { preferences.setThemeMode(mode) }
 
-    fun setDefaultSort(sort: SortSpec) = viewModelScope.launch { preferences.setDefaultSort(sort) }
+    fun setDefaultSort(sort: SortSpec) = viewModelScope.launch { viewDefaults.setDefaultSort(sort) }
 
     fun setDefaultColumns(columns: ColumnCount) =
-        viewModelScope.launch { preferences.setDefaultColumns(columns) }
+        viewModelScope.launch { viewDefaults.setDefaultColumns(columns) }
 
     fun setSlideshowIntervalMs(ms: Long) =
         viewModelScope.launch { preferences.setSlideshowIntervalMs(ms) }

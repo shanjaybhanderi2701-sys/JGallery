@@ -11,6 +11,7 @@ dependencies {
     // models (spec §1 rule 2) — no :core:storage dependency, so the §1.6 boundary holds structurally.
     implementation(project(":core:index"))
     implementation(project(":core:thumbs"))
+    implementation(project(":core:viewdefaults")) // seeds the shared album sort/density from the app-wide default (APP-569).
 
     // AsyncImage; the app-wide loader (from :core:thumbs) resolves ThumbnailRequest models.
     implementation(libs.coil.compose)
