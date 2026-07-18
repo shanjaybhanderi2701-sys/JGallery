@@ -130,7 +130,6 @@ fun SettingsScreen(
                 SettingsRow(
                     icon = Icons.AutoMirrored.Outlined.Sort,
                     title = "Default sort",
-                    subtitle = "Seeds Photos & Albums; each tab can override",
                     trailing = SettingsTrailing.Value(state.defaultSort.label),
                     onClick = { showSortSheet = true },
                     modifier = Modifier.testTag("settings_row_sort"),
