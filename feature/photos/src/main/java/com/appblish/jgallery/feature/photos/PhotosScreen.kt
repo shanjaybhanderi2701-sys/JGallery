@@ -1,6 +1,8 @@
 package com.appblish.jgallery.feature.photos
 
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -96,6 +98,8 @@ import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
 import com.appblish.jgallery.core.ui.selection.SelectionScaffold
+import com.appblish.jgallery.core.ui.share.MediaShareRequest
+import com.appblish.jgallery.core.ui.share.ShareIntents
 import com.appblish.jgallery.core.ui.selection.SelectionState
 import com.appblish.jgallery.core.ui.selection.rememberTileSelectScale
 import com.appblish.jgallery.core.ui.selection.selectableGridDrag
@@ -162,6 +166,25 @@ fun PhotosScreen(
         }
     }
 
+    // Share outcomes (G2 · APP-541): fire the system share sheet for the resolved content uris, or
+    // toast when nothing shareable remained (every selected item was deleted underneath us).
+    LaunchedEffect(viewModel) {
+        viewModel.shareEvents.collect { request ->
+            when (request) {
+                is MediaShareRequest.Ready -> context.launchShareSheet(request.uris, request.mimeType)
+                MediaShareRequest.Empty ->
+                    Toast.makeText(context, "Nothing left to share", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // "Save a copy" folder pick (G2 · APP-549, Security gate APP-542 §5): the SAF tree picker returns a
+    // transient, user-scoped grant — we stream into it immediately and never persist it. A null result
+    // (user backed out) is a no-op; the selection is untouched so they can retry.
+    val exportFolderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { treeUri -> if (treeUri != null) viewModel.exportSelected(treeUri) }
+
     PhotosScreen(
         state = state,
         columns = columns,
@@ -194,8 +217,22 @@ fun PhotosScreen(
         onCancelBulk = viewModel::cancelBulk,
         onDismissResult = viewModel::dismissBulkResult,
         onRenameSelected = viewModel::renameSelected,
+        onShare = viewModel::shareSelected,
+        onExport = { exportFolderPicker.launch(null) },
         modifier = modifier,
     )
+}
+
+/**
+ * Fire the system share sheet for [uris] (G2 · APP-541). The uris are the §1.6-sanctioned MediaStore
+ * `content://` uris; [ShareIntents] tags the intent read-only + temporary and attaches every uri as
+ * ClipData so the grant reaches the chosen app. Wrapped in `runCatching` (like the viewer's intents)
+ * so a device with no share target degrades to a no-op instead of crashing.
+ */
+private fun android.content.Context.launchShareSheet(uris: List<android.net.Uri>, mimeType: String) {
+    if (uris.isEmpty()) return
+    val intent = ShareIntents.buildSendIntent(uris, mimeType)
+    runCatching { startActivity(android.content.Intent.createChooser(intent, "Share")) }
 }
 
 /** Stateless body — instrumented tests drive this without Hilt (10k-item fixture, no device index). */
@@ -233,6 +270,8 @@ fun PhotosScreen(
     onCancelBulk: () -> Unit = {},
     onDismissResult: () -> Unit = {},
     onRenameSelected: (MediaId, String) -> Unit = { _, _ -> },
+    onShare: () -> Unit = {},
+    onExport: () -> Unit = {},
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
     var showGroupSheet by remember { mutableStateOf(false) }
@@ -348,6 +387,10 @@ fun PhotosScreen(
                 details = details,
                 // Rename is single-only; the overflow keeps it dimmed until exactly one item is selected.
                 onRename = { showRenameDialog = true },
+                // Share (G2 · APP-541): multi-safe overflow entry → resolve selection to content uris.
+                onShare = onShare,
+                // Save a copy (G2 · APP-549): multi-safe overflow entry → SAF folder pick then export.
+                onExport = onExport,
                 modifier = modifier.testTag("photos_screen"),
             ) {
                 // The nested-scroll connection sits on the ancestor of the grid so it sees each scroll

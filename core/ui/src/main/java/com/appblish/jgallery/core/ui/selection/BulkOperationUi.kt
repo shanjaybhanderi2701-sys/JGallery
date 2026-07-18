@@ -36,12 +36,14 @@ private fun BulkAction.presentVerb(): String = when (this) {
     BulkAction.COPY -> "Copying"
     BulkAction.MOVE -> "Moving"
     BulkAction.TRASH -> "Moving to Trash"
+    BulkAction.EXPORT -> "Saving a copy"
 }
 
 private fun BulkAction.pastVerb(): String = when (this) {
     BulkAction.COPY -> "copied"
     BulkAction.MOVE -> "moved"
     BulkAction.TRASH -> "moved to Trash"
+    BulkAction.EXPORT -> "saved"
 }
 
 /**

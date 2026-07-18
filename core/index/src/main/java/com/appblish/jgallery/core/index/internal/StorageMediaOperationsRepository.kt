@@ -39,6 +39,9 @@ internal class StorageMediaOperationsRepository @Inject constructor(
     override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> =
         storage.move(ids, destinationBucketId)
 
+    override fun exportCopy(ids: List<MediaId>, treeUri: Uri): Flow<FileOperationEvent> =
+        storage.exportCopy(ids, treeUri)
+
     override fun copyToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> =
         storage.copyToNewAlbum(ids, name)
 

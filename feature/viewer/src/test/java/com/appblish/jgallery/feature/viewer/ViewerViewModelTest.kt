@@ -294,6 +294,8 @@ class ViewerViewModelTest {
         }
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> =
             flowOf(FileOperationEvent.Completed(result))
+        override fun exportCopy(ids: List<MediaId>, treeUri: android.net.Uri): Flow<FileOperationEvent> =
+            flowOf(FileOperationEvent.Completed(result))
         override fun copyToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> {
             newAlbumCalls += ids to name
             return flowOf(FileOperationEvent.Completed(result))

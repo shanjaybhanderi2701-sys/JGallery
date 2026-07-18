@@ -22,11 +22,14 @@ import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.MediaSelectionController
+import com.appblish.jgallery.core.ui.share.MediaShareRequest
+import com.appblish.jgallery.core.ui.share.ShareIntents
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -168,9 +171,13 @@ class AlbumDetailViewModel @Inject constructor(
         trash = operations::moveToTrash,
         copyToNew = operations::copyToNewAlbum,
         moveToNew = operations::moveToNewAlbum,
+        export = operations::exportCopy,
     )
     val selection get() = selectionController.selection
     val bulk get() = selectionController.bulk
+
+    /** Export ("Save a copy") the current selection into the SAF folder [treeUri] (G2 · APP-549). */
+    fun exportSelected(treeUri: android.net.Uri) = selectionController.runExport(treeUri)
 
     val destinations: StateFlow<List<Album>> =
         repository.observeAlbums()
@@ -255,6 +262,35 @@ class AlbumDetailViewModel @Inject constructor(
         selectionController.runToNewAlbum(action, name)
     fun cancelBulk() = selectionController.cancel()
     fun dismissBulkResult() = selectionController.dismissResult()
+
+    // Share the current media selection to the system share sheet (G2 · APP-541) — identical to the
+    // Photos tab. Each id resolves to its §1.6-sanctioned MediaStore content uri (operations.viewUri,
+    // APP-297); a null (deleted underneath us) is skipped, and the narrowed MIME type comes from the
+    // selected items' own types. The screen owns the platform Intent + chooser launch.
+    private val shareRequests = Channel<MediaShareRequest>(Channel.BUFFERED)
+    val shareEvents: Flow<MediaShareRequest> = shareRequests.receiveAsFlow()
+
+    fun shareSelected() {
+        val ids = selectionController.selection.value.selected.toList()
+        if (ids.isEmpty()) return
+        viewModelScope.launch {
+            val byId = repository.observeMedia(baseQuery).first().associateBy { it.id }
+            val resolved = ids.mapNotNull { id ->
+                val uri = operations.viewUri(id) ?: return@mapNotNull null
+                uri to byId[id]?.mimeType
+            }
+            shareRequests.send(
+                if (resolved.isEmpty()) {
+                    MediaShareRequest.Empty
+                } else {
+                    MediaShareRequest.Ready(
+                        uris = resolved.map { it.first },
+                        mimeType = ShareIntents.commonMimeType(resolved.map { it.second }),
+                    )
+                },
+            )
+        }
+    }
 
     // --- Capture straight into album (spec C1-09 item 9, APP-424) ---------------------------------
 

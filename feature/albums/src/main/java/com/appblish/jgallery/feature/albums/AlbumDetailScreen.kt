@@ -89,6 +89,8 @@ import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.BulkOperationUiState
 import com.appblish.jgallery.core.ui.selection.SelectionCheckBadge
 import com.appblish.jgallery.core.ui.selection.SelectionScaffold
+import com.appblish.jgallery.core.ui.share.MediaShareRequest
+import com.appblish.jgallery.core.ui.share.ShareIntents
 import com.appblish.jgallery.core.ui.selection.mediaSelectionDetails
 import com.appblish.jgallery.core.ui.selection.SelectionState
 import com.appblish.jgallery.core.ui.selection.rememberTileSelectScale
@@ -151,6 +153,25 @@ fun AlbumDetailScreen(
         }
     }
 
+    // Share outcomes (G2 · APP-541): fire the system share sheet for the resolved content uris, or
+    // toast when nothing shareable remained. Identical to the Photos tab.
+    LaunchedEffect(viewModel) {
+        viewModel.shareEvents.collect { request ->
+            when (request) {
+                is MediaShareRequest.Ready -> context.launchShareSheet(request.uris, request.mimeType)
+                MediaShareRequest.Empty ->
+                    Toast.makeText(context, "Nothing left to share", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    // "Save a copy" folder pick (G2 · APP-549, Security gate APP-542 §5): the SAF tree picker returns a
+    // transient, user-scoped grant — stream into it immediately, never persist. Null = user backed out
+    // (no-op; selection preserved). Identical to the Photos tab.
+    val exportFolderPicker = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { treeUri -> if (treeUri != null) viewModel.exportSelected(treeUri) }
+
     AlbumDetailScreen(
         title = viewModel.title,
         sourceBucketId = viewModel.bucketId,
@@ -182,8 +203,21 @@ fun AlbumDetailScreen(
         onCancelBulk = viewModel::cancelBulk,
         onDismissResult = viewModel::dismissBulkResult,
         onOpenCamera = { viewModel.requestCapture(CaptureKind.PHOTO) },
+        onShare = viewModel::shareSelected,
+        onExport = { exportFolderPicker.launch(null) },
         modifier = modifier,
     )
+}
+
+/**
+ * Fire the system share sheet for [uris] (G2 · APP-541) — the shared launch path with the Photos tab.
+ * The uris are the §1.6-sanctioned MediaStore `content://` uris; [ShareIntents] grants each read-only
+ * + temporary via ClipData. Guarded by `runCatching` so a device with no share target no-ops.
+ */
+private fun android.content.Context.launchShareSheet(uris: List<android.net.Uri>, mimeType: String) {
+    if (uris.isEmpty()) return
+    val intent = ShareIntents.buildSendIntent(uris, mimeType)
+    runCatching { startActivity(android.content.Intent.createChooser(intent, "Share")) }
 }
 
 /** Stateless body — drivable without Hilt for instrumented tests. */
@@ -221,6 +255,8 @@ fun AlbumDetailScreen(
     onDismissResult: () -> Unit = {},
     onAddPhotos: () -> Unit = {},
     onOpenCamera: () -> Unit = {},
+    onShare: () -> Unit = {},
+    onExport: () -> Unit = {},
 ) {
     var showSortSheet by remember { mutableStateOf(false) }
     var showColumnSheet by remember { mutableStateOf(false) }
@@ -336,6 +372,10 @@ fun AlbumDetailScreen(
                 onCancel = onCancelBulk,
                 onDismissResult = onDismissResult,
                 details = details,
+                // Share (G2 · APP-541): multi-safe overflow entry, identical to the Photos tab.
+                onShare = onShare,
+                // Save a copy (G2 · APP-549): multi-safe overflow entry → SAF folder pick then export.
+                onExport = onExport,
                 modifier = modifier.testTag("album_detail_screen"),
             ) {
                 // Pull-to-refresh (design G1-D7 item 13): shared wrapper, identical to the other grids.

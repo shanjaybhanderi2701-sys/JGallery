@@ -60,7 +60,7 @@ class MediaStoreFileOperationsTest {
         context = ApplicationProvider.getApplicationContext()
         // This suite exercises copy/move/rename/delete only — the Recycle Bin is not touched here,
         // so a minimal in-memory metadata store satisfies the constructor without a DataStore.
-        storage = MediaStoreStorageAccess(context.contentResolver, Dispatchers.IO, InMemoryTrashStore())
+        storage = MediaStoreStorageAccess(context, context.contentResolver, Dispatchers.IO, InMemoryTrashStore())
     }
 
     @After
@@ -138,7 +138,7 @@ class MediaStoreFileOperationsTest {
     @SdkSuppress(minSdkVersion = Build.VERSION_CODES.R) // MATCH_PENDING query lane (via displayNameByName) is R+
     @Test
     fun abortAfterCancellationStillDeletesThePendingEntry() = runBlocking {
-        val ops = MediaStoreStorageOps(context.contentResolver, Dispatchers.IO)
+        val ops = MediaStoreStorageOps(context, context.contentResolver, Dispatchers.IO)
         val name = uniqueName("cancelabort")
         val ready = arrayOfNulls<Sink>(1)
 

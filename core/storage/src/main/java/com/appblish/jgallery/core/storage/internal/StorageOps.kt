@@ -46,6 +46,23 @@ internal interface StorageOps {
      */
     suspend fun createSink(destinationBucketId: String, name: String, mimeType: String): Sink
 
+    /**
+     * Display names already present directly under the SAF tree [treeUri] (opaque uri string). The
+     * engine diffs candidate names against this set to resolve collisions on export the same way it
+     * does for a bucket copy, so re-exporting into a folder that already holds "IMG.jpg" writes
+     * "IMG (1).jpg" instead of relying on the provider's own (inconsistent) auto-rename.
+     */
+    suspend fun namesInTree(treeUri: String): Set<String>
+
+    /**
+     * Create a new document named [name] (MIME [mimeType]) directly under the SAF tree [treeUri] and
+     * return a [Sink] over its `OutputStream` (G2 · APP-549). [treeUri] is the transient, user-scoped
+     * grant from `ACTION_OPEN_DOCUMENT_TREE`; this is the one write target that reaches outside the
+     * app without a filesystem path or `WRITE_EXTERNAL_STORAGE`. On failure or cancellation the engine
+     * calls [Sink.abort] to delete the partially written document so a half-copy is never left behind.
+     */
+    suspend fun createTreeSink(treeUri: String, name: String, mimeType: String): Sink
+
     /** Rename [id] in place to [newName]. Returns false if the item no longer exists. */
     suspend fun rename(id: MediaId, newName: String): Boolean
 

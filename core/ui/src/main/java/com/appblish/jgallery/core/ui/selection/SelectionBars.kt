@@ -40,7 +40,7 @@ import androidx.core.view.WindowCompat
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /** The bulk actions offered on the selection bar (spec §7.6). Drives E8's primitives. */
-enum class BulkAction { COPY, MOVE, TRASH }
+enum class BulkAction { COPY, MOVE, TRASH, EXPORT }
 
 /**
  * Selection app-bar (spec §7.6, design G1-D7 item 9): replaces the tab header while selection is

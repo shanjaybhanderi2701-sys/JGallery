@@ -34,6 +34,12 @@ import com.appblish.jgallery.core.model.MediaId
  * @param onRename single-only **Rename** action (design G1-D8 item 1); when non-null it is added to the
  *   bulk bar's shared ⋮ overflow, enabled only when exactly one item is selected. The host owns the
  *   rename dialog + operation (parity with the album selection bar's Rename).
+ * @param onShare multi-safe **Share** action (G2 · APP-541); when non-null a Share entry is added to the
+ *   bulk bar's shared ⋮ overflow (valid for any selection ≥ 1) and the host resolves the selection to
+ *   §1.6 content uris and fires the system share sheet.
+ * @param onExport multi-safe **Save a copy** action (G2 · APP-549); when non-null a "Save a copy" entry
+ *   is added to the shared ⋮ overflow (valid for any selection ≥ 1). The host launches the SAF folder
+ *   picker (`ACTION_OPEN_DOCUMENT_TREE`) and streams the selection into the granted tree.
  */
 @Composable
 fun SelectionScaffold(
@@ -54,6 +60,8 @@ fun SelectionScaffold(
     onBrowseFolders: () -> Unit = {},
     details: SelectionDetails? = null,
     onRename: (() -> Unit)? = null,
+    onShare: (() -> Unit)? = null,
+    onExport: (() -> Unit)? = null,
     grid: @Composable () -> Unit,
 ) {
     // Which action, if any, is waiting on a destination pick or a delete confirm.
@@ -68,6 +76,8 @@ fun SelectionScaffold(
         when (action) {
             BulkAction.COPY, BulkAction.MOVE -> pendingPick = action
             BulkAction.TRASH -> confirmDelete = true
+            // Export is launched from the ⋮ overflow ([onExport] → SAF picker), never the main bar.
+            BulkAction.EXPORT -> Unit
         }
     }
 
@@ -93,11 +103,21 @@ fun SelectionScaffold(
                     if (isLargeSelection(selection.count)) pendingLarge = action else routeAction(action)
                 },
                 onDetails = details?.let { { showDetails = true } },
-                // G1-D8 item 1: Rename is single-only, tucked behind the shared ⋮ overflow.
-                overflowActions = if (onRename != null) listOf(SelectionAction.RENAME) else emptyList(),
+                // Shared ⋮ overflow: multi-safe Share (G2 · APP-541) + Save a copy (G2 · APP-549) first,
+                // then single-only Rename (G1-D8 item 1, enabled only when exactly one item is selected).
+                overflowActions = buildList {
+                    if (onShare != null) add(SelectionAction.SHARE)
+                    if (onExport != null) add(SelectionAction.EXPORT)
+                    if (onRename != null) add(SelectionAction.RENAME)
+                },
                 selectionCount = selection.count,
                 onOverflowAction = { action ->
-                    if (action == SelectionAction.RENAME) onRename?.invoke()
+                    when (action) {
+                        SelectionAction.SHARE -> onShare?.invoke()
+                        SelectionAction.EXPORT -> onExport?.invoke()
+                        SelectionAction.RENAME -> onRename?.invoke()
+                        else -> Unit
+                    }
                 },
             )
         }

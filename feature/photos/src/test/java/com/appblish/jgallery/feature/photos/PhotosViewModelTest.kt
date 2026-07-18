@@ -13,6 +13,7 @@ import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.model.SortSpec
+import com.appblish.jgallery.core.ui.share.MediaShareRequest
 import kotlinx.coroutines.flow.emptyFlow
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.CompletableDeferred
@@ -186,6 +187,22 @@ class PhotosViewModelTest {
         assertThat(withTimeout(5_000) { vm.groupBy.first { it == GroupBy.NONE } }).isEqualTo(GroupBy.NONE)
     }
 
+    @Test
+    fun `shareSelected emits Empty when every selected item resolved to null`() = runTest(dispatcher) {
+        // viewUri returning null models the item being deleted underneath us (NoopOperations). With a
+        // non-empty selection but nothing resolvable, the VM must report Empty (never a Ready with no
+        // uris). The non-null "Ready" path resolves real content uris and is instrumented, matching the
+        // viewer's uri tests (JVM can't mint an android Uri).
+        val vm = viewModel()
+        vm.toggleSelection(MediaId("1"))
+        vm.toggleSelection(MediaId("2"))
+
+        vm.shareSelected()
+        val request = withTimeout(5_000) { vm.shareEvents.first() }
+
+        assertThat(request).isEqualTo(MediaShareRequest.Empty)
+    }
+
     private fun mediaItem(id: String) = MediaItem(
         id = MediaId(id),
         displayName = "$id.jpg",
@@ -221,6 +238,7 @@ class PhotosViewModelTest {
         override suspend fun viewUri(id: MediaId): android.net.Uri? = null
         override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
+        override fun exportCopy(ids: List<MediaId>, treeUri: android.net.Uri): Flow<FileOperationEvent> = emptyFlow()
         override fun copyToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> = emptyFlow()
         override fun moveToNewAlbum(ids: List<MediaId>, name: String): Flow<FileOperationEvent> = emptyFlow()
         override suspend fun beginCapture(

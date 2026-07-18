@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  androidTest-only manifest: registers the deterministic SAF DocumentsProvider that stands in for the
+  system folder picker in the export guard (APP-571). It ships only in the test APK, never in the app.
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <!--
+          A DocumentsProvider must be exported and guarded by MANAGE_DOCUMENTS (the platform enforces
+          this in DocumentsProvider.attachInfo). The test APK does not hold that signature permission,
+          but the provider runs in the test's own uid so in-process access is always permitted.
+        -->
+        <provider
+            android:name="com.appblish.jgallery.core.storage.internal.StubDocumentsProvider"
+            android:authorities="com.appblish.jgallery.core.storage.test.documents"
+            android:exported="true"
+            android:grantUriPermissions="true"
+            android:permission="android.permission.MANAGE_DOCUMENTS">
+            <intent-filter>
+                <action android:name="android.content.action.DOCUMENTS_PROVIDER" />
+            </intent-filter>
+        </provider>
+    </application>
+
+</manifest>

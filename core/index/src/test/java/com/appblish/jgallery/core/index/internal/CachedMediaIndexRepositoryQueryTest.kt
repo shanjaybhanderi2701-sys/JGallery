@@ -128,6 +128,7 @@ class CachedMediaIndexRepositoryQueryTest {
         override suspend fun viewUri(id: MediaId): android.net.Uri? = error("unused")
         override fun copy(ids: List<MediaId>, destinationBucketId: String) = error("unused")
         override fun move(ids: List<MediaId>, destinationBucketId: String) = error("unused")
+        override fun exportCopy(ids: List<MediaId>, treeUri: android.net.Uri) = error("unused")
         override fun copyToNewAlbum(ids: List<MediaId>, name: String) = error("unused")
         override fun moveToNewAlbum(ids: List<MediaId>, name: String) = error("unused")
         override suspend fun beginCapture(albumName: String, kind: com.appblish.jgallery.core.model.CaptureKind) = error("unused")

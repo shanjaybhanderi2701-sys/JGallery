@@ -23,6 +23,8 @@ import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material.icons.outlined.SaveAlt
+import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -59,6 +61,12 @@ enum class SelectionAction(
 ) {
     PIN("Pin", Icons.Outlined.PushPin, single = false, destructive = false, tag = "selection_action_pin"),
     COPY("Copy", Icons.Outlined.ContentCopy, single = false, destructive = false, tag = "selection_action_copy"),
+    // G2 · APP-541: multi-safe "Share" — hand the selection to the system share sheet. Lives in the ⋮
+    // overflow (minimal new UI); valid for any selection ≥ 1.
+    SHARE("Share", Icons.Outlined.Share, single = false, destructive = false, tag = "selection_action_share"),
+    // G2 · APP-549: multi-safe "Save a copy" — export the selection into a user-picked SAF folder. Lives
+    // in the ⋮ overflow next to Share; valid for any selection ≥ 1.
+    EXPORT("Save a copy", Icons.Outlined.SaveAlt, single = false, destructive = false, tag = "selection_action_export"),
     MOVE("Move", Icons.Outlined.DriveFileMove, single = false, destructive = false, tag = "selection_action_move"),
     DELETE("Delete", Icons.Outlined.DeleteOutline, single = false, destructive = true, tag = "selection_action_delete"),
     RENAME("Rename", Icons.Outlined.DriveFileRenameOutline, single = true, destructive = false, tag = "selection_action_rename"),
