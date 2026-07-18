@@ -33,6 +33,11 @@ import com.appblish.jgallery.feature.albums.openVideoMemberAlbum
 import com.appblish.jgallery.feature.albums.videoAlbumsScreen
 import com.appblish.jgallery.feature.photos.PhotosScreen
 import com.appblish.jgallery.feature.search.SEARCH_ROUTE
+import com.appblish.jgallery.feature.settings.ABOUT_ROUTE
+import com.appblish.jgallery.feature.settings.LICENSES_ROUTE
+import com.appblish.jgallery.feature.settings.SETTINGS_ROUTE
+import com.appblish.jgallery.feature.settings.navigateToSettings
+import com.appblish.jgallery.feature.settings.settingsScreen
 import com.appblish.jgallery.feature.search.navigateToSearch
 import com.appblish.jgallery.feature.search.searchScreen
 import com.appblish.jgallery.feature.trash.TRASH_ROUTE
@@ -75,6 +80,7 @@ fun JGalleryApp(
                 // Photos overflow parity (design G1-D7 §2): Recycle bin + Create album reachable here too.
                 onOpenTrash = { navController.navigateToTrash() },
                 onAlbumCreated = { name -> navController.navigateToNewAlbum(name) },
+                onOpenSettings = { navController.navigateToSettings() },
             )
             // Collections tab body = the Albums grid (spec C4). Album taps route by kind; Search is a
             // header action; the overflow's "Recycle Bin" re-homes the retired Collections utility.
@@ -86,6 +92,7 @@ fun JGalleryApp(
                 onOpenSearch = { navController.navigateToSearch() },
                 onOpenTrash = { navController.navigateToTrash() },
                 onOpenFavorites = { navController.navigateToFavorites() },
+                onOpenSettings = { navController.navigateToSettings() },
             )
         }
     }
@@ -100,7 +107,8 @@ fun JGalleryApp(
             if (currentRoute == VIEWER_ROUTE || currentRoute == TRASH_ROUTE ||
                 currentRoute == SEARCH_ROUTE || currentRoute == ALBUM_DETAIL_ROUTE ||
                 currentRoute == VIDEO_ALBUMS_ROUTE || currentRoute == NEW_ALBUM_ROUTE ||
-                currentRoute == ADD_TO_ALBUM_ROUTE
+                currentRoute == ADD_TO_ALBUM_ROUTE || currentRoute == SETTINGS_ROUTE ||
+                currentRoute == ABOUT_ROUTE || currentRoute == LICENSES_ROUTE
             ) return@Scaffold
             GalleryTabBar(
                 items = GalleryTab.entries.map { it.tabBarItem },
@@ -160,6 +168,8 @@ fun JGalleryApp(
             )
             // Recycle Bin (E9, spec §7.5). Opened from the Collections (Albums) header overflow.
             trashScreen(onBack = { navController.popBackStack() })
+            // Settings (G2, APP-545): full-screen route opened from the overflow menu on both tabs.
+            settingsScreen(navController = navController, onBack = { navController.popBackStack() })
         }
     }
 }

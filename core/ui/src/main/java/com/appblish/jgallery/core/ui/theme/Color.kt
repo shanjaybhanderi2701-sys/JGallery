@@ -35,6 +35,19 @@ object JGalleryColors {
     val UnsupportedFill = Color(0xFFEBEEF3)      // neutral tile — healthy file we don't render (W3-01)
     val CorruptFill = Color(0xFFF6EAEA)          // warm-red tile — damaged/undecodable file (W3-06)
 
+    // Dark theme tokens (G2 Settings §5, SET-05). The first real app-wide dark scheme (Wave 1 was
+    // light-only; the viewer had its own black chrome). Accent is lifted from #2D6FF7 → #5B8CFF so
+    // it clears AA 4.5:1 on the dark background; AccentSoft becomes a deep-blue pill container.
+    val DarkBackground = Color(0xFF121317)      // app background
+    val DarkSurface = Color(0xFF1C1E24)         // cards, sheets
+    val DarkOutline = Color(0xFF2A2D35)         // dividers, 1dp lines
+    val DarkText = Color(0xFFF3F4F7)            // primary text
+    val DarkTextSecondary = Color(0xFF9BA1AC)   // captions, muted body
+    val DarkAccent = Color(0xFF5B8CFF)          // selection, CTAs, pills — AA on dark
+    val DarkAccentSoft = Color(0xFF243156)      // pill container
+    val DarkWarn = Color(0xFFF0A23A)            // warn hue, lightened ~1 step for dark
+    val DarkDestructive = Color(0xFFE4635B)     // destructive hue, lightened ~1 step for dark
+
     // Viewer-only dark chrome.
     val ViewerCanvas = Color(0xFF000000)
     val ViewerSheet = Color(0xFF232428)

@@ -29,6 +29,7 @@ dependencies {
     implementation(project(":feature:search"))
     implementation(project(":feature:viewer"))
     implementation(project(":feature:trash"))
+    implementation(project(":feature:settings"))
 
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)

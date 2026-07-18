@@ -51,6 +51,7 @@ include(":feature:collections") // placeholder this phase (content = G4)
 include(":feature:search")      // placeholder this phase (content = G3)
 include(":feature:viewer")
 include(":feature:trash")       // Recycle Bin / Trash (W2-E9, spec §7.5)
+include(":feature:settings")    // G2 Settings screen (APP-545): theme / defaults / about
 
 // --- Static-analysis / enforcement ---
 include(":lint:storage-boundary") // custom lint rule that enforces the §1.6 boundary

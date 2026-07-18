@@ -22,6 +22,7 @@ import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.DateRange
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material3.MaterialTheme
@@ -121,6 +122,7 @@ fun PhotosScreen(
     onMediaClick: (MediaItem) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     onAlbumCreated: (name: String) -> Unit = {},
     viewModel: PhotosViewModel = hiltViewModel(),
 ) {
@@ -178,6 +180,7 @@ fun PhotosScreen(
         onMediaClick = onMediaClick,
         onOpenSearch = onOpenSearch,
         onOpenTrash = onOpenTrash,
+        onOpenSettings = onOpenSettings,
         onCreateAlbum = viewModel::createAlbum,
         favorites = favorites,
         onToggleFavorite = viewModel::toggleFavorite,
@@ -216,6 +219,7 @@ fun PhotosScreen(
     onMediaClick: (MediaItem) -> Unit = {},
     onOpenSearch: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     onCreateAlbum: (String) -> Unit = {},
     favorites: Set<MediaId> = emptySet(),
     onToggleFavorite: (MediaId) -> Unit = {},
@@ -284,6 +288,14 @@ fun PhotosScreen(
                     icon = Icons.Outlined.Delete,
                     testTag = "photos_menu_recycle_bin",
                     onClick = onOpenTrash,
+                    dividerBefore = true,
+                ),
+                // Settings entry (G2 · APP-545 §4): grouped apart at the foot of the menu.
+                GalleryMenuItem(
+                    label = "Settings",
+                    icon = Icons.Outlined.Settings,
+                    testTag = "photos_menu_settings",
+                    onClick = onOpenSettings,
                     dividerBefore = true,
                 ),
             ),

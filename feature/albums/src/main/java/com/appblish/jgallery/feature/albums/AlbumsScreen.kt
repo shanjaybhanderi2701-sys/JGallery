@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Sort
 import androidx.compose.material.icons.outlined.CreateNewFolder
 import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material.icons.outlined.PhotoLibrary
@@ -77,6 +78,7 @@ fun AlbumsScreen(
     onOpenSearch: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
     onOpenFavorites: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     viewModel: AlbumsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -144,6 +146,7 @@ fun AlbumsScreen(
         onOpenSearch = onOpenSearch,
         onOpenTrash = onOpenTrash,
         onOpenFavorites = onOpenFavorites,
+        onOpenSettings = onOpenSettings,
         albumSelection = albumSelection,
         onAlbumLongPress = { viewModel.beginAlbumSelection(it.bucketId) },
         onAlbumDragSelect = viewModel::dragOverAlbum,
@@ -188,6 +191,7 @@ fun AlbumsScreen(
     onOpenSearch: () -> Unit = {},
     onOpenTrash: () -> Unit = {},
     onOpenFavorites: () -> Unit = {},
+    onOpenSettings: () -> Unit = {},
     // Multi-select action bar (G1-11, APP-471): the selection top bar swaps for the tab header while
     // selecting; a bottom action bar carries the multi-safe ops (Pin/Copy/Move/Delete) and a ⋮ overflow
     // the single-only ops (Rename/Set-cover/Details), disabled when >1 is selected.
@@ -293,6 +297,14 @@ fun AlbumsScreen(
                         icon = Icons.Outlined.Delete,
                         testTag = "albums_menu_recycle_bin",
                         onClick = onOpenTrash,
+                        dividerBefore = true,
+                    ),
+                    // Settings entry (G2 · APP-545 §4): grouped apart at the foot of the menu.
+                    GalleryMenuItem(
+                        label = "Settings",
+                        icon = Icons.Outlined.Settings,
+                        testTag = "albums_menu_settings",
+                        onClick = onOpenSettings,
                         dividerBefore = true,
                     ),
                 ),
