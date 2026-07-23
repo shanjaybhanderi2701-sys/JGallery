@@ -1,6 +1,7 @@
 package com.appblish.jgallery.feature.photos
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -103,6 +104,40 @@ class PhotosGridTest {
         // Fling may take ~1s to settle; then AUTO_HIDE_MS=1500ms; then fade-out ~300ms. 5s covers all.
         composeRule.mainClock.advanceTimeBy(5000)
         composeRule.onNodeWithTag("fast_scroll_thumb").assertDoesNotExist()
+    }
+
+    /**
+     * APP-592 regression: the context bubble must LAY OUT and be visible during an active drag, and
+     * fade away after release. The old bug drew the pill inside the 48dp touch column while it applied
+     * `padding(end = 56dp)`, collapsing its content to zero width — [assertIsDisplayed] fails on a
+     * zero-size node, so this test fails on the pre-fix code and passes only once the pill lives in a
+     * full-width overlay. APP-496 only unit-tested the label string, never the render, so this is the
+     * layer that was missing.
+     */
+    @Test
+    fun fastScrollBubble_appearsDuringDrag_thenFadesOnRelease() {
+        setTenThousandItemGrid()
+        composeRule.mainClock.autoAdvance = false
+
+        // Grab the handle and hold mid-drag — do NOT release, so `dragging` stays true. topCenter →
+        // center is far past touch slop, so detectVerticalDragGestures reports an active vertical drag.
+        composeRule.onNodeWithTag("fast_scroll_track").performTouchInput {
+            down(topCenter)
+            moveTo(center)
+        }
+        composeRule.mainClock.advanceTimeBy(300) // past the bubble fade-in
+
+        // The pill is actually on screen with non-zero size (the exact thing the old bug broke)...
+        composeRule.onNodeWithTag("fast_scroll_bubble").assertIsDisplayed()
+        // ...and carries the sort-aware context label ("Month 2026 · item N of 10,000" for the default
+        // Last-Modified sort). All fixture dates are in 2026, so the year proves a real readout.
+        composeRule.onNodeWithTag("fast_scroll_bubble").assertTextContains("2026", substring = true)
+
+        // Release → `dragging` flips false → the bubble fades out (design §3), unlike the thumb which
+        // lingers AUTO_HIDE_MS. 1s covers the fade-out.
+        composeRule.onNodeWithTag("fast_scroll_track").performTouchInput { up() }
+        composeRule.mainClock.advanceTimeBy(1_000)
+        composeRule.onNodeWithTag("fast_scroll_bubble").assertDoesNotExist()
     }
 
     @Test
