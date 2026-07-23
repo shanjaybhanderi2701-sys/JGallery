@@ -521,12 +521,14 @@ internal class MediaStoreStorageAccess(
         MediaStore.Files.FileColumns._ID,
         MediaStore.Files.FileColumns.DATE_MODIFIED,
         MediaStore.Files.FileColumns.SIZE,
+        MediaStore.Files.FileColumns.DISPLAY_NAME, // detect a pure rename (APP-590)
     )
 
     private fun Cursor.readSignatures(limit: Int?): List<MediaSignature> {
         val idCol = getColumnIndexOrThrow(MediaStore.Files.FileColumns._ID)
         val dateModCol = getColumnIndexOrThrow(MediaStore.Files.FileColumns.DATE_MODIFIED)
         val sizeCol = getColumnIndexOrThrow(MediaStore.Files.FileColumns.SIZE)
+        val nameCol = getColumnIndexOrThrow(MediaStore.Files.FileColumns.DISPLAY_NAME)
 
         val out = ArrayList<MediaSignature>(if (limit != null) minOf(limit, count) else count)
         while (moveToNext()) {
@@ -535,6 +537,7 @@ internal class MediaStoreStorageAccess(
                 id = MediaId(getLong(idCol).toString()),
                 dateModifiedMillis = getLong(dateModCol) * 1000L, // MediaStore stores seconds
                 sizeBytes = getLong(sizeCol),
+                displayName = getString(nameCol).orEmpty(),
             )
         }
         return out

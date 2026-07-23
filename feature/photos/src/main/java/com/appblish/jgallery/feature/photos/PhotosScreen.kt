@@ -58,6 +58,7 @@ import coil3.request.Disposable
 import coil3.request.ImageRequest
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.FileNames
 import com.appblish.jgallery.core.model.GroupBy
 import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
@@ -441,6 +442,7 @@ fun PhotosScreen(
                     label = "Name",
                     confirmLabel = "Rename",
                     initialValue = singleSelected.displayName,
+                    validate = { FileNames.renameError(it, singleSelected.displayName) },
                     onConfirm = { name ->
                         onRenameSelected(singleSelected.id, name)
                         showRenameDialog = false
@@ -815,7 +817,7 @@ private fun MediaTile(
     Box(
         modifier = modifier
             .aspectRatio(1f)
-            .background(JGalleryColors.AccentSoft, shape)
+            .background(MaterialTheme.colorScheme.primaryContainer, shape)
             .clickable(onClick = onClick)
             // The clickable tile is the semantic element: it announces (and is addressable by) the
             // file name regardless of decode state. The inner preview drops its own description when

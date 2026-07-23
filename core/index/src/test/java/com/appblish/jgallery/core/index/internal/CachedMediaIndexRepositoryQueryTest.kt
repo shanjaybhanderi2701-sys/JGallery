@@ -102,7 +102,7 @@ class CachedMediaIndexRepositoryQueryTest {
         override fun observeMedia(): Flow<List<MediaItem>> = media
         override fun observeAlbums(): Flow<List<Album>> = MutableStateFlow(emptyList())
         override suspend fun persistedSignatures(): List<IndexSignature> =
-            rows.values.map { IndexSignature(it.id, it.dateModifiedMillis, it.sizeBytes) }
+            rows.values.map { IndexSignature(it.id, it.dateModifiedMillis, it.sizeBytes, it.displayName) }
         override suspend fun upsert(items: List<MediaItem>) {
             items.forEach { rows[it.id] = it }; media.value = rows.values.toList()
         }
@@ -118,7 +118,7 @@ class CachedMediaIndexRepositoryQueryTest {
         override suspend fun hasMediaAccess() = true
         override suspend fun queryMedia(query: MediaQuery): List<MediaItem> = device
         override suspend fun queryMediaSignatures(query: MediaQuery): List<MediaSignature> =
-            device.map { MediaSignature(it.id, it.dateModifiedMillis, it.sizeBytes) }
+            device.map { MediaSignature(it.id, it.dateModifiedMillis, it.sizeBytes, it.displayName) }
         override fun observeMediaChanges(): Flow<Unit> = emptyFlow()
         override suspend fun queryAlbums(): List<Album> = error("unused")
         override suspend fun openStream(id: MediaId, target: DecodeTarget): InputStream = error("unused")

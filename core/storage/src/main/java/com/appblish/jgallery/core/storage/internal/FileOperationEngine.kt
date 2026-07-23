@@ -1,5 +1,6 @@
 package com.appblish.jgallery.core.storage.internal
 
+import com.appblish.jgallery.core.model.FileNames
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.OperationProgress
@@ -82,19 +83,30 @@ internal class FileOperationEngine(
         runBulk(ids) { id, _ -> if (!ops.delete(id)) error("item no longer exists") }
     }.flowOn(io)
 
-    /** Rename a single item/album's real file/folder via the storage layer (spec §7.3). */
+    /**
+     * Rename a single item's real file via the storage layer (spec §7.3).
+     *
+     * The new name is normalized through the shared [FileNames] policy: illegal/blank names are
+     * rejected with the same message the UI shows inline, and the **original extension is always
+     * preserved** so a `DISPLAY_NAME` write can't strip or change the file's type. A no-op (same name)
+     * short-circuits to success. A storage-layer refusal (e.g. a colliding name in the same folder)
+     * surfaces as a clear, non-corrupting failure rather than a raw provider exception.
+     */
     suspend fun rename(id: MediaId, newDisplayName: String): OperationResult = withContext(io) {
-        if (newDisplayName.isBlank()) return@withContext failure(id, "name must not be blank")
         val current = ops.displayName(id) ?: return@withContext failure(id, "item no longer exists")
-        if (newDisplayName == current) return@withContext OperationResult(succeeded = 1, failed = 0)
+        val newName = when (val v = FileNames.normalizeRename(newDisplayName, current)) {
+            is FileNames.Result.Invalid -> return@withContext failure(id, v.reason)
+            is FileNames.Result.Valid -> v.name
+        }
+        if (newName == current) return@withContext OperationResult(succeeded = 1, failed = 0)
         val ok = try {
-            ops.rename(id, newDisplayName)
+            ops.rename(id, newName)
         } catch (c: CancellationException) {
             throw c
         } catch (t: Throwable) {
             return@withContext failure(id, t.message ?: t.javaClass.simpleName)
         }
-        if (ok) OperationResult(succeeded = 1, failed = 0) else failure(id, "rename failed")
+        if (ok) OperationResult(succeeded = 1, failed = 0) else failure(id, "That name may already be in use")
     }
 
     /**

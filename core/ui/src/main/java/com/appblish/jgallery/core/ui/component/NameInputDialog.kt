@@ -19,9 +19,13 @@ import androidx.compose.ui.text.input.TextFieldValue
 
 /**
  * A single-field "name" dialog (spec §3/§6 "Create album", reused for §7.3 Rename): title, a text
- * field, Cancel / confirm. The confirm action is disabled until the trimmed name is non-blank, so the
- * caller never has to defend against empty input. The dialog owns only its own text; the caller
- * decides what a valid name means downstream (the storage layer rejects illegal characters).
+ * field, Cancel / confirm.
+ *
+ * The caller supplies [validate] — the SAME pure name policy the storage layer enforces
+ * (`FileNames`) — so the dialog surfaces a clear inline error *before* confirm and blocks the write
+ * (APP-590). It returns the error message for the current input, or null when the name is acceptable;
+ * confirm is disabled whenever there is an error. The default validator keeps the original blank-only
+ * behaviour for callers that don't pass one (e.g. simple create flows).
  */
 @Composable
 fun NameInputDialog(
@@ -31,6 +35,7 @@ fun NameInputDialog(
     onDismiss: () -> Unit,
     initialValue: String = "",
     label: String = "Name",
+    validate: (String) -> String? = { if (it.trim().isEmpty()) "Name can't be empty" else null },
 ) {
     // Seed the field with the caller's value AND park the cursor at its end, so a pre-filled Rename
     // lets you keep typing where the name leaves off instead of prepending at index 0 (spec §7.3).
@@ -38,7 +43,11 @@ fun NameInputDialog(
         mutableStateOf(TextFieldValue(initialValue, selection = TextRange(initialValue.length)))
     }
     val trimmed = value.text.trim()
-    val canConfirm = trimmed.isNotEmpty()
+    val error = validate(value.text)
+    // Don't shout an error at the pristine, unedited pre-filled name; only surface it once the user
+    // has actually diverged from what they opened the dialog on (or on an empty field).
+    val showError = error != null && value.text != initialValue
+    val canConfirm = trimmed.isNotEmpty() && error == null
 
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -50,7 +59,13 @@ fun NameInputDialog(
                     value = value,
                     onValueChange = { value = it },
                     singleLine = true,
+                    isError = showError,
                     label = { Text(label) },
+                    supportingText = if (showError) {
+                        { Text(error!!, modifier = Modifier.testTag("name_input_error")) }
+                    } else {
+                        null
+                    },
                     keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
                         imeAction = ImeAction.Done,
                     ),

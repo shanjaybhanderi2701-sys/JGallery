@@ -18,7 +18,7 @@ internal interface MediaDao {
     fun observeAll(): Flow<List<MediaEntity>>
 
     /** Minimal-projection scan for change detection — no full-column read for unchanged rows. */
-    @Query("SELECT id, dateModifiedMillis, sizeBytes FROM media")
+    @Query("SELECT id, dateModifiedMillis, sizeBytes, displayName FROM media")
     suspend fun signatures(): List<SignatureRow>
 
     @Query("SELECT COUNT(*) FROM media")

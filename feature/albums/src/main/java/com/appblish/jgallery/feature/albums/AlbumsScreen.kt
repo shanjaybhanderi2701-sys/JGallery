@@ -33,6 +33,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.AlbumKind
 import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.FileNames
 import com.appblish.jgallery.core.model.MediaFilter
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
@@ -408,6 +409,7 @@ fun AlbumsScreen(
             label = "Album name",
             confirmLabel = "Rename",
             initialValue = singleSelected.name,
+            validate = { FileNames.albumNameError(it) },
             onConfirm = { name -> onRenameAlbum(singleSelected, name); showRename = false; onClearAlbumSelection() },
             onDismiss = { showRename = false },
         )

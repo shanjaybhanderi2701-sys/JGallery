@@ -6,8 +6,8 @@ import org.junit.Test
 
 class MediaDeltaTest {
 
-    private fun sig(id: String, modified: Long = 1L, size: Long = 10L) =
-        IndexSignature(MediaId(id), dateModifiedMillis = modified, sizeBytes = size)
+    private fun sig(id: String, modified: Long = 1L, size: Long = 10L, name: String = "photo.jpg") =
+        IndexSignature(MediaId(id), dateModifiedMillis = modified, sizeBytes = size, displayName = name)
 
     @Test
     fun `first sync treats every current row as changed`() {
@@ -34,6 +34,20 @@ class MediaDeltaTest {
         val delta = computeIndexDelta(persisted, current)
 
         assertThat(delta.changedIds).containsExactly(MediaId("1"), MediaId("2"))
+        assertThat(delta.deletedIds).isEmpty()
+    }
+
+    @Test
+    fun `a pure rename (same date and size, new name) marks the row changed`() {
+        // APP-590 regression: a MediaStore DISPLAY_NAME write bumps neither DATE_MODIFIED nor SIZE, so
+        // without the name in the fingerprint the incremental sync would drop the rename entirely and
+        // the cache would keep the stale name forever.
+        val persisted = listOf(sig("1", modified = 7L, size = 42L, name = "IMG_0001.jpg"))
+        val current = listOf(sig("1", modified = 7L, size = 42L, name = "Sunset.jpg"))
+
+        val delta = computeIndexDelta(persisted, current)
+
+        assertThat(delta.changedIds).containsExactly(MediaId("1"))
         assertThat(delta.deletedIds).isEmpty()
     }
 

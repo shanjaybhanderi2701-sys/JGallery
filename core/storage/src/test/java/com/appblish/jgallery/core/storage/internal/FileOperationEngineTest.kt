@@ -224,6 +224,23 @@ class FileOperationEngineTest {
         assertThat(engine.rename(MediaId("missing"), "x.jpg").failed).isEqualTo(1)
     }
 
+    @Test
+    fun `rename preserves the original extension and rejects an illegal name`() = runTest {
+        val ops = FakeStorageOps().apply {
+            put("1", "IMG_0001.jpg", "image/jpeg", bytesOf(1, size = 2), bucket = "src")
+        }
+        val engine = FileOperationEngine(ops, StandardTestDispatcher(testScheduler))
+
+        // A base-only rename keeps ".jpg" — a DISPLAY_NAME write can't strip the file's type (APP-590).
+        assertThat(engine.rename(MediaId("1"), "Sunset"))
+            .isEqualTo(OperationResult(succeeded = 1, failed = 0))
+        assertThat(ops.namesInBucket("src")).containsExactly("Sunset.jpg")
+
+        // An illegal character is rejected without touching the (already-renamed) row.
+        assertThat(engine.rename(MediaId("1"), "a/b").failed).isEqualTo(1)
+        assertThat(ops.namesInBucket("src")).containsExactly("Sunset.jpg")
+    }
+
     // --- rename album (entity) ---
 
     @Test

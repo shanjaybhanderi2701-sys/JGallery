@@ -70,6 +70,7 @@ import androidx.core.view.WindowInsetsControllerCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.FileNames
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
@@ -350,7 +351,13 @@ private fun ViewerPager(
         }
 
         infoItem?.let { item ->
-            MediaInfoDialog(item = item, onDismiss = { infoItem = null })
+            MediaInfoDialog(
+                item = item,
+                onDismiss = { infoItem = null },
+                // Rename from "details" (APP-590): close the sheet and open the shared rename dialog,
+                // which reads the same current item so the pre-filled name always matches the Name row.
+                onRename = { infoItem = null; renaming = true },
+            )
         }
 
         picker?.let { mode ->
@@ -398,6 +405,7 @@ private fun ViewerPager(
                     title = "Rename",
                     confirmLabel = "Rename",
                     initialValue = item.displayName,
+                    validate = { FileNames.renameError(it, item.displayName) },
                     onConfirm = { name ->
                         renaming = false
                         handlers.onRename(item.id, name)

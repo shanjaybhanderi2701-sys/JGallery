@@ -32,9 +32,13 @@ private const val UNKNOWN = "—"
  * Read-only Info / Details dialog (spec §5.1): Name, Format, Path, Size, Resolution, Last Modified.
  * Everything shown comes straight off the cached [MediaItem] — no boundary call, no path leaks into
  * feature code beyond the human-readable folder name the index already carries (§1.6).
+ *
+ * When [onRename] is supplied the sheet also hosts a Rename action (APP-590: rename must be reachable
+ * from every single-item surface, "details" included). The Name row and the rename entry stay in
+ * lock-step with every other surface because both read the same cached [MediaItem.displayName].
  */
 @Composable
-internal fun MediaInfoDialog(item: MediaItem, onDismiss: () -> Unit) {
+internal fun MediaInfoDialog(item: MediaItem, onDismiss: () -> Unit, onRename: (() -> Unit)? = null) {
     val rows = mediaInfoRows(item)
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -68,6 +72,13 @@ internal fun MediaInfoDialog(item: MediaItem, onDismiss: () -> Unit) {
         confirmButton = {
             TextButton(onClick = onDismiss, modifier = Modifier.testTag("viewer_info_close")) {
                 Text("Close", color = Color.White)
+            }
+        },
+        dismissButton = onRename?.let {
+            {
+                TextButton(onClick = it, modifier = Modifier.testTag("viewer_info_rename")) {
+                    Text("Rename", color = Color.White)
+                }
             }
         },
     )

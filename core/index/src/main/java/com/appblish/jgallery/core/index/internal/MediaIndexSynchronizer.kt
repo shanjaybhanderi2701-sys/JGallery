@@ -52,4 +52,9 @@ internal class MediaIndexSynchronizer @Inject constructor(
 
 /** Bridge the storage boundary's signature type to the index's pure fingerprint. */
 private fun com.appblish.jgallery.core.storage.MediaSignature.toIndexSignature(): IndexSignature =
-    IndexSignature(id = id, dateModifiedMillis = dateModifiedMillis, sizeBytes = sizeBytes)
+    IndexSignature(
+        id = id,
+        dateModifiedMillis = dateModifiedMillis,
+        sizeBytes = sizeBytes,
+        displayName = displayName,
+    )

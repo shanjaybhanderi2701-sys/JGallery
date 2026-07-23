@@ -112,7 +112,7 @@ private class FakeStorageAccess(val device: MutableList<MediaItem>) : StorageAcc
     }
 
     override suspend fun queryMediaSignatures(query: MediaQuery): List<MediaSignature> =
-        device.map { MediaSignature(it.id, it.dateModifiedMillis, it.sizeBytes) }
+        device.map { MediaSignature(it.id, it.dateModifiedMillis, it.sizeBytes, it.displayName) }
 
     override fun observeMediaChanges(): Flow<Unit> = emptyFlow()
 
@@ -149,7 +149,7 @@ private class FakeStore : MediaIndexStore {
     override fun observeAlbums(): Flow<List<Album>> = MutableStateFlow(emptyList())
 
     override suspend fun persistedSignatures(): List<IndexSignature> =
-        rows.values.map { IndexSignature(it.id, it.dateModifiedMillis, it.sizeBytes) }
+        rows.values.map { IndexSignature(it.id, it.dateModifiedMillis, it.sizeBytes, it.displayName) }
 
     override suspend fun upsert(items: List<MediaItem>) {
         items.forEach { rows[it.id] = it }
