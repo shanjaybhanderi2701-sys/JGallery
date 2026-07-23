@@ -13,7 +13,6 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -42,7 +41,7 @@ fun SelectionDetailsDialog(details: SelectionDetails, onDismiss: () -> Unit) {
                     Text(
                         text = "$label: $value",
                         style = MaterialTheme.typography.bodyMedium,
-                        color = JGalleryColors.Text,
+                        color = MaterialTheme.colorScheme.onSurface,
                         modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                     )
                 }

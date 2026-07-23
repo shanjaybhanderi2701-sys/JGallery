@@ -62,13 +62,13 @@ fun ReRequestSheet(
             Text(
                 text = PermissionRecoveryCopy.SHEET_TITLE,
                 style = MaterialTheme.typography.titleLarge,
-                color = JGalleryColors.Text,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.SemiBold,
                 textAlign = TextAlign.Center,
             )
             Text(
                 text = PermissionRecoveryCopy.SHEET_REASON,
-                color = JGalleryColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.padding(top = 8.dp),
             )
@@ -79,13 +79,13 @@ fun ReRequestSheet(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(top = 20.dp)
-                    .background(JGalleryColors.Surface, RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
                     .padding(horizontal = 16.dp, vertical = 14.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 Text(
                     text = OnboardingCopy.PRIMER_TOGGLE_LABEL,
-                    color = JGalleryColors.Text,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f),
                 )
                 Switch(
@@ -112,7 +112,7 @@ fun ReRequestSheet(
                     )
                     Text(
                         text = TrustCopy.BODY,
-                        color = JGalleryColors.TextSecondary,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                         textAlign = TextAlign.Center,
                     )
                 }
@@ -121,7 +121,7 @@ fun ReRequestSheet(
             if (permanentlyDenied) {
                 Text(
                     text = PermissionRecoveryCopy.PERMANENTLY_DENIED_HINT,
-                    color = JGalleryColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
                     modifier = Modifier.padding(top = 16.dp),
                 )
@@ -130,8 +130,8 @@ fun ReRequestSheet(
             Button(
                 onClick = onOpenSettings,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = JGalleryColors.Accent,
-                    contentColor = JGalleryColors.OnAccent,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -144,7 +144,7 @@ fun ReRequestSheet(
                 onClick = onDismiss,
                 modifier = Modifier.padding(top = 4.dp).testTag("re_request_not_now"),
             ) {
-                Text(PermissionRecoveryCopy.SHEET_NOT_NOW, color = JGalleryColors.TextSecondary)
+                Text(PermissionRecoveryCopy.SHEET_NOT_NOW, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
         }
     }

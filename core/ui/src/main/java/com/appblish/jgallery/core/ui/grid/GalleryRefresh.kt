@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
@@ -12,7 +13,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * Shared pull-to-refresh wrapper (design G1-D7 item 13). One home in `:core:ui` so every grid/list —
@@ -42,7 +42,7 @@ fun GalleryPullToRefresh(
             PullToRefreshDefaults.Indicator(
                 state = state,
                 isRefreshing = isRefreshing,
-                color = JGalleryColors.Accent,
+                color = MaterialTheme.colorScheme.primary,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     // Grids draw under the status bar (edge-to-edge, design §Inset); nudge the spinner

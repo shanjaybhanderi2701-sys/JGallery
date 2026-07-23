@@ -127,7 +127,7 @@ fun MoveDestinationSheet(
                 text = "$actionWord $itemCount $itemNoun to…",
                 style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold,
-                color = JGalleryColors.Text,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.padding(bottom = 12.dp).testTag("move_sheet_title"),
             )
 
@@ -202,7 +202,7 @@ private fun NewAlbumTile(onClick: () -> Unit) {
         Text(
             text = "Create & move here",
             style = MaterialTheme.typography.bodySmall,
-            color = JGalleryColors.TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
@@ -225,7 +225,7 @@ private fun DestinationTile(album: Album, cover: Any?, selected: Boolean, onClic
                 .background(JGalleryColors.TilePlaceholder)
                 .then(
                     if (selected) {
-                        Modifier.border(3.dp, JGalleryColors.Accent, RoundedCornerShape(16.dp))
+                        Modifier.border(3.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(16.dp))
                     } else {
                         Modifier
                     },
@@ -246,14 +246,14 @@ private fun DestinationTile(album: Album, cover: Any?, selected: Boolean, onClic
                         .padding(6.dp)
                         .size(24.dp)
                         .clip(CircleShape)
-                        .background(JGalleryColors.Accent)
+                        .background(MaterialTheme.colorScheme.primary)
                         .testTag("move_dest_check_${album.bucketId}"),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         Icons.Filled.Check,
                         contentDescription = "Selected",
-                        tint = JGalleryColors.OnAccent,
+                        tint = MaterialTheme.colorScheme.onPrimary,
                         modifier = Modifier.size(16.dp),
                     )
                 }
@@ -263,7 +263,7 @@ private fun DestinationTile(album: Album, cover: Any?, selected: Boolean, onClic
             text = album.name,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
-            color = JGalleryColors.Text,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 6.dp),
@@ -271,7 +271,7 @@ private fun DestinationTile(album: Album, cover: Any?, selected: Boolean, onClic
         Text(
             text = "${album.itemCount}",
             style = MaterialTheme.typography.bodySmall,
-            color = JGalleryColors.TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -303,12 +303,12 @@ private fun CreateNewAlbumStep(
                     text = "Create new album",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.SemiBold,
-                    color = JGalleryColors.Text,
+                    color = MaterialTheme.colorScheme.onSurface,
                 )
                 Text(
                     text = subtitle,
                     style = MaterialTheme.typography.bodySmall,
-                    color = JGalleryColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }

@@ -12,6 +12,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material3.ExtendedFloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -27,7 +28,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.lazy.grid.LazyGridState
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -110,8 +110,8 @@ fun ScrollToTopFab(
                     )
                 },
                 text = { Text("Top") },
-                containerColor = JGalleryColors.Background,
-                contentColor = JGalleryColors.Accent,
+                containerColor = MaterialTheme.colorScheme.surface,
+                contentColor = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.testTag("scroll_to_top_fab"),
             )
         }

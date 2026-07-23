@@ -32,6 +32,7 @@ import androidx.compose.material.icons.outlined.GridView
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -269,11 +270,11 @@ fun AlbumDetailScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack, modifier = Modifier.testTag("album_detail_back")) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = JGalleryColors.Text)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
             }
             Text(
                 text = title,
-                color = JGalleryColors.Text,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -452,19 +453,19 @@ private fun FavoritesEmptyState() {
         Icon(
             imageVector = Icons.Outlined.FavoriteBorder,
             contentDescription = null,
-            tint = JGalleryColors.TextSecondary,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(48.dp),
         )
         Text(
             text = "No favorites yet",
-            color = JGalleryColors.Text,
+            color = MaterialTheme.colorScheme.onSurface,
             fontSize = 18.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.padding(top = 16.dp),
         )
         Text(
             text = "Tap the heart on any photo or video to add it here.",
-            color = JGalleryColors.TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             fontSize = 14.sp,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 6.dp),
@@ -485,7 +486,7 @@ private fun ScopeSection(
 ) {
     Text(
         text = "APPLY TO",
-        color = JGalleryColors.TextSecondary,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontSize = 11.sp,
         fontWeight = FontWeight.SemiBold,
         modifier = Modifier.padding(start = 16.dp, top = 10.dp, bottom = 4.dp),
@@ -512,12 +513,12 @@ private fun ScopeRow(
     testTag: String,
 ) {
     DropdownMenuItem(
-        text = { Text(label, color = if (selected) JGalleryColors.Accent else JGalleryColors.Text) },
+        text = { Text(label, color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface) },
         trailingIcon = {
             Icon(
                 Icons.Outlined.Check,
                 contentDescription = if (selected) "Selected" else null,
-                tint = if (selected) JGalleryColors.Accent else Color.Transparent,
+                tint = if (selected) MaterialTheme.colorScheme.primary else Color.Transparent,
             )
         },
         onClick = onClick,
@@ -604,7 +605,7 @@ private fun AlbumDetailGrid(
                         Box(
                             modifier = reflow
                                 .aspectRatio(1f)
-                                .background(JGalleryColors.AccentSoft, tileShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer, tileShape)
                                 .clickable {
                                     if (selection.isActive) onToggle(item.id) else onMediaClick(item)
                                 },

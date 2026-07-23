@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -69,7 +70,7 @@ fun SelectionTopBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(JGalleryColors.Accent)
+            .background(MaterialTheme.colorScheme.primary)
             .windowInsetsPadding(WindowInsets.statusBars)
             .height(56.dp)
             .padding(horizontal = 4.dp)
@@ -77,18 +78,18 @@ fun SelectionTopBar(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         IconButton(onClick = onClose, modifier = Modifier.testTag("selection_close")) {
-            Icon(Icons.Outlined.Close, contentDescription = "Exit selection", tint = JGalleryColors.OnAccent)
+            Icon(Icons.Outlined.Close, contentDescription = "Exit selection", tint = MaterialTheme.colorScheme.onPrimary)
         }
         Text(
             text = "$count selected",
-            color = JGalleryColors.OnAccent,
+            color = MaterialTheme.colorScheme.onPrimary,
             fontSize = 18.sp,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f).padding(start = 4.dp).testTag("selection_count"),
         )
         Text(
             text = if (allSelected) "Deselect all" else "Select all",
-            color = JGalleryColors.OnAccent,
+            color = MaterialTheme.colorScheme.onPrimary,
             fontWeight = FontWeight.SemiBold,
             modifier = Modifier
                 .selectable(
@@ -119,7 +120,7 @@ fun SelectionTopBar(
 private fun SelectionStatusBarChrome() {
     val view = LocalView.current
     if (view.isInEditMode) return
-    val accent = JGalleryColors.Accent.toArgb()
+    val accent = MaterialTheme.colorScheme.primary.toArgb()
     DisposableEffect(accent) {
         val window = (view.context as? Activity)?.window
         val controller = window?.let { WindowCompat.getInsetsController(it, view) }
@@ -171,7 +172,7 @@ fun BulkActionBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(JGalleryColors.Background)
+            .background(MaterialTheme.colorScheme.surface)
             .windowInsetsPadding(WindowInsets.navigationBars)
             .height(72.dp)
             .padding(horizontal = 8.dp)
@@ -205,7 +206,7 @@ private fun RowScope.BulkActionButton(
     tag: String,
     onClick: () -> Unit,
 ) {
-    val tint = if (enabled) JGalleryColors.Text else JGalleryColors.TextSecondary
+    val tint = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         modifier = Modifier
             .weight(1f)

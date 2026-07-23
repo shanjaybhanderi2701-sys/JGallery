@@ -815,7 +815,7 @@ private fun MediaTile(
     Box(
         modifier = modifier
             .aspectRatio(1f)
-            .background(JGalleryColors.AccentSoft, shape)
+            .background(MaterialTheme.colorScheme.primaryContainer, shape)
             .clickable(onClick = onClick)
             // The clickable tile is the semantic element: it announces (and is addressable by) the
             // file name regardless of decode state. The inner preview drops its own description when

@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.background
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -76,7 +77,7 @@ fun GalleryTabBar(
 ) {
     Surface(
         modifier = modifier.testTag("gallery_tab_bar"),
-        color = JGalleryColors.Background,
+        color = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
     ) {
         Row(
@@ -108,7 +109,7 @@ private fun GalleryTabBarButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val contentColor = if (selected) JGalleryColors.Accent else JGalleryColors.TextSecondary
+    val contentColor = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant
     // No ripple/pill highlight — OnePlus model marks the active tab with the accent dot alone.
     val interactionSource = remember { MutableInteractionSource() }
     Column(
@@ -145,7 +146,7 @@ private fun GalleryTabBarButton(
             modifier = Modifier
                 .size(JGalleryDimens.TabBarActiveDotSize)
                 .clip(CircleShape)
-                .background(if (selected) JGalleryColors.Accent else Color.Transparent)
+                .background(if (selected) MaterialTheme.colorScheme.primary else Color.Transparent)
                 .testTag(if (selected) "tab_active_dot" else "tab_inactive_dot"),
         )
     }

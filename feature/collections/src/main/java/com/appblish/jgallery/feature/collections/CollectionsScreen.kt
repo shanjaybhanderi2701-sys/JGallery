@@ -37,7 +37,6 @@ import com.appblish.jgallery.core.ui.component.PlaceholderScreenScaffold
 import com.appblish.jgallery.core.ui.component.PreviewChip
 import com.appblish.jgallery.core.ui.component.PreviewSectionHeader
 import com.appblish.jgallery.core.ui.component.PreviewTile
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * Collections tab — an **intentional preview** of the Phase G4 layout (spec §0, §12; design §4).
@@ -124,7 +123,7 @@ private fun RecoverChip(onClick: () -> Unit) {
     Row(
         modifier = Modifier
             .clip(RoundedCornerShape(percent = 50))
-            .background(JGalleryColors.AccentSoft)
+            .background(MaterialTheme.colorScheme.primaryContainer)
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 10.dp)
             .testTag("collections_recover"),
@@ -134,13 +133,13 @@ private fun RecoverChip(onClick: () -> Unit) {
         Icon(
             imageVector = Icons.Outlined.RestoreFromTrash,
             contentDescription = null,
-            tint = JGalleryColors.Accent,
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(16.dp),
         )
         Text(
             text = "Recover",
             style = MaterialTheme.typography.bodySmall,
-            color = JGalleryColors.Accent,
+            color = MaterialTheme.colorScheme.primary,
         )
     }
 }

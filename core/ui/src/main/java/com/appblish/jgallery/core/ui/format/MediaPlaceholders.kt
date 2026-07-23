@@ -53,7 +53,7 @@ fun MediaDecodeTilePlaceholder(state: MediaDecodeState, modifier: Modifier = Mod
         is MediaDecodeState.Unsupported -> DegradedTile(
             fill = JGalleryColors.UnsupportedFill,
             icon = Icons.Outlined.InsertDriveFile,
-            tint = JGalleryColors.TextSecondary,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             extension = state.extension,
             testTag = MediaPlaceholderTags.UNSUPPORTED_TILE,
             modifier = modifier,
@@ -133,7 +133,7 @@ fun ViewerUnsupportedCard(
     modifier: Modifier = Modifier,
 ) {
     val corrupt = state is MediaDecodeState.Corrupt
-    val accent = if (corrupt) JGalleryColors.Danger else JGalleryColors.TextSecondary
+    val accent = if (corrupt) JGalleryColors.Danger else MaterialTheme.colorScheme.onSurfaceVariant
     val icon = if (corrupt) Icons.Outlined.BrokenImage else Icons.Outlined.InsertDriveFile
     val headline = if (corrupt) "This file appears to be damaged" else "Can't preview this file"
     val reassurance = if (corrupt) {
@@ -191,7 +191,7 @@ fun ViewerUnsupportedCard(
                 primaryLabel = primaryLabel,
                 onPrimary = onPrimary,
                 onInfo = onInfo,
-                primaryTint = if (corrupt) JGalleryColors.Danger else JGalleryColors.Accent,
+                primaryTint = if (corrupt) JGalleryColors.Danger else MaterialTheme.colorScheme.primary,
             )
         }
     }

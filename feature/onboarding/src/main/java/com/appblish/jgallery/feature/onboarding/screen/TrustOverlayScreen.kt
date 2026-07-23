@@ -17,6 +17,7 @@ import androidx.compose.material.icons.rounded.ArrowDownward
 import androidx.compose.material.icons.rounded.VerifiedUser
 import androidx.compose.foundation.layout.Box
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,7 +43,7 @@ import com.appblish.jgallery.feature.onboarding.TrustCopy
  */
 @Composable
 fun TrustOverlayScreen(modifier: Modifier = Modifier) {
-    Surface(modifier = modifier.fillMaxSize(), color = JGalleryColors.Background) {
+    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         // Background is edge-to-edge; content sits in the safe area so the heading clears the status
         // bar and the down-pointer/caption clear the nav bar (design §Inset, item 10).
         Column(
@@ -66,13 +67,13 @@ fun TrustOverlayScreen(modifier: Modifier = Modifier) {
             Icon(
                 imageVector = Icons.Rounded.ArrowDownward,
                 contentDescription = null,
-                tint = JGalleryColors.Accent,
+                tint = MaterialTheme.colorScheme.primary,
                 modifier = Modifier.size(28.dp),
             )
             Spacer(Modifier.height(8.dp))
             Text(
                 text = TrustCopy.POINTER,
-                color = JGalleryColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 15.sp,
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth(),
@@ -101,7 +102,7 @@ private fun TrustClaim() {
     Spacer(Modifier.height(20.dp))
     Text(
         text = TrustCopy.TITLE,
-        color = JGalleryColors.Text,
+        color = MaterialTheme.colorScheme.onSurface,
         fontSize = 22.sp,
         fontWeight = FontWeight.W800,
         textAlign = TextAlign.Center,
@@ -109,7 +110,7 @@ private fun TrustClaim() {
     Spacer(Modifier.height(8.dp))
     Text(
         text = TrustCopy.BODY,
-        color = JGalleryColors.TextSecondary,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
         fontSize = 15.sp,
         textAlign = TextAlign.Center,
     )
@@ -123,7 +124,7 @@ private fun TrustClaim() {
 private fun ClaimFreePointer() {
     Text(
         text = "Enable access for JGallery",
-        color = JGalleryColors.Text,
+        color = MaterialTheme.colorScheme.onSurface,
         fontSize = 22.sp,
         fontWeight = FontWeight.W800,
         textAlign = TextAlign.Center,
