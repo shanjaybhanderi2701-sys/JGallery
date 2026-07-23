@@ -58,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -190,22 +191,38 @@ internal fun ViewerScreen(
  * and re-shows the nav bar in one step, no flicker. The redlines (callouts #1/#4) keep the status bar
  * visible with light icons — only the nav bar is hidden — so every other screen keeps the light bar.
  * Edge-to-edge itself is already on from `enableEdgeToEdge()` in the Activity.
+ *
+ * APP-593: the effect also paints the real status-bar plane the viewer canvas colour. The viewer only
+ * flipped the status-bar *icons* to light but inherited the app's opaque **light (white)** status-bar
+ * background, so on this dark canvas the status bar rendered white with invisible white icons above the
+ * black-gradient top bar (board finding on the 1.0.0 build). Setting [android.view.Window.setStatusBarColor]
+ * to the canvas colour at the **window** level makes the tint reach past the shell's inset handling — the
+ * same window-level technique the grid selection bar uses ([com.appblish.jgallery.core.ui.selection]) —
+ * so the status bar is flush with the viewer chrome instead of white. Contrast enforcement is disabled so
+ * the opaque tint isn't scrimmed; the colour, contrast flag and icon appearance are all restored on exit.
  */
 @Composable
 private fun ImmersiveViewerEffect() {
     val view = LocalView.current
     if (view.isInEditMode) return
     val window = view.findActivity()?.window ?: return
-    DisposableEffect(Unit) {
+    val statusBarTint = JGalleryColors.ViewerCanvas.toArgb()
+    DisposableEffect(statusBarTint) {
         val controller = WindowCompat.getInsetsController(window, view)
         val previousLightStatusBars = controller.isAppearanceLightStatusBars
+        val previousColor = window.statusBarColor
+        val previousContrast = window.isStatusBarContrastEnforced
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller.isAppearanceLightStatusBars = false // light (white) icons over the dark media
+        window.isStatusBarContrastEnforced = false
+        window.statusBarColor = statusBarTint // dark plane behind the light icons — no white status bar
         controller.hide(WindowInsetsCompat.Type.navigationBars())
         onDispose {
             controller.show(WindowInsetsCompat.Type.navigationBars())
             controller.isAppearanceLightStatusBars = previousLightStatusBars
+            window.statusBarColor = previousColor
+            window.isStatusBarContrastEnforced = previousContrast
         }
     }
 }
