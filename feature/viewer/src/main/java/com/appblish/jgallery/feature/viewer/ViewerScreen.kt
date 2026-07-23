@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.view.View
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -58,6 +59,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
@@ -75,12 +77,14 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.playback.PlaybackSources
 import com.appblish.jgallery.core.thumbs.coverRequest
+import com.appblish.jgallery.core.viewdefaults.ViewDefaults
 import com.appblish.jgallery.core.ui.component.FavoriteRed
 import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
 import com.appblish.jgallery.core.ui.selection.MoveDestinationSheet
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryViewerTheme
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 /** The single-item file actions the viewer runs, bundled so the pager takes one param, not six. */
@@ -117,6 +121,7 @@ internal fun ViewerRoute(
     val destinations by viewModel.destinations.collectAsStateWithLifecycle()
     val actionState by viewModel.action.collectAsStateWithLifecycle()
     val favorites by viewModel.favorites.collectAsStateWithLifecycle()
+    val slideshowIntervalMs by viewModel.slideshowIntervalMs.collectAsStateWithLifecycle()
     val context = LocalContext.current
     LaunchedEffect(viewModel) {
         // A resolved boundary uri → launch the system "Set as" (ACTION_ATTACH_DATA) chooser (spec §7.4).
@@ -144,6 +149,7 @@ internal fun ViewerRoute(
         ),
         favorites = favorites,
         onToggleFavorite = viewModel::toggleFavorite,
+        slideshowIntervalMs = slideshowIntervalMs,
         onBack = onBack,
     )
 }
@@ -157,6 +163,7 @@ internal fun ViewerScreen(
     handlers: ViewerActionHandlers,
     favorites: Set<MediaId> = emptySet(),
     onToggleFavorite: (MediaId) -> Unit = {},
+    slideshowIntervalMs: Long = ViewDefaults.DEFAULT_SLIDESHOW_INTERVAL_MS,
     onBack: () -> Unit,
 ) {
     JGalleryViewerTheme {
@@ -175,7 +182,7 @@ internal fun ViewerScreen(
                 is ViewerUiState.Ready ->
                     ViewerPager(
                         state, playback, destinations, actionState, handlers,
-                        favorites, onToggleFavorite, onBack,
+                        favorites, onToggleFavorite, slideshowIntervalMs, onBack,
                     )
             }
         }
@@ -190,22 +197,38 @@ internal fun ViewerScreen(
  * and re-shows the nav bar in one step, no flicker. The redlines (callouts #1/#4) keep the status bar
  * visible with light icons — only the nav bar is hidden — so every other screen keeps the light bar.
  * Edge-to-edge itself is already on from `enableEdgeToEdge()` in the Activity.
+ *
+ * APP-593: the effect also paints the real status-bar plane the viewer canvas colour. The viewer only
+ * flipped the status-bar *icons* to light but inherited the app's opaque **light (white)** status-bar
+ * background, so on this dark canvas the status bar rendered white with invisible white icons above the
+ * black-gradient top bar (board finding on the 1.0.0 build). Setting [android.view.Window.setStatusBarColor]
+ * to the canvas colour at the **window** level makes the tint reach past the shell's inset handling — the
+ * same window-level technique the grid selection bar uses ([com.appblish.jgallery.core.ui.selection]) —
+ * so the status bar is flush with the viewer chrome instead of white. Contrast enforcement is disabled so
+ * the opaque tint isn't scrimmed; the colour, contrast flag and icon appearance are all restored on exit.
  */
 @Composable
 private fun ImmersiveViewerEffect() {
     val view = LocalView.current
     if (view.isInEditMode) return
     val window = view.findActivity()?.window ?: return
-    DisposableEffect(Unit) {
+    val statusBarTint = JGalleryColors.ViewerCanvas.toArgb()
+    DisposableEffect(statusBarTint) {
         val controller = WindowCompat.getInsetsController(window, view)
         val previousLightStatusBars = controller.isAppearanceLightStatusBars
+        val previousColor = window.statusBarColor
+        val previousContrast = window.isStatusBarContrastEnforced
         controller.systemBarsBehavior =
             WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
         controller.isAppearanceLightStatusBars = false // light (white) icons over the dark media
+        window.isStatusBarContrastEnforced = false
+        window.statusBarColor = statusBarTint // dark plane behind the light icons — no white status bar
         controller.hide(WindowInsetsCompat.Type.navigationBars())
         onDispose {
             controller.show(WindowInsetsCompat.Type.navigationBars())
             controller.isAppearanceLightStatusBars = previousLightStatusBars
+            window.statusBarColor = previousColor
+            window.isStatusBarContrastEnforced = previousContrast
         }
     }
 }
@@ -253,6 +276,7 @@ private fun ViewerPager(
     handlers: ViewerActionHandlers,
     favorites: Set<MediaId>,
     onToggleFavorite: (MediaId) -> Unit,
+    slideshowIntervalMs: Long,
     onBack: () -> Unit,
 ) {
     val items by rememberUpdatedState(state.items)
@@ -263,6 +287,11 @@ private fun ViewerPager(
     var infoItem by remember { mutableStateOf<MediaItem?>(null) }
     var picker by remember { mutableStateOf<PickerMode?>(null) }
     var renaming by remember { mutableStateOf(false) }
+    // Slideshow / auto-play (APP-544, trigger APP-594): `on` gates the lean-back mode; `paused` halts
+    // the timer without leaving it. Both survive config changes so a rotation mid-slideshow doesn't
+    // drop the user out. The dwell interval is read live off Settings via [slideshowIntervalMs].
+    var slideshowOn by rememberSaveable { mutableStateOf(false) }
+    var slideshowPaused by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val onStubAction: (String) -> Unit = { action ->
@@ -274,6 +303,37 @@ private fun ViewerPager(
         val finished = actionState as? ViewerActionUiState.Finished ?: return@LaunchedEffect
         snackbarHostState.showSnackbar(finished.message())
         handlers.onResultShown()
+    }
+
+    // While a slideshow runs, back-press stops it and returns to normal viewing rather than exiting
+    // the viewer — one predictable "escape" that matches the on-screen Stop button (APP-594 DoD: exit).
+    BackHandler(enabled = slideshowOn) {
+        slideshowOn = false
+        slideshowPaused = false
+        chromeVisible = true
+    }
+
+    // Auto-advance driver (APP-544, video-dwell fix APP-548, configured interval APP-594). Runs only
+    // while the slideshow is on and not paused. It dwells [slideshowIntervalMs] per image, then advances
+    // by the pure [Slideshow.nextPage] rule (loop on). A video is given a longer, *bounded* dwell — long
+    // enough to let the clip play through, but capped by [Slideshow.videoDwellMs] so a long/looping video
+    // can never pin lean-back auto-play forever. Keyed on the interval too, so changing it in Settings
+    // mid-run is picked up on the next tick.
+    LaunchedEffect(slideshowOn, slideshowPaused, slideshowIntervalMs, items) {
+        if (!slideshowOn || slideshowPaused) return@LaunchedEffect
+        while (true) {
+            val onScreen = items.getOrNull(pagerState.currentPage)
+            val dwell = if (onScreen?.type == MediaType.VIDEO) {
+                Slideshow.videoDwellMs(onScreen.durationMillis, slideshowIntervalMs)
+            } else {
+                slideshowIntervalMs
+            }
+            delay(dwell)
+            // Re-read the page after the dwell so a manual swipe mid-slideshow advances from where the
+            // user actually is, not from where the timer started.
+            val next = Slideshow.nextPage(pagerState.currentPage, items.size, loop = true) ?: break
+            pagerState.animateScrollToPage(next)
+        }
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -306,8 +366,9 @@ private fun ViewerPager(
         }
 
         val currentItem = items.getOrNull(pagerState.currentPage)
+        // Chrome is suppressed entirely while a slideshow runs — the slideshow overlay is the only UI.
         AnimatedVisibility(
-            visible = chromeVisible,
+            visible = chromeVisible && !slideshowOn,
             modifier = Modifier.align(Alignment.TopCenter),
             enter = fadeIn() + slideInVertically { -it },
             exit = fadeOut() + slideOutVertically { -it },
@@ -321,19 +382,43 @@ private fun ViewerPager(
             )
         }
         AnimatedVisibility(
-            visible = chromeVisible,
+            visible = chromeVisible && !slideshowOn,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = fadeIn() + slideInVertically { it },
             exit = fadeOut() + slideOutVertically { it },
         ) {
             ViewerActionBar(
                 item = currentItem,
+                canSlideshow = items.size > 1,
                 onCopyTo = { picker = PickerMode.COPY },
                 onMoveTo = { picker = PickerMode.MOVE },
                 onRename = { renaming = true },
                 onSetAs = { currentItem?.let { handlers.onSetAs(it.id) } },
                 onDelete = { currentItem?.let { handlers.onDelete(it.id) } },
                 onInfo = { currentItem?.let { infoItem = it } },
+                onStartSlideshow = {
+                    slideshowPaused = false
+                    chromeVisible = false
+                    slideshowOn = true
+                },
+            )
+        }
+        AnimatedVisibility(
+            visible = slideshowOn,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = fadeIn(),
+            exit = fadeOut(),
+        ) {
+            SlideshowControls(
+                position = pagerState.currentPage + 1,
+                count = items.size,
+                paused = slideshowPaused,
+                onTogglePause = { slideshowPaused = !slideshowPaused },
+                onStop = {
+                    slideshowOn = false
+                    slideshowPaused = false
+                    chromeVisible = true
+                },
             )
         }
         SnackbarHost(
@@ -465,18 +550,21 @@ private fun ViewerHeader(
 @Composable
 private fun ViewerActionBar(
     item: MediaItem?,
+    canSlideshow: Boolean,
     onCopyTo: () -> Unit,
     onMoveTo: () -> Unit,
     onRename: () -> Unit,
     onSetAs: () -> Unit,
     onDelete: () -> Unit,
     onInfo: () -> Unit,
+    onStartSlideshow: () -> Unit,
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
     // Overflow subset (spec §5); deferred reference items are omitted entirely, not shown disabled
     // (design deviation #3). "Set as" is image-only — ACTION_ATTACH_DATA has no meaning for video.
     val overflow = buildList<Pair<String, () -> Unit>> {
+        if (canSlideshow) add("Slideshow" to onStartSlideshow) // G2 auto-play trigger (APP-544 / APP-594)
         add("Copy to" to onCopyTo)
         add("Move to" to onMoveTo)
         add("Rename" to onRename)

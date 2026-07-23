@@ -4,6 +4,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.SortDirection
@@ -38,6 +39,29 @@ interface ViewDefaults {
     val defaultColumns: Flow<ColumnCount>
 
     suspend fun setDefaultColumns(columns: ColumnCount)
+
+    /**
+     * App-wide slideshow auto-advance interval in ms (G2 Settings §6). Settings is the **writer**; the
+     * viewer is the **reader** — starting a slideshow dwells this long per image (APP-594). Lives here,
+     * not in `:feature:settings`, so `:feature:viewer` can read it without an illegal `:feature →
+     * :feature` edge — the same seam rationale as the sort/density defaults above. Clamped to
+     * [MIN_SLIDESHOW_INTERVAL_MS]..[MAX_SLIDESHOW_INTERVAL_MS] on read; default
+     * [DEFAULT_SLIDESHOW_INTERVAL_MS] (4s).
+     */
+    val slideshowIntervalMs: Flow<Long>
+
+    suspend fun setSlideshowIntervalMs(ms: Long)
+
+    companion object {
+        /** Default slideshow interval; matches the Settings §6 default value. */
+        const val DEFAULT_SLIDESHOW_INTERVAL_MS: Long = 4_000L
+
+        /** Sane lower bound so a stored/garbage value can never make the slideshow flicker-advance. */
+        const val MIN_SLIDESHOW_INTERVAL_MS: Long = 1_000L
+
+        /** Sane upper bound so a stored/garbage value can never pin a slide indefinitely. */
+        const val MAX_SLIDESHOW_INTERVAL_MS: Long = 60_000L
+    }
 }
 
 /** DataStore-backed [ViewDefaults]. Stored enum names / column counts fall back or clamp on read. */
@@ -72,9 +96,28 @@ internal class DataStoreViewDefaults(
         dataStore.edit { it[KEY_COLUMNS] = columns.value }
     }
 
+    override val slideshowIntervalMs: Flow<Long> =
+        dataStore.data.map { prefs ->
+            (prefs[KEY_SLIDESHOW_MS] ?: ViewDefaults.DEFAULT_SLIDESHOW_INTERVAL_MS)
+                .coerceIn(
+                    ViewDefaults.MIN_SLIDESHOW_INTERVAL_MS,
+                    ViewDefaults.MAX_SLIDESHOW_INTERVAL_MS,
+                )
+        }
+
+    override suspend fun setSlideshowIntervalMs(ms: Long) {
+        dataStore.edit {
+            it[KEY_SLIDESHOW_MS] = ms.coerceIn(
+                ViewDefaults.MIN_SLIDESHOW_INTERVAL_MS,
+                ViewDefaults.MAX_SLIDESHOW_INTERVAL_MS,
+            )
+        }
+    }
+
     private companion object {
         val KEY_SORT_KEY = stringPreferencesKey("default_sort_key")
         val KEY_SORT_DIR = stringPreferencesKey("default_sort_dir")
         val KEY_COLUMNS = intPreferencesKey("default_columns")
+        val KEY_SLIDESHOW_MS = longPreferencesKey("slideshow_interval_ms")
     }
 }

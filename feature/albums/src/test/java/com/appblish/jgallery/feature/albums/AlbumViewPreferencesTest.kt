@@ -38,10 +38,13 @@ class AlbumViewPreferencesTest {
     ) : ViewDefaults {
         private val sortState = MutableStateFlow(sort)
         private val columnsState = MutableStateFlow(columns)
+        private val slideshowState = MutableStateFlow(ViewDefaults.DEFAULT_SLIDESHOW_INTERVAL_MS)
         override val defaultSort: Flow<SortSpec> = sortState
         override val defaultColumns: Flow<ColumnCount> = columnsState
+        override val slideshowIntervalMs: Flow<Long> = slideshowState
         override suspend fun setDefaultSort(sort: SortSpec) { sortState.value = sort }
         override suspend fun setDefaultColumns(columns: ColumnCount) { columnsState.value = columns }
+        override suspend fun setSlideshowIntervalMs(ms: Long) { slideshowState.value = ms }
     }
 
     private fun TestScope.newPrefs(

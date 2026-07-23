@@ -5,6 +5,7 @@ import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.emptyPreferences
 import androidx.datastore.preferences.core.intPreferencesKey
+import androidx.datastore.preferences.core.longPreferencesKey
 import androidx.datastore.preferences.core.stringPreferencesKey
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.SortDirection
@@ -41,6 +42,32 @@ class DataStoreViewDefaultsTest {
         assertThat(defaults.defaultSort.first())
             .isEqualTo(SortSpec(SortKey.LAST_MODIFIED, SortDirection.DESCENDING))
         assertThat(defaults.defaultColumns.first()).isEqualTo(ColumnCount.DEFAULT)
+        assertThat(defaults.slideshowIntervalMs.first())
+            .isEqualTo(ViewDefaults.DEFAULT_SLIDESHOW_INTERVAL_MS)
+    }
+
+    @Test
+    fun `slideshow interval round-trips a valid value`() = runTest {
+        defaults.setSlideshowIntervalMs(10_000L)
+        assertThat(defaults.slideshowIntervalMs.first()).isEqualTo(10_000L)
+    }
+
+    @Test
+    fun `an out-of-range stored slideshow interval is clamped on read`() = runTest {
+        backing.edit { it[longPreferencesKey("slideshow_interval_ms")] = 5L }
+        assertThat(defaults.slideshowIntervalMs.first())
+            .isEqualTo(ViewDefaults.MIN_SLIDESHOW_INTERVAL_MS)
+
+        backing.edit { it[longPreferencesKey("slideshow_interval_ms")] = Long.MAX_VALUE }
+        assertThat(defaults.slideshowIntervalMs.first())
+            .isEqualTo(ViewDefaults.MAX_SLIDESHOW_INTERVAL_MS)
+    }
+
+    @Test
+    fun `a written slideshow interval is clamped before it is stored`() = runTest {
+        defaults.setSlideshowIntervalMs(Long.MAX_VALUE)
+        assertThat(defaults.slideshowIntervalMs.first())
+            .isEqualTo(ViewDefaults.MAX_SLIDESHOW_INTERVAL_MS)
     }
 
     @Test
@@ -79,10 +106,12 @@ class DataStoreViewDefaultsTest {
     fun `state written by one instance is read back by a fresh one over the same backing`() = runTest {
         defaults.setDefaultSort(SortSpec(SortKey.FILE_SIZE, SortDirection.ASCENDING))
         defaults.setDefaultColumns(ColumnCount(4))
+        defaults.setSlideshowIntervalMs(6_000L)
 
         val reopened = DataStoreViewDefaults(backing)
         assertThat(reopened.defaultSort.first())
             .isEqualTo(SortSpec(SortKey.FILE_SIZE, SortDirection.ASCENDING))
         assertThat(reopened.defaultColumns.first()).isEqualTo(ColumnCount(4))
+        assertThat(reopened.slideshowIntervalMs.first()).isEqualTo(6_000L)
     }
 }
