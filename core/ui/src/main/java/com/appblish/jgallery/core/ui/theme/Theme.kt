@@ -17,6 +17,7 @@ private val JGalleryLightColorScheme = lightColorScheme(
     onSurface = JGalleryColors.Text,
     surfaceVariant = JGalleryColors.Surface,
     onSurfaceVariant = JGalleryColors.TextSecondary,
+    error = JGalleryColors.Destructive,
 )
 
 /**
