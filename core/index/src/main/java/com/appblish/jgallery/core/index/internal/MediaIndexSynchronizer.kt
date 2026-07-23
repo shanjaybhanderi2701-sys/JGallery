@@ -57,4 +57,5 @@ private fun com.appblish.jgallery.core.storage.MediaSignature.toIndexSignature()
         dateModifiedMillis = dateModifiedMillis,
         sizeBytes = sizeBytes,
         displayName = displayName,
+        bucketId = bucketId,
     )

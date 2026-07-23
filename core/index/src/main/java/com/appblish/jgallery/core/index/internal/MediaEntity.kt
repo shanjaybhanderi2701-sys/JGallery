@@ -36,6 +36,7 @@ internal data class SignatureRow(
     val dateModifiedMillis: Long,
     val sizeBytes: Long,
     val displayName: String,
+    val bucketId: String,
 )
 
 /**
@@ -86,6 +87,7 @@ internal fun SignatureRow.toIndexSignature(): IndexSignature = IndexSignature(
     dateModifiedMillis = dateModifiedMillis,
     sizeBytes = sizeBytes,
     displayName = displayName,
+    bucketId = bucketId,
 )
 
 internal fun AlbumAggregate.toAlbum(): Album = Album(

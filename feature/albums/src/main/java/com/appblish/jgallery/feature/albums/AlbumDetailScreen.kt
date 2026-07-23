@@ -382,7 +382,6 @@ fun AlbumDetailScreen(
                 GalleryPullToRefresh(isRefreshing = isRefreshing, onRefresh = onRefresh) {
                     AlbumDetailGrid(
                         items = state.items,
-                        orderedIds = ids,
                         columns = viewSettings.columns,
                         groupBy = viewSettings.groupBy,
                         selection = selection,
@@ -528,7 +527,6 @@ private fun ScopeRow(
 @Composable
 private fun AlbumDetailGrid(
     items: List<MediaItem>,
-    orderedIds: List<MediaId>,
     columns: ColumnCount,
     groupBy: GroupBy,
     selection: SelectionState<MediaId>,
@@ -558,6 +556,12 @@ private fun AlbumDetailGrid(
     // and long-press only fire on tiles even with headers interleaved.
     val idAtCell: (Int) -> MediaId? = { index ->
         (cells.getOrNull(index) as? MediaCell.Tile)?.item?.id
+    }
+    // Range drag-select must walk the grid in *visual* order. Grouping buckets tiles by section
+    // (buildMediaSections), which can reorder them relative to the incoming Sort, so derive the id
+    // sequence from the cells the grid actually lays out rather than the pre-group order (APP-609).
+    val orderedIds = remember(sections) {
+        cells.mapNotNull { (it as? MediaCell.Tile)?.item?.id }
     }
 
     Box(

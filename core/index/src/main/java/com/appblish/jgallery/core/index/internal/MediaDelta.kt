@@ -5,15 +5,16 @@ import com.appblish.jgallery.core.model.MediaId
 /**
  * A cheap per-row fingerprint used to decide what changed between two index states. `date-modified`
  * + `size` is the standard MediaStore content-change heuristic; [displayName] additionally catches a
- * pure rename, which changes neither the modified time nor the size, so without it the incremental
- * sync would drop the rename and leave a stale name in the cache (APP-590). Pure Kotlin so the diff
- * is unit-testable without Android.
+ * pure file rename and [bucketId] a folder/album rename — both change neither the modified time nor the
+ * size, so without them the incremental sync drops the rename and leaves a stale name in the cache
+ * (file: APP-590, album: APP-609). Pure Kotlin so the diff is unit-testable without Android.
  */
 internal data class IndexSignature(
     val id: MediaId,
     val dateModifiedMillis: Long,
     val sizeBytes: Long,
     val displayName: String,
+    val bucketId: String,
 )
 
 /** The rows to re-read (new or modified) and the rows to drop (gone from the device) since last sync. */
@@ -52,7 +53,8 @@ internal fun computeIndexDelta(
         val isNewOrModified = prev == null ||
             prev.dateModifiedMillis != sig.dateModifiedMillis ||
             prev.sizeBytes != sig.sizeBytes ||
-            prev.displayName != sig.displayName // a pure rename bumps neither date nor size (APP-590)
+            prev.displayName != sig.displayName || // a pure file rename bumps neither date nor size (APP-590)
+            prev.bucketId != sig.bucketId // a folder/album rename changes the bucket, not date/size (APP-609)
         if (isNewOrModified) changed += sig.id
     }
 

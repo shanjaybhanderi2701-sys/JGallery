@@ -87,6 +87,33 @@ class MediaGroupingTest {
     }
 
     @Test
+    fun `same-day items split across the sort order still yield one section per day (APP-609)`() {
+        // An exported album shares one modified time across items whose capture days differ, so the
+        // Sort-by-modified order interleaves days: [dayA, dayB, dayA, dayB]. Cutting sections naively
+        // over that order would re-open dayA/dayB and reuse their "media_header:<epochDay>" LazyGrid
+        // keys — a hard duplicate-key crash (the AlbumDetailScreen fatal reported on APP-600). Bucketing
+        // keeps each day to a single, contiguous section.
+        val dayA = today
+        val dayB = today.minusDays(1)
+        val items = listOf(at(dayA, "a1"), at(dayB, "b1"), at(dayA, "a2"), at(dayB, "b2"))
+
+        val sections = buildMediaSections(items, GroupBy.DAY, zone, today, locale)
+
+        val headerKeys = sections.cells.filterIsInstance<MediaCell.Header>().map { it.key }
+        assertThat(headerKeys).containsNoDuplicates()
+        assertThat(headerKeys).hasSize(2) // one per day, not one per run
+        // First-encounter section order (Today before Yesterday) with each day's tiles contiguous and
+        // in their original intra-section order.
+        val layout = sections.cells.map { cell ->
+            when (cell) {
+                is MediaCell.Header -> "H:${cell.label}"
+                is MediaCell.Tile -> cell.item.id.value
+            }
+        }
+        assertThat(layout).containsExactly("H:Today", "a1", "a2", "H:Yesterday", "b1", "b2").inOrder()
+    }
+
+    @Test
     fun `YEAR groups across months of the same year`() {
         val items = listOf(
             at(LocalDate.of(2026, 3, 1), "a"),

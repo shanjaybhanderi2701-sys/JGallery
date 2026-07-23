@@ -62,6 +62,14 @@ class MediaSections(
  * Section [items] (already filtered + sorted) into the time-grouped stream. Mirrors the Photos
  * timeline's labels exactly (design G1-10) so a Day/Month/Year grouping reads identically on either
  * surface. [GroupBy.NONE] yields one flat, header-less run ([sectionStarts] empty).
+ *
+ * The stream is **bucketed** by section key rather than cut over the incoming order, so every section
+ * appears exactly once and its items stay contiguous even when the active Sort disagrees with the
+ * capture-time grouping key. This is load-bearing: the album grid sorts by `dateModified` (or name /
+ * size) while grouping by capture time, and an exported set can share one modified time yet span
+ * several capture days — cutting sections over that order would re-open a day and reuse its
+ * `media_header:<key>` LazyGrid key, which is a hard duplicate-key crash (APP-609). Sections keep the
+ * incoming stream's first-encounter order; items keep their intra-section Sort order.
  */
 fun buildMediaSections(
     items: List<MediaItem>,
@@ -78,29 +86,34 @@ fun buildMediaSections(
     val monthFormat = DateTimeFormatter.ofPattern("MMMM yyyy", locale)
     val yesterday = today.minusDays(1)
 
-    val cells = ArrayList<MediaCell>(items.size + 32)
-    val sectionStarts = ArrayList<Int>(32)
-    var currentSectionKey = Long.MIN_VALUE
-
+    // Bucket by section key, preserving first-encounter order (LinkedHashMap) so the section order
+    // still follows the incoming stream's direction, while every same-key item lands in one run.
+    val grouped = LinkedHashMap<Long, MutableList<MediaItem>>()
     for (item in items) {
         val date = Instant.ofEpochMilli(item.effectiveTimeMillis).atZone(zone).toLocalDate()
-        val sectionKey = sectionKeyFor(date, groupBy)
-        if (sectionKey != currentSectionKey) {
-            currentSectionKey = sectionKey
-            val label = when (groupBy) {
-                GroupBy.DAY -> when (date) {
-                    today -> "Today"
-                    yesterday -> "Yesterday"
-                    else -> date.format(dayFormat)
-                }
-                GroupBy.MONTH -> date.format(monthFormat)
-                GroupBy.YEAR -> date.year.toString()
-                GroupBy.NONE -> "" // unreachable — NONE returns early above
+        grouped.getOrPut(sectionKeyFor(date, groupBy)) { ArrayList() }.add(item)
+    }
+
+    val cells = ArrayList<MediaCell>(items.size + grouped.size)
+    val sectionStarts = ArrayList<Int>(grouped.size)
+
+    for ((sectionKey, sectionItems) in grouped) {
+        // All items in a bucket share the section key, hence the same day/month/year — take the label
+        // from the first one.
+        val date = Instant.ofEpochMilli(sectionItems.first().effectiveTimeMillis).atZone(zone).toLocalDate()
+        val label = when (groupBy) {
+            GroupBy.DAY -> when (date) {
+                today -> "Today"
+                yesterday -> "Yesterday"
+                else -> date.format(dayFormat)
             }
-            sectionStarts += cells.size
-            cells += MediaCell.Header(label = label, sectionKey = sectionKey)
+            GroupBy.MONTH -> date.format(monthFormat)
+            GroupBy.YEAR -> date.year.toString()
+            GroupBy.NONE -> "" // unreachable — NONE returns early above
         }
-        cells += MediaCell.Tile(item)
+        sectionStarts += cells.size
+        cells += MediaCell.Header(label = label, sectionKey = sectionKey)
+        for (item in sectionItems) cells += MediaCell.Tile(item)
     }
     return MediaSections(cells = cells, sectionStarts = sectionStarts)
 }
