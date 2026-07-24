@@ -21,11 +21,18 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.kotlin.dsl.register
 
 /**
- * CI egress guard (`jgallery.egress.guard`, APP-289) — makes the §9.3 trust claim
- * ("works fully on your device … never uploaded or shared") durable BY CONSTRUCTION, not by
- * convention. The Security sign-off on the claim (APP-285 `security-signoff` doc) is valid only
- * while this guard is green; if egress capability is ever introduced, the build MUST go red until
- * the claim copy is pulled (standing rule in the sign-off doc).
+ * CI egress guard (`jgallery.egress.guard`, APP-289) — originally made the §9.3 trust claim
+ * ("works fully on your device … never uploaded or shared") durable BY CONSTRUCTION.
+ *
+ * **APP-614 RELAXATION (board Option A, APP-613).** The board chose to ship Firebase Crashlytics
+ * for the 1.0 launch, deliberately retiring the §9.3 *zero-network* guarantee. This guard is now a
+ * *bounded* egress guard, not a zero-egress guard: it allows EXACTLY the Firebase Crashlytics
+ * surface (INTERNET + ACCESS_NETWORK_STATE; `com.google.firebase` / `com.google.android.gms` /
+ * `com.google.android.datatransport` deps) and still fails the build on ANY other network
+ * permission or network/analytics dependency. The §9.3 "never uploaded" claim copy is being pulled
+ * separately under APP-616, which gates the Play upload (APP-517); Check 3 below keeps that copy
+ * single-sourced so it can be removed as one mechanical set. The prior APP-285 Security sign-off is
+ * superseded by the APP-613 decision and requires re-issue against the new (bounded) egress surface.
  *
  * Three checks, aggregated under `:app:verifyNoEgress` (also wired into `check`):
  *
@@ -136,21 +143,27 @@ abstract class VerifyNoEgressManifestTask : DefaultTask() {
                 |${hits.joinToString("\n") { "  - $it" }}
                 |Merged manifest: $manifest
                 |
-                |The "never uploaded" trust claim is true only while egress is impossible at the OS
-                |level. Either remove the permission (check library manifests for the merge source),
-                |or — per the standing rule in the APP-285 security-signoff doc — pull the trust
-                |claim copy (TrustCopy + registered claim files) in the SAME change and obtain a new
-                |Security sign-off.
+                |Only INTERNET + ACCESS_NETWORK_STATE are permitted (APP-614: Firebase Crashlytics).
+                |Any OTHER network permission is still forbidden. Either remove it (check library
+                |manifests for the merge source), or — if a new egress surface is genuinely required
+                |— raise it as a product/privacy decision (like APP-613) before widening this guard.
                 """.trimMargin(),
             )
         }
-        logger.lifecycle("Egress guard: merged manifest clean (no network-capable permissions).")
+        logger.lifecycle(
+            "Egress guard: merged manifest within the approved egress surface " +
+                "(INTERNET + ACCESS_NETWORK_STATE only, APP-614).",
+        )
     }
 
     private companion object {
+        /**
+         * Network permissions that STILL fail the build. INTERNET and ACCESS_NETWORK_STATE were
+         * removed from this list under APP-614 (board Option A, APP-613) so Firebase Crashlytics
+         * can upload crash reports; every other network-capable permission stays forbidden, so an
+         * unrelated egress surface (wifi control, nearby devices, etc.) still turns the build red.
+         */
         val FORBIDDEN_PERMISSIONS = listOf(
-            "android.permission.INTERNET",
-            "android.permission.ACCESS_NETWORK_STATE",
             "android.permission.CHANGE_NETWORK_STATE",
             "android.permission.ACCESS_WIFI_STATE",
             "android.permission.CHANGE_WIFI_STATE",
@@ -177,8 +190,13 @@ abstract class VerifyNoEgressDependenciesTask : DefaultTask() {
             if (!seen.add(component.id.displayName)) continue
 
             val coordinate = component.moduleVersion?.let { "${it.group}:${it.name}" }.orEmpty().lowercase()
-            DENYLIST.firstOrNull { coordinate.contains(it) }?.let {
-                violations.add("${component.id.displayName}  (matched denylist token: '$it')")
+            // APP-614: Google Firebase/GMS is the ONE approved egress dependency stack (board
+            // Option A). Skip the denylist for those coordinates only; everything else — including
+            // any non-Google analytics/network lib — is still blocked below.
+            if (APPROVED_EGRESS.none { coordinate.startsWith(it) }) {
+                DENYLIST.firstOrNull { coordinate.contains(it) }?.let {
+                    violations.add("${component.id.displayName}  (matched denylist token: '$it')")
+                }
             }
 
             component.dependencies
@@ -219,6 +237,19 @@ abstract class VerifyNoEgressDependenciesTask : DefaultTask() {
             "segment",
             "apollo",
             "grpc",
+        )
+
+        /**
+         * APP-614 allowlist (board Option A, APP-613): the approved Firebase Crashlytics egress
+         * stack. A coordinate whose `group:name` starts with one of these is exempt from the
+         * denylist above; kept intentionally narrow to Google's Firebase/GMS/transport artifacts
+         * (which is what firebase-crashlytics + firebase-analytics pull in), so any other
+         * network/analytics library — Google-published or not — still trips the guard.
+         */
+        val APPROVED_EGRESS = listOf(
+            "com.google.firebase:",
+            "com.google.android.gms:",
+            "com.google.android.datatransport:",
         )
     }
 }

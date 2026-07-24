@@ -14,4 +14,8 @@ plugins {
     alias(libs.plugins.kotlin.compose) apply false
     alias(libs.plugins.ksp) apply false
     alias(libs.plugins.hilt) apply false
+    // Firebase Crashlytics (APP-614) — applied only in :app. On the buildscript classpath here so
+    // the app module can opt in via the version catalog.
+    alias(libs.plugins.google.services) apply false
+    alias(libs.plugins.firebase.crashlytics) apply false
 }
