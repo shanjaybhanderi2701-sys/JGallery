@@ -40,7 +40,10 @@ import org.gradle.kotlin.dsl.register
  *     (INTERNET, network/wifi state) appears in the MERGED manifest, so a permission smuggled in
  *     by a library manifest is caught, not just ones declared in our sources.
  *  2. [VerifyNoEgressDependenciesTask] — per variant, fails if any coordinate in the RESOLVED
- *     runtime classpath (transitives included) matches the network/analytics denylist.
+ *     runtime classpath (transitives included) matches the network/analytics denylist, OR (APP-619
+ *     Finding 1) is an artifact under an approved Google egress group that is NOT in the pinned,
+ *     closed-world Crashlytics/Analytics artifact set — so a new Firebase/GMS surface can't ride in
+ *     under the group prefix.
  *  3. [VerifyTrustClaimSingleSourceTask] — fails if trust-claim wording appears in production
  *     source outside the registered claim files. Keeps the claim auditable in one place
  *     (TrustCopy) so it can be pulled in one edit if egress ever lands (B1 on APP-285).
@@ -189,11 +192,26 @@ abstract class VerifyNoEgressDependenciesTask : DefaultTask() {
             val component = queue.removeFirst()
             if (!seen.add(component.id.displayName)) continue
 
+            val group = component.moduleVersion?.group.orEmpty().lowercase()
             val coordinate = component.moduleVersion?.let { "${it.group}:${it.name}" }.orEmpty().lowercase()
-            // APP-614: Google Firebase/GMS is the ONE approved egress dependency stack (board
-            // Option A). Skip the denylist for those coordinates only; everything else — including
-            // any non-Google analytics/network lib — is still blocked below.
-            if (APPROVED_EGRESS.none { coordinate.startsWith(it) }) {
+            if (group in APPROVED_GOOGLE_GROUPS) {
+                // APP-614: Google Firebase/GMS is the ONE approved egress dependency stack (board
+                // Option A). APP-619 Finding 1: membership in an approved GROUP is not enough —
+                // these groups are a CLOSED WORLD. Only the exact Crashlytics+Analytics artifact
+                // set resolved at APP-614 sign-off is exempt; ANY other artifact under these
+                // groups (firebase-messaging, firebase-storage user-file UPLOAD, firestore,
+                // play-services-ads, …) is a NEW egress/data surface and fails the guard until it
+                // is reviewed and added to APPROVED_GOOGLE_ARTIFACTS.
+                if (coordinate !in APPROVED_GOOGLE_ARTIFACTS) {
+                    violations.add(
+                        "${component.id.displayName}  (unapproved artifact under approved Google " +
+                            "egress group '$group' — a new Firebase/GMS surface needs Security " +
+                            "review before it can egress; see APP-619)",
+                    )
+                }
+            } else {
+                // Everything else — including any non-Google analytics/network lib — is blocked
+                // if it matches the denylist.
                 DENYLIST.firstOrNull { coordinate.contains(it) }?.let {
                     violations.add("${component.id.displayName}  (matched denylist token: '$it')")
                 }
@@ -240,16 +258,70 @@ abstract class VerifyNoEgressDependenciesTask : DefaultTask() {
         )
 
         /**
-         * APP-614 allowlist (board Option A, APP-613): the approved Firebase Crashlytics egress
-         * stack. A coordinate whose `group:name` starts with one of these is exempt from the
-         * denylist above; kept intentionally narrow to Google's Firebase/GMS/transport artifacts
-         * (which is what firebase-crashlytics + firebase-analytics pull in), so any other
-         * network/analytics library — Google-published or not — still trips the guard.
+         * APP-614 approved egress GROUPS (board Option A, APP-613): the three Google namespaces
+         * the Crashlytics/Analytics stack resolves into. Membership here does NOT by itself
+         * approve a coordinate — it only selects the closed-world artifact check
+         * ([APPROVED_GOOGLE_ARTIFACTS]) instead of the substring denylist. A group prefix alone
+         * (the pre-APP-619 behaviour) would have green-lit the entire Firebase/GMS product
+         * surface.
          */
-        val APPROVED_EGRESS = listOf(
-            "com.google.firebase:",
-            "com.google.android.gms:",
-            "com.google.android.datatransport:",
+        val APPROVED_GOOGLE_GROUPS = setOf(
+            "com.google.firebase",
+            "com.google.android.gms",
+            "com.google.android.datatransport",
+        )
+
+        /**
+         * APP-619 Finding 1 (Medium) — artifact-level allowlist / drift guard.
+         *
+         * The EXACT `group:name` set that `firebase-crashlytics` + `firebase-analytics` (Firebase
+         * BoM 33.5.1) resolve to on BOTH the debug and release runtime classpaths, captured
+         * 2026-07-24 (debug == release, 30 coordinates). This is a CLOSED WORLD: any coordinate
+         * under an [APPROVED_GOOGLE_GROUPS] namespace that is NOT listed here fails the guard, so a
+         * future `firebase-messaging` / `firebase-storage` (user-file UPLOAD) / `firestore` /
+         * `play-services-ads*` addition can no longer pass silently under a group prefix — it
+         * turns the build red and forces a Security review + a deliberate edit here (the same
+         * product/privacy gate as APP-613).
+         *
+         * Version is intentionally excluded from the key, so a BoM version bump that keeps the same
+         * artifact set stays green; only a NEW product surface trips the guard. Regenerate after an
+         * approved BoM/dependency change with:
+         *   ./gradlew :app:dependencies --configuration releaseRuntimeClasspath \
+         *     | grep -oE 'com\.google\.(firebase|android\.gms|android\.datatransport):[a-z0-9-]+' \
+         *     | sort -u
+         * and diff against this set before updating (any additions are new egress surface).
+         */
+        val APPROVED_GOOGLE_ARTIFACTS = setOf(
+            "com.google.android.datatransport:transport-api",
+            "com.google.android.datatransport:transport-backend-cct",
+            "com.google.android.datatransport:transport-runtime",
+            "com.google.android.gms:play-services-ads-identifier",
+            "com.google.android.gms:play-services-base",
+            "com.google.android.gms:play-services-basement",
+            "com.google.android.gms:play-services-measurement",
+            "com.google.android.gms:play-services-measurement-api",
+            "com.google.android.gms:play-services-measurement-base",
+            "com.google.android.gms:play-services-measurement-impl",
+            "com.google.android.gms:play-services-measurement-sdk",
+            "com.google.android.gms:play-services-measurement-sdk-api",
+            "com.google.android.gms:play-services-stats",
+            "com.google.android.gms:play-services-tasks",
+            "com.google.firebase:firebase-analytics",
+            "com.google.firebase:firebase-annotations",
+            "com.google.firebase:firebase-bom",
+            "com.google.firebase:firebase-common",
+            "com.google.firebase:firebase-common-ktx",
+            "com.google.firebase:firebase-components",
+            "com.google.firebase:firebase-config-interop",
+            "com.google.firebase:firebase-crashlytics",
+            "com.google.firebase:firebase-datatransport",
+            "com.google.firebase:firebase-encoders",
+            "com.google.firebase:firebase-encoders-json",
+            "com.google.firebase:firebase-encoders-proto",
+            "com.google.firebase:firebase-installations",
+            "com.google.firebase:firebase-installations-interop",
+            "com.google.firebase:firebase-measurement-connector",
+            "com.google.firebase:firebase-sessions",
         )
     }
 }
