@@ -37,6 +37,18 @@
         android:supportsRtl="true"
         android:theme="@style/Theme.JGallery">
 
+        <!-- APP-614 / Security review APP-618 Finding 2: board Option A (APP-613) approved crash
+             reporting only. Firebase Analytics auto-collection, Advertising ID (AdID) and Android ID
+             (SSAID) collection are DISABLED by default so the app collects crash data only, keeping
+             the Play "Data safety" declaration (APP-616) minimal and truthful for a privacy-first
+             file manager. Crashlytics reports via the datatransport pipeline independently of the
+             Analytics measurement pipeline, so its collection (below, kept ON) is unaffected. If the
+             board later wants product analytics at launch, flip these + update the Data-safety copy. -->
+        <meta-data android:name="firebase_analytics_collection_enabled" android:value="false" />
+        <meta-data android:name="google_analytics_adid_collection_enabled" android:value="false" />
+        <meta-data android:name="google_analytics_ssaid_collection_enabled" android:value="false" />
+        <meta-data android:name="firebase_crashlytics_collection_enabled" android:value="true" />
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
