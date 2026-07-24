@@ -119,8 +119,18 @@ class PhotosGridTest {
         setTenThousandItemGrid()
         composeRule.mainClock.autoAdvance = false
 
-        // Grab the handle and hold mid-drag — do NOT release, so `dragging` stays true. topCenter →
-        // center is far past touch slop, so detectVerticalDragGestures reports an active vertical drag.
+        // Reveal the scroller first. `fast_scroll_track` lives inside AnimatedVisibility(visible) and
+        // `visible` starts false — it only flips true on `dragging || isScrollInProgress`. With no
+        // prior scroll the track is never composed, so grabbing it straight away throws "could not find
+        // any node (TestTag = 'fast_scroll_track')". Swipe to trigger isScrollInProgress → visible, then
+        // advance past the fade-in but stay inside the 1.5s linger, exactly like the passing thumb test.
+        composeRule.onNodeWithTag("photos_grid").performTouchInput { swipeUp() }
+        composeRule.mainClock.advanceTimeBy(300) // past the track fade-in, inside AUTO_HIDE_MS
+        composeRule.onNodeWithTag("fast_scroll_track").assertIsDisplayed()
+
+        // Now grab the (composed) handle and hold mid-drag — do NOT release, so `dragging` stays true.
+        // topCenter → center is far past touch slop, so detectVerticalDragGestures reports an active
+        // vertical drag.
         composeRule.onNodeWithTag("fast_scroll_track").performTouchInput {
             down(topCenter)
             moveTo(center)
