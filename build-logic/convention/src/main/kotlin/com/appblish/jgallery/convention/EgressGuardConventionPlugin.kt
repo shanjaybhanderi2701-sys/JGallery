@@ -27,9 +27,11 @@ import org.gradle.kotlin.dsl.register
  * **APP-614 RELAXATION (board Option A, APP-613).** The board chose to ship Firebase Crashlytics
  * for the 1.0 launch, deliberately retiring the §9.3 *zero-network* guarantee. This guard is now a
  * *bounded* egress guard, not a zero-egress guard: it allows EXACTLY the Firebase Crashlytics
- * surface (INTERNET + ACCESS_NETWORK_STATE; `com.google.firebase` / `com.google.android.gms` /
- * `com.google.android.datatransport` deps) and still fails the build on ANY other network
- * permission or network/analytics dependency. The §9.3 "never uploaded" claim copy is being pulled
+ * surface (INTERNET + ACCESS_NETWORK_STATE; and — after the APP-619 Finding 1 hardening — the
+ * EXACT reviewed Crashlytics + Analytics artifact set in [EgressDependencyPolicy], not the whole
+ * `com.google.firebase` / `com.google.android.gms` / `com.google.android.datatransport` group
+ * surface) and still fails the build on ANY other network permission, network/analytics dependency,
+ * or unapproved artifact drifting in under an approved Google group. The §9.3 "never uploaded" copy is being pulled
  * separately under APP-616, which gates the Play upload (APP-517); Check 3 below keeps that copy
  * single-sourced so it can be removed as one mechanical set. The prior APP-285 Security sign-off is
  * superseded by the APP-613 decision and requires re-issue against the new (bounded) egress surface.
@@ -172,6 +174,121 @@ abstract class VerifyNoEgressManifestTask : DefaultTask() {
     }
 }
 
+/**
+ * Pure, unit-testable egress classification for the resolved runtime graph. Keeps the APP-289
+ * denylist and the APP-614 bounded allowlist off the Gradle task so the branch logic can be tested
+ * without materialising a `ResolvedComponentResult` graph.
+ *
+ * **APP-619 Finding 1 hardening.** The APP-614 allowlist was group-level (`com.google.firebase:`,
+ * `com.google.android.gms:`, `com.google.android.datatransport:`), so the ENTIRE Firebase/GMS
+ * product surface — firebase-messaging, firebase-storage (user-file upload), firestore, auth,
+ * play-services-ads, remote-config — would pass the guard green even though the board only approved
+ * Crashlytics + Analytics. This narrows the exemption to an EXACT, reviewed artifact set and fails
+ * closed on anything else under an approved group ([Verdict.Drift]): a new Google egress/data
+ * surface entering the graph now turns the build red and gets a fresh egress + Play Data-safety
+ * review, instead of silently shipping.
+ */
+internal object EgressDependencyPolicy {
+
+    sealed interface Verdict {
+        /** Not a network/analytics coordinate (or an un-versioned project component). Ignore. */
+        object Clean : Verdict
+
+        /** Exact member of the reviewed Crashlytics + Analytics artifact set. Exempt from the denylist. */
+        object Approved : Verdict
+
+        /**
+         * Under an approved Google egress GROUP but NOT on the reviewed artifact allowlist — a new
+         * Firebase/GMS surface. Fail closed pending review; do NOT treat as approved.
+         */
+        object Drift : Verdict
+
+        /** A non-approved network/analytics library (APP-289 denylist hit). */
+        data class Denylisted(val token: String) : Verdict
+    }
+
+    fun classify(group: String, coordinate: String): Verdict {
+        val g = group.lowercase()
+        val c = coordinate.lowercase()
+        return when {
+            g.isEmpty() -> Verdict.Clean
+            g in APPROVED_EGRESS_GROUPS ->
+                if (c in APPROVED_EGRESS_ARTIFACTS) Verdict.Approved else Verdict.Drift
+            else -> DENYLIST.firstOrNull { c.contains(it) }?.let(Verdict::Denylisted) ?: Verdict.Clean
+        }
+    }
+
+    /** APP-289 denylist. Matched as substrings of the lowercased `group:name` coordinate. */
+    val DENYLIST = listOf(
+        "retrofit",
+        "okhttp",
+        "ktor",
+        "volley",
+        "firebase",
+        "analytics",
+        "crashlytics",
+        "sentry",
+        "amplitude",
+        "mixpanel",
+        "segment",
+        "apollo",
+        "grpc",
+    )
+
+    /** The three Google groups the board approved for the Crashlytics egress stack (APP-613/APP-614). */
+    val APPROVED_EGRESS_GROUPS = setOf(
+        "com.google.firebase",
+        "com.google.android.gms",
+        "com.google.android.datatransport",
+    )
+
+    /**
+     * APP-619 Finding 1: the EXACT `group:name` artifacts the Crashlytics + Analytics stack resolves
+     * to on `debugRuntimeClasspath` (Firebase BOM 33.5.1), captured from a real
+     * `:app:dependencies` resolution. Only these are exempt from the denylist; any OTHER artifact
+     * under an [APPROVED_EGRESS_GROUPS] group is [Verdict.Drift] and fails the build.
+     *
+     * To legitimately add one (e.g. a future Firebase product the board approves), resolve the new
+     * graph, add the exact coordinate here, and obtain a fresh Security sign-off in the SAME change.
+     * `firebase-config-interop` is only an interop interface stub (no remote-config runtime) and
+     * `play-services-ads-identifier` is a transitive of the measurement stack whose AdID collection
+     * is disabled at the manifest (APP-614 Finding 2) — both are analytics-stack transitives, not
+     * new product surfaces.
+     */
+    val APPROVED_EGRESS_ARTIFACTS = setOf(
+        "com.google.android.datatransport:transport-api",
+        "com.google.android.datatransport:transport-backend-cct",
+        "com.google.android.datatransport:transport-runtime",
+        "com.google.android.gms:play-services-ads-identifier",
+        "com.google.android.gms:play-services-base",
+        "com.google.android.gms:play-services-basement",
+        "com.google.android.gms:play-services-measurement",
+        "com.google.android.gms:play-services-measurement-api",
+        "com.google.android.gms:play-services-measurement-base",
+        "com.google.android.gms:play-services-measurement-impl",
+        "com.google.android.gms:play-services-measurement-sdk",
+        "com.google.android.gms:play-services-measurement-sdk-api",
+        "com.google.android.gms:play-services-stats",
+        "com.google.android.gms:play-services-tasks",
+        "com.google.firebase:firebase-analytics",
+        "com.google.firebase:firebase-annotations",
+        "com.google.firebase:firebase-bom",
+        "com.google.firebase:firebase-common",
+        "com.google.firebase:firebase-common-ktx",
+        "com.google.firebase:firebase-components",
+        "com.google.firebase:firebase-config-interop",
+        "com.google.firebase:firebase-crashlytics",
+        "com.google.firebase:firebase-datatransport",
+        "com.google.firebase:firebase-encoders",
+        "com.google.firebase:firebase-encoders-json",
+        "com.google.firebase:firebase-encoders-proto",
+        "com.google.firebase:firebase-installations",
+        "com.google.firebase:firebase-installations-interop",
+        "com.google.firebase:firebase-measurement-connector",
+        "com.google.firebase:firebase-sessions",
+    )
+}
+
 /** Check 2: no network/analytics library may enter the resolved runtime graph (transitives included). */
 abstract class VerifyNoEgressDependenciesTask : DefaultTask() {
 
@@ -183,20 +300,23 @@ abstract class VerifyNoEgressDependenciesTask : DefaultTask() {
     fun verify() {
         val seen = mutableSetOf<String>()
         val queue = ArrayDeque(listOf(rootComponent.get()))
-        val violations = sortedSetOf<String>()
+        val denylisted = sortedSetOf<String>()
+        val drift = sortedSetOf<String>()
 
         while (queue.isNotEmpty()) {
             val component = queue.removeFirst()
             if (!seen.add(component.id.displayName)) continue
 
-            val coordinate = component.moduleVersion?.let { "${it.group}:${it.name}" }.orEmpty().lowercase()
-            // APP-614: Google Firebase/GMS is the ONE approved egress dependency stack (board
-            // Option A). Skip the denylist for those coordinates only; everything else — including
-            // any non-Google analytics/network lib — is still blocked below.
-            if (APPROVED_EGRESS.none { coordinate.startsWith(it) }) {
-                DENYLIST.firstOrNull { coordinate.contains(it) }?.let {
-                    violations.add("${component.id.displayName}  (matched denylist token: '$it')")
-                }
+            val moduleVersion = component.moduleVersion
+            val group = moduleVersion?.group.orEmpty()
+            val coordinate = moduleVersion?.let { "${it.group}:${it.name}" }.orEmpty()
+            when (val verdict = EgressDependencyPolicy.classify(group, coordinate)) {
+                is EgressDependencyPolicy.Verdict.Denylisted ->
+                    denylisted.add("${component.id.displayName}  (matched denylist token: '${verdict.token}')")
+                EgressDependencyPolicy.Verdict.Drift ->
+                    drift.add(component.id.displayName)
+                EgressDependencyPolicy.Verdict.Approved,
+                EgressDependencyPolicy.Verdict.Clean -> Unit
             }
 
             component.dependencies
@@ -204,53 +324,41 @@ abstract class VerifyNoEgressDependenciesTask : DefaultTask() {
                 .forEach { queue.add(it.selected) }
         }
 
-        if (violations.isNotEmpty()) {
+        if (denylisted.isNotEmpty() || drift.isNotEmpty()) {
             throw GradleException(
-                """
-                |EGRESS GUARD VIOLATION (§9.3 trust-claim integrity — see APP-285/APP-289):
-                |Denylisted network/analytics dependencies in the resolved runtime classpath:
-                |${violations.joinToString("\n") { "  - $it" }}
-                |
-                |Transitives count: run `./gradlew :app:dependencies --configuration debugRuntimeClasspath`
-                |to find what pulls them in. Either remove/exclude the dependency, or — per the
-                |standing rule in the APP-285 security-signoff doc — pull the trust claim copy in the
-                |SAME change and obtain a new Security sign-off.
-                """.trimMargin(),
+                buildString {
+                    appendLine("EGRESS GUARD VIOLATION (§9.3 trust-claim integrity — see APP-285/APP-289):")
+                    if (denylisted.isNotEmpty()) {
+                        appendLine("Denylisted network/analytics dependencies in the resolved runtime classpath:")
+                        denylisted.forEach { appendLine("  - $it") }
+                        appendLine()
+                    }
+                    if (drift.isNotEmpty()) {
+                        appendLine(
+                            "Unapproved artifact(s) under an approved egress group (APP-619 Finding 1 — the " +
+                                "board approved Crashlytics + Analytics ONLY, not the whole Firebase/GMS surface):",
+                        )
+                        drift.forEach { appendLine("  - $it") }
+                        appendLine()
+                    }
+                    appendLine(
+                        "Transitives: run `./gradlew :app:dependencies --configuration debugRuntimeClasspath` " +
+                            "to find what pulls them in.",
+                    )
+                    appendLine(
+                        "Fix a DENYLIST hit: remove/exclude the dependency, or — per the standing rule in the " +
+                            "APP-285 security-signoff doc — pull the trust-claim copy in the SAME change and " +
+                            "obtain a new Security sign-off.",
+                    )
+                    append(
+                        "Fix a DRIFT hit: a new Firebase/GMS surface entered the graph. Do NOT just add it — get " +
+                            "an egress + Play Data-safety review, then add the exact coordinate to " +
+                            "EgressDependencyPolicy.APPROVED_EGRESS_ARTIFACTS with Security sign-off.",
+                    )
+                },
             )
         }
         logger.lifecycle("Egress guard: resolved runtime classpath clean (${seen.size} components checked).")
-    }
-
-    private companion object {
-        /** APP-289 denylist. Matched as substrings of the lowercased `group:name` coordinate. */
-        val DENYLIST = listOf(
-            "retrofit",
-            "okhttp",
-            "ktor",
-            "volley",
-            "firebase",
-            "analytics",
-            "crashlytics",
-            "sentry",
-            "amplitude",
-            "mixpanel",
-            "segment",
-            "apollo",
-            "grpc",
-        )
-
-        /**
-         * APP-614 allowlist (board Option A, APP-613): the approved Firebase Crashlytics egress
-         * stack. A coordinate whose `group:name` starts with one of these is exempt from the
-         * denylist above; kept intentionally narrow to Google's Firebase/GMS/transport artifacts
-         * (which is what firebase-crashlytics + firebase-analytics pull in), so any other
-         * network/analytics library — Google-published or not — still trips the guard.
-         */
-        val APPROVED_EGRESS = listOf(
-            "com.google.firebase:",
-            "com.google.android.gms:",
-            "com.google.android.datatransport:",
-        )
     }
 }
 
