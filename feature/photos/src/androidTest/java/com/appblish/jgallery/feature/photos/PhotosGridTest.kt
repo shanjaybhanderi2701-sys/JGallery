@@ -1,7 +1,10 @@
 package com.appblish.jgallery.feature.photos
 
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onFirst
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToIndex
@@ -103,6 +106,36 @@ class PhotosGridTest {
         // Fling may take ~1s to settle; then AUTO_HIDE_MS=1500ms; then fade-out ~300ms. 5s covers all.
         composeRule.mainClock.advanceTimeBy(5000)
         composeRule.onNodeWithTag("fast_scroll_thumb").assertDoesNotExist()
+    }
+
+    @Test
+    fun fastScrollBubble_appearsDuringDrag_withContextLabel() {
+        // APP-592 regression guard: the context pill used to draw with zero width (it lived inside the
+        // 48dp touch column with 56dp end-padding), so it never appeared on device even though the
+        // label string was correct. Drive a real drag on the track and assert the bubble is actually
+        // laid out on-screen with the sort-aware position readout. `assertIsDisplayed` fails on a
+        // zero-size node, which is exactly the old bug.
+        setTenThousandItemGrid()
+        composeRule.mainClock.autoAdvance = false
+
+        // fast_scroll_track lives inside AnimatedVisibility(visible = dragging || isScrollInProgress).
+        // Reveal it with a swipe first — same pattern as fastScrollThumb_appearsOnScroll_withDeepEnoughContent.
+        composeRule.onNodeWithTag("photos_grid").performTouchInput { swipeUp() }
+        composeRule.mainClock.advanceTimeBy(300) // past fade-in, inside 1.5s linger
+        composeRule.onNodeWithTag("fast_scroll_track").assertIsDisplayed()
+
+        // Press-and-hold a drag on the now-composed track (no up()): dragging stays true → bubble shown.
+        // moveBy well past touch slop so detectVerticalDragGestures engages.
+        composeRule.onNodeWithTag("fast_scroll_track").performTouchInput {
+            down(center)
+            moveBy(Offset(0f, height * 0.4f))
+        }
+        composeRule.mainClock.advanceTimeBy(100)
+
+        composeRule.onNodeWithTag("fast_scroll_bubble").assertIsDisplayed()
+        // The position suffix "item N of TOTAL" (default Last-Modified sort) is unique to the bubble —
+        // no header carries it — so this proves the rendered content reflects the sort dimension.
+        composeRule.onAllNodesWithText("item ", substring = true).onFirst().assertIsDisplayed()
     }
 
     @Test
