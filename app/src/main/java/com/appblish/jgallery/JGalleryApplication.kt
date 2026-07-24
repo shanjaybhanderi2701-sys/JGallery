@@ -4,6 +4,7 @@ import android.app.Application
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
+import com.appblish.jgallery.crash.CrashlyticsMessageSanitizer
 import dagger.hilt.android.HiltAndroidApp
 import javax.inject.Inject
 import javax.inject.Provider
@@ -19,6 +20,15 @@ class JGalleryApplication : Application(), SingletonImageLoader.Factory {
 
     @Inject
     lateinit var imageLoader: Provider<ImageLoader>
+
+    override fun onCreate() {
+        super.onCreate()
+        // Chain a message sanitizer in FRONT of Crashlytics' auto-init uncaught-exception handler
+        // (registered during super.onCreate() via its ContentProvider) so user file paths/names in
+        // OS-generated crash messages are redacted before upload (APP-626 / APP-619 Finding 3). The
+        // Crashlytics upload path stays intact — we only forward a sanitized throwable to it.
+        CrashlyticsMessageSanitizer.install()
+    }
 
     override fun newImageLoader(context: PlatformContext): ImageLoader = imageLoader.get()
 }

@@ -37,6 +37,16 @@ android {
             configure<CrashlyticsExtension> { mappingFileUploadEnabled = false }
         }
     }
+
+    testOptions {
+        unitTests.all {
+            // The Crashlytics message sanitizer (APP-626) scrubs Throwable.detailMessage in place
+            // via reflection. Android/ART has no module system, so that reflection is open at
+            // runtime; on the JDK unit-test lane it is encapsulated, so open java.lang here to
+            // exercise the real on-device code path in CrashlyticsMessageSanitizerTest.
+            it.jvmArgs("--add-opens=java.base/java.lang=ALL-UNNAMED")
+        }
+    }
 }
 
 dependencies {
@@ -74,6 +84,11 @@ dependencies {
     // Benchmark-variant ONLY: real HEIC encoding for the macrobenchmark corpus seeder (APP-390).
     // Never on the shipped debug/release classpath, so the egress guard is unaffected.
     "benchmarkImplementation"(libs.androidx.heifwriter)
+
+    // JVM unit-test lane. The app-application convention (unlike the library one) adds no test
+    // deps, so wire junit/truth here for the Crashlytics message sanitizer tests (APP-626).
+    testImplementation(libs.junit)
+    testImplementation(libs.truth)
 
     // Instrumented-test lane (Compose UI). BOM + ui-test-junit4 come from the compose convention.
     androidTestImplementation(libs.androidx.test.ext.junit)
