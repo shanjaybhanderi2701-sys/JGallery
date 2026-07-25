@@ -56,8 +56,12 @@ interface ViewDefaults {
         /** Default slideshow interval; matches the Settings §6 default value. */
         const val DEFAULT_SLIDESHOW_INTERVAL_MS: Long = 4_000L
 
-        /** Sane lower bound so a stored/garbage value can never make the slideshow flicker-advance. */
-        const val MIN_SLIDESHOW_INTERVAL_MS: Long = 1_000L
+        /**
+         * Sane lower bound so a stored/garbage value can never make the slideshow flicker-advance.
+         * 500ms (sub-second) is the fastest option the Settings picker exposes (APP-642) — the store
+         * is millisecond-resolution, so a half-second interval round-trips without truncation.
+         */
+        const val MIN_SLIDESHOW_INTERVAL_MS: Long = 500L
 
         /** Sane upper bound so a stored/garbage value can never pin a slide indefinitely. */
         const val MAX_SLIDESHOW_INTERVAL_MS: Long = 60_000L

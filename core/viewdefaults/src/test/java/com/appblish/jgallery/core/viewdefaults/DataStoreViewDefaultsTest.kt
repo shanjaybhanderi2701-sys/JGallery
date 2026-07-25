@@ -53,6 +53,15 @@ class DataStoreViewDefaultsTest {
     }
 
     @Test
+    fun `a half-second interval round-trips without truncation`() = runTest {
+        // APP-642: 0.5s is the fastest picker option — it must survive the seam's floor unclamped,
+        // and the ms-resolution store must not round it to whole seconds.
+        assertThat(ViewDefaults.MIN_SLIDESHOW_INTERVAL_MS).isAtMost(500L)
+        defaults.setSlideshowIntervalMs(500L)
+        assertThat(defaults.slideshowIntervalMs.first()).isEqualTo(500L)
+    }
+
+    @Test
     fun `an out-of-range stored slideshow interval is clamped on read`() = runTest {
         backing.edit { it[longPreferencesKey("slideshow_interval_ms")] = 5L }
         assertThat(defaults.slideshowIntervalMs.first())
