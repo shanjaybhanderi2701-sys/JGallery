@@ -14,6 +14,8 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.playback.PlaybackSources
+import com.appblish.jgallery.core.ui.share.MediaShareRequest
+import com.appblish.jgallery.core.ui.share.ShareIntents
 import com.appblish.jgallery.core.viewdefaults.ViewDefaults
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -114,6 +116,15 @@ class ViewerViewModel @Inject constructor(
     private val openWithRequests = Channel<Uri>(Channel.BUFFERED)
     val openWithUri: Flow<Uri> = openWithRequests.receiveAsFlow()
 
+    /**
+     * One-shot: a resolved single-item "Share" request (APP-641), consumed by the screen to fire the
+     * system share sheet. Reuses the exact [MediaShareRequest] / [ShareIntents] shape the grid & album
+     * multi-select share already ships (APP-541/549) — the viewer just resolves the one on-screen item
+     * to its §1.6-sanctioned MediaStore `content://` uri, so both surfaces share one launch path.
+     */
+    private val shareRequests = Channel<MediaShareRequest>(Channel.BUFFERED)
+    val shareEvents: Flow<MediaShareRequest> = shareRequests.receiveAsFlow()
+
     // Ops run in the retained viewModelScope so a copy/move survives a config change (spec §7.6).
     private var runningJob: Job? = null
 
@@ -161,6 +172,28 @@ class ViewerViewModel @Inject constructor(
                     ),
                 )
             }
+        }
+    }
+
+    /**
+     * Resolve the on-screen item to its `content://` uri and emit a single-item share request for the
+     * screen to launch the system chooser (APP-641). A null uri means the item was deleted underneath us,
+     * which surfaces as [MediaShareRequest.Empty]. The [mimeType] is the item's own type, narrowed through
+     * the same [ShareIntents.commonMimeType] the multi-select share uses so the chooser filters sensibly.
+     */
+    fun share(id: MediaId, mimeType: String) {
+        viewModelScope.launch {
+            val uri = operations.viewUri(id)
+            shareRequests.send(
+                if (uri == null) {
+                    MediaShareRequest.Empty
+                } else {
+                    MediaShareRequest.Ready(
+                        uris = listOf(uri),
+                        mimeType = ShareIntents.commonMimeType(listOf(mimeType)),
+                    )
+                },
+            )
         }
     }
 

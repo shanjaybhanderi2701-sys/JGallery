@@ -248,6 +248,27 @@ class ViewerViewModelTest {
         assertThat(finished.result.failed).isEqualTo(1)
     }
 
+    // --- share (APP-641) ---
+
+    @Test
+    fun `share on a vanished item emits Empty, not a share request for a dead uri`() = runTest {
+        // viewUri resolving to null models the on-screen item being deleted underneath us. The viewer
+        // must surface "nothing to share" rather than build a chooser around a stale/absent content uri
+        // (the failure mode this bug fix guards). No real android.net.Uri is needed on this branch, so it
+        // stays a pure JVM test — the Ready/happy path fires a real system chooser and is device-verified.
+        operations.viewUriResult = null
+        val vm = viewModel(mediaId = "a")
+
+        val events = mutableListOf<com.appblish.jgallery.core.ui.share.MediaShareRequest>()
+        val job = launch { vm.shareEvents.collect { events += it } }
+
+        vm.share(MediaId("a"), mimeType = "image/jpeg")
+        advanceUntilIdle()
+
+        assertThat(events).containsExactly(com.appblish.jgallery.core.ui.share.MediaShareRequest.Empty)
+        job.cancel()
+    }
+
     // --- helpers ---
 
     private suspend fun kotlinx.coroutines.flow.StateFlow<ViewerUiState>.collectReady(
