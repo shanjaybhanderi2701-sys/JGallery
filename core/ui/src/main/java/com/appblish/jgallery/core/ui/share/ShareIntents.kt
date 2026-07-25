@@ -69,8 +69,13 @@ object ShareIntents {
             type = mimeType
             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
             // Attach every uri as ClipData so the temporary read grant reaches the chosen app for the
-            // whole EXTRA_STREAM list, not just the primary data uri.
-            clipData = ClipData.newUri(null, "shared media", uris.first()).also { clip ->
+            // whole EXTRA_STREAM list, not just the primary data uri. Built with newRawUri, NOT newUri:
+            // newUri resolves the content type through a ContentResolver, and passing null there NPEs on
+            // any `content://` uri (ClipData.getMimeTypes → ContentResolver.getType on null) — which threw
+            // *before* startActivity, breaking every share (APP-641). The ClipData is only carrying the
+            // grant here; the chooser filters on `intent.type` (set above), so the raw text/uri-list
+            // description newRawUri assigns is irrelevant and no resolver is needed.
+            clipData = ClipData.newRawUri("shared media", uris.first()).also { clip ->
                 uris.drop(1).forEach { clip.addItem(ClipData.Item(it)) }
             }
         }

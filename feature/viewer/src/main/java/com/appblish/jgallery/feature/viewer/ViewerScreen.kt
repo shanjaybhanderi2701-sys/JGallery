@@ -6,6 +6,7 @@ import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
 import android.view.View
+import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -85,6 +86,8 @@ import com.appblish.jgallery.core.ui.component.FavoriteRed
 import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
 import com.appblish.jgallery.core.ui.selection.MoveDestinationSheet
+import com.appblish.jgallery.core.ui.share.MediaShareRequest
+import com.appblish.jgallery.core.ui.share.ShareIntents
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryViewerTheme
 import kotlinx.coroutines.delay
@@ -102,6 +105,8 @@ internal data class ViewerActionHandlers(
     /** Rotate the image 90° left/right, persisting orientation to the file (G3-1 · APP-639). */
     val onRotate: (id: MediaId, direction: RotationDirection) -> Unit,
     val onDelete: (id: MediaId) -> Unit,
+    /** Fire the system share sheet for the single on-screen item (APP-641). [mimeType] narrows the chooser. */
+    val onShare: (id: MediaId, mimeType: String) -> Unit,
     val onSetAs: (id: MediaId) -> Unit,
     /** Hand an undecodable video to another app (W3-05 "Open with", §8). Resolves via §1.6 viewUri. */
     val onOpenWith: (id: MediaId) -> Unit,
@@ -115,8 +120,8 @@ private enum class PickerMode { COPY, MOVE }
  * Full-screen viewer (spec §5, design W1-08/09/10): swipe pager across the launch scope, image
  * zoom with pager-safe gesture priority, Media3 video playback, dark viewer-only chrome. The overflow
  * + bottom-bar file actions (Copy/Move/Rename/Set-as/Delete/Info) run through the §7 E8 core via the
- * `:core:index` operations facade (W2-E12). Favourite (APP-543) and Rotate (G3-1 · APP-639) are live;
- * Share / Edit stay deferred stubs.
+ * `:core:index` operations facade (W2-E12). Favourite (APP-543), Rotate (G3-1 · APP-639) and Share
+ * (APP-641, system share sheet) are live; Edit stays a deferred stub.
  */
 @Composable
 internal fun ViewerRoute(
@@ -137,6 +142,16 @@ internal fun ViewerRoute(
         // Resolved boundary uri for an unplayable video → hand it to another app (§8 W3-05 "Open with").
         viewModel.openWithUri.collect { uri -> context.launchOpenWith(uri) }
     }
+    LaunchedEffect(viewModel) {
+        // Resolved single-item share (APP-641) → fire the system share sheet, or toast if it's gone.
+        viewModel.shareEvents.collect { request ->
+            when (request) {
+                is MediaShareRequest.Ready -> context.launchShareSheet(request.uris, request.mimeType)
+                MediaShareRequest.Empty ->
+                    Toast.makeText(context, "Nothing left to share", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     ViewerScreen(
         state = state,
         playback = viewModel.playback,
@@ -150,6 +165,7 @@ internal fun ViewerRoute(
             onRename = viewModel::rename,
             onRotate = viewModel::rotate,
             onDelete = viewModel::delete,
+            onShare = viewModel::share,
             onSetAs = viewModel::setAs,
             onOpenWith = viewModel::openWith,
             onResultShown = viewModel::dismissActionResult,
@@ -260,6 +276,18 @@ private fun Context.launchSetAs(uri: Uri) {
     }
     // No handler on this device (or a non-Activity context) shouldn't crash the viewer.
     runCatching { startActivity(Intent.createChooser(attach, "Set as")) }
+}
+
+/**
+ * Fire the system share sheet for the single on-screen item (APP-641). [uris] holds the one
+ * §1.6-sanctioned MediaStore `content://` uri; [ShareIntents] builds the read-only + temporary
+ * `ACTION_SEND` intent (the identical construction the grid / album multi-select share uses,
+ * APP-541/549), and `runCatching` degrades to a no-op if the device has no share target instead of
+ * crashing the viewer.
+ */
+private fun Context.launchShareSheet(uris: List<Uri>, mimeType: String) {
+    val intent = ShareIntents.buildSendIntent(uris, mimeType)
+    runCatching { startActivity(Intent.createChooser(intent, "Share")) }
 }
 
 /**
@@ -394,6 +422,7 @@ private fun ViewerPager(
             ViewerActionBar(
                 item = currentItem,
                 canSlideshow = items.size > 1,
+                onShare = { currentItem?.let { handlers.onShare(it.id, it.mimeType) } },
                 onCopyTo = { picker = PickerMode.COPY },
                 onMoveTo = { picker = PickerMode.MOVE },
                 onRename = { renaming = true },
@@ -566,14 +595,16 @@ private fun ViewerHeader(
 }
 
 /**
- * Bottom action bar (design W1-08/10). Delete (→ Trash) and Move to are live single-item actions;
- * Share and Edit render disabled at 38% — deferred phases with their slots reserved (design deviation
- * #2). More opens the Phase-G1 overflow subset (spec §5); "Set as" only shows for images (§7.4).
+ * Bottom action bar (design W1-08/10). Share (APP-641), Delete (→ Trash) and Move to are live
+ * single-item actions; Edit renders disabled at 38% — still a deferred phase with its slot reserved
+ * (design deviation #2). More opens the Phase-G1 overflow subset (spec §5); "Set as" only shows for
+ * images (§7.4).
  */
 @Composable
 private fun ViewerActionBar(
     item: MediaItem?,
     canSlideshow: Boolean,
+    onShare: () -> Unit,
     onCopyTo: () -> Unit,
     onMoveTo: () -> Unit,
     onRename: () -> Unit,
@@ -606,7 +637,12 @@ private fun ViewerActionBar(
             .testTag("viewer_actions"),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        ViewerAction(Icons.Filled.Share, "Share", Modifier.weight(1f), enabled = false) {}
+        ViewerAction(
+            Icons.Filled.Share,
+            "Share",
+            Modifier.weight(1f).testTag("viewer_share"),
+            enabled = item != null,
+        ) { onShare() }
         ViewerAction(Icons.Outlined.Delete, "Delete", Modifier.weight(1f)) { onDelete() }
         ViewerAction(Icons.Outlined.DriveFileMove, "Move to", Modifier.weight(1f)) { onMoveTo() }
         ViewerAction(Icons.Filled.Edit, "Edit", Modifier.weight(1f), enabled = false) {}

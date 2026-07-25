@@ -98,6 +98,7 @@ class ViewerScreenTest {
         onMoveToNewAlbum = { _, _ -> },
         onRename = { _, _ -> },
         onDelete = {},
+        onShare = { _, _ -> },
         onSetAs = {},
         onOpenWith = {},
         onResultShown = {},
@@ -259,5 +260,22 @@ class ViewerScreenTest {
         composeRule.waitForIdle()
 
         composeRule.onNodeWithTag("viewer_overflow_Slideshow").assertDoesNotExist()
+    }
+
+    @Test
+    fun shareButton_isEnabled_andFiresShareForTheOnScreenItem() {
+        // APP-641: the viewer Share slot was a disabled deferred stub; it must now be live and hand the
+        // current page's id + mime to the share handler (which resolves the content uri + launches the
+        // system chooser). Recording the callback proves the button→handler wiring end-to-end.
+        var shared: Pair<MediaId, String>? = null
+        val handlers = noopHandlers().copy(onShare = { id, mime -> shared = id to mime })
+        setViewer(items = List(2) { imageItem(it) }, initialIndex = 1, handlers = handlers)
+
+        // The action-bar Share is on-screen (chrome starts visible) and enabled.
+        composeRule.onNodeWithTag("viewer_share").assertIsDisplayed().performClick()
+        composeRule.waitForIdle()
+
+        // It fires for the page the user is actually on (index 1), with that item's own mime.
+        assertEquals(MediaId("img_1") to "image/jpeg", shared)
     }
 }
