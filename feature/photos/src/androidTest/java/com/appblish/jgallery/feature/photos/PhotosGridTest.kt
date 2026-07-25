@@ -1,7 +1,9 @@
 package com.appblish.jgallery.feature.photos
 
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -140,8 +142,14 @@ class PhotosGridTest {
         // The pill is actually on screen with non-zero size (the exact thing the old bug broke)...
         composeRule.onNodeWithTag("fast_scroll_bubble").assertIsDisplayed()
         // ...and carries the sort-aware context label ("Month 2026 · item N of 10,000" for the default
-        // Last-Modified sort). All fixture dates are in 2026, so the year proves a real readout.
-        composeRule.onNodeWithTag("fast_scroll_bubble").assertTextContains("2026", substring = true)
+        // Last-Modified sort). All fixture dates are in 2026, so the year proves a real readout. The pill's
+        // Text is an UNMERGED child of the tagged Box (a plain testTag is not a merge boundary), so the year
+        // lives on that child node, not on the tag node — asserting assertTextContains on the tag alone finds
+        // no Text and throws on device. Scope the match to the bubble subtree via the ancestor tag so it
+        // can't collide with the "Month 2026" grid date headers.
+        composeRule.onNode(
+            hasText("2026", substring = true) and hasAnyAncestor(hasTestTag("fast_scroll_bubble")),
+        ).assertIsDisplayed()
 
         // Release → `dragging` flips false → the bubble fades out (design §3), unlike the thumb which
         // lingers AUTO_HIDE_MS. 1s covers the fade-out.
