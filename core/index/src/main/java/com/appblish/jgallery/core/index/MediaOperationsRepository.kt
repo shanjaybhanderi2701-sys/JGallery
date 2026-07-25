@@ -35,6 +35,18 @@ interface MediaOperationsRepository {
     suspend fun rename(id: MediaId, newDisplayName: String): OperationResult
 
     /**
+     * Rotate the image [id] 90° in [direction], persisting the new orientation to the file so other
+     * apps see it rotated (spec §7 · G3-1) — not a view-only transform. Returns a one-item
+     * [OperationResult] (`succeeded = 1`, or `failed = 1` with a reason). The cached index and the
+     * thumbnail/full-image caches refresh reactively off the resulting modified-time change, so callers
+     * never manually refresh. Off the main thread.
+     */
+    suspend fun rotateImage(
+        id: MediaId,
+        direction: com.appblish.jgallery.core.model.RotationDirection,
+    ): OperationResult
+
+    /**
      * A readable `content://` uri for [id] to hand to the system "set as" intent (`ACTION_ATTACH_DATA`
      * — wallpaper / contact photo, spec §7.4). Null if the item no longer exists. The caller grants
      * the receiving app read permission on the intent (the only sanctioned uri exposure — APP-297).

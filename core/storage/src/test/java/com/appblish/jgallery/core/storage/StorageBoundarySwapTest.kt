@@ -131,6 +131,7 @@ class StorageBoundarySwapTest {
         override fun observeMediaChanges(): Flow<Unit> = emptyFlow()
 
         override suspend fun rename(id: MediaId, newDisplayName: String) = ok()
+        override suspend fun rotateImage(id: MediaId, direction: com.appblish.jgallery.core.model.RotationDirection) = ok()
         override suspend fun createAlbum(name: String) = ok()
         override suspend fun renameAlbum(bucketId: String, newName: String) = ok()
         override suspend fun viewUri(id: MediaId): android.net.Uri? = null

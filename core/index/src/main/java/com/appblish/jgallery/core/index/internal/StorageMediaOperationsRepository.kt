@@ -31,6 +31,11 @@ internal class StorageMediaOperationsRepository @Inject constructor(
     override suspend fun rename(id: MediaId, newDisplayName: String): OperationResult =
         storage.rename(id, newDisplayName)
 
+    override suspend fun rotateImage(
+        id: MediaId,
+        direction: com.appblish.jgallery.core.model.RotationDirection,
+    ): OperationResult = storage.rotateImage(id, direction)
+
     override suspend fun viewUri(id: MediaId): Uri? = storage.viewUri(id)
 
     override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> =

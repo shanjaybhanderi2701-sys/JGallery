@@ -13,6 +13,7 @@ import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.OperationResult
+import com.appblish.jgallery.core.model.RotationDirection
 import com.appblish.jgallery.core.playback.PlaybackSources
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
@@ -126,6 +127,22 @@ class ViewerViewModel @Inject constructor(
             _action.value = ViewerActionUiState.Finished(
                 ViewerActionKind.RENAME,
                 operations.rename(id, newDisplayName),
+            )
+        }
+    }
+
+    /**
+     * Rotate the current image 90° left/right, persisting orientation to the file (spec §7 · G3-1). The
+     * on-screen image + thumbnail refresh themselves: the persist bumps the item's modified-time, which
+     * flips the cache version token the index re-emits, so no manual invalidation is needed here.
+     */
+    fun rotate(id: MediaId, direction: RotationDirection) {
+        runningJob?.cancel()
+        _action.value = ViewerActionUiState.Running(ViewerActionKind.ROTATE)
+        runningJob = viewModelScope.launch {
+            _action.value = ViewerActionUiState.Finished(
+                ViewerActionKind.ROTATE,
+                operations.rotateImage(id, direction),
             )
         }
     }

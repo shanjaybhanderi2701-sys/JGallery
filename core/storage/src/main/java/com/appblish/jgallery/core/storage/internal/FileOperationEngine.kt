@@ -98,6 +98,27 @@ internal class FileOperationEngine(
     }
 
     /**
+     * Rotate a single image 90° in [direction], persisting the new orientation to the file (spec §7 ·
+     * G3-1). Pure policy over [ops] mirroring [rename]: confirm the item still exists, translate a
+     * thrown platform failure into an attributable [OperationResult] failure (so a bad file never
+     * crashes the viewer), and report success/failure as a one-item summary. The EXIF/pixel rewrite
+     * itself is the platform primitive, device-verified in the instrumented test.
+     */
+    suspend fun rotate(
+        id: MediaId,
+        direction: com.appblish.jgallery.core.model.RotationDirection,
+    ): OperationResult = withContext(io) {
+        val ok = try {
+            ops.rotate(id, direction)
+        } catch (c: CancellationException) {
+            throw c
+        } catch (t: Throwable) {
+            return@withContext failure(id, t.message ?: t.javaClass.simpleName)
+        }
+        if (ok) OperationResult(succeeded = 1, failed = 0) else failure(id, "couldn't rotate this item")
+    }
+
+    /**
      * Rename an album/folder as an entity (spec §7.3, §11): a folder rename manifests through
      * MediaStore as moving every member row into a sibling folder whose last path segment is
      * [newName]. Pure policy over [ops] — name validation, a no-op when the name is unchanged, and a

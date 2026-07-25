@@ -11,6 +11,7 @@ internal enum class ViewerActionKind(val doneLabel: String, val failLabel: Strin
     COPY("Copied", "Couldn't copy"),
     MOVE("Moved", "Couldn't move"),
     RENAME("Renamed", "Couldn't rename"),
+    ROTATE("Rotated", "Couldn't rotate"),
     TRASH("Moved to Trash", "Couldn't delete"),
     SET_AS("", "Set as unavailable"),
 }

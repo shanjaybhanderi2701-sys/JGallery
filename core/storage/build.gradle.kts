@@ -16,4 +16,8 @@ dependencies {
     // SAF export destination (G2 · APP-549): stream a "Save a copy" into a user-picked folder tree.
     // Stays inside this privileged module, so no feature ever touches DocumentFile / ContentResolver.
     implementation(libs.androidx.documentfile)
+
+    // Lossless photo rotation (G3-1 · APP-639): rewrite the EXIF Orientation tag in place. Stays inside
+    // this privileged boundary module — no feature touches ExifInterface / the raw file directly.
+    implementation(libs.androidx.exifinterface)
 }

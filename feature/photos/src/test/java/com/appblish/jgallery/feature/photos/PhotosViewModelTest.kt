@@ -235,6 +235,7 @@ class PhotosViewModelTest {
     private object NoopOperations : MediaOperationsRepository {
         override suspend fun createAlbum(name: String) = OperationResult(succeeded = 1, failed = 0)
         override suspend fun rename(id: MediaId, newDisplayName: String) = OperationResult(succeeded = 1, failed = 0)
+        override suspend fun rotateImage(id: MediaId, direction: com.appblish.jgallery.core.model.RotationDirection) = OperationResult(succeeded = 1, failed = 0)
         override suspend fun viewUri(id: MediaId): android.net.Uri? = null
         override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()

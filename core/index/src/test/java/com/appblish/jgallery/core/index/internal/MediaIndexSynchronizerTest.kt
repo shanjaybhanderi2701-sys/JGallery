@@ -119,6 +119,7 @@ private class FakeStorageAccess(val device: MutableList<MediaItem>) : StorageAcc
     override suspend fun queryAlbums(): List<Album> = error("unused")
     override suspend fun openStream(id: MediaId, target: DecodeTarget): InputStream = error("unused")
     override suspend fun rename(id: MediaId, newDisplayName: String) = error("unused")
+    override suspend fun rotateImage(id: MediaId, direction: com.appblish.jgallery.core.model.RotationDirection) = error("unused")
     override suspend fun createAlbum(name: String) = error("unused")
     override suspend fun renameAlbum(bucketId: String, newName: String) = error("unused")
     override suspend fun viewUri(id: MediaId): android.net.Uri? = error("unused")

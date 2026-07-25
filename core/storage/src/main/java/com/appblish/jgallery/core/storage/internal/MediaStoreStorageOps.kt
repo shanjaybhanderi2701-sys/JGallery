@@ -1,16 +1,22 @@
 package com.appblish.jgallery.core.storage.internal
 
+import android.app.RecoverableSecurityException
 import android.content.ContentResolver
 import android.content.ContentUris
 import android.content.ContentValues
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
 import android.provider.MediaStore
 import androidx.documentfile.provider.DocumentFile
+import androidx.exifinterface.media.ExifInterface
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaType
+import com.appblish.jgallery.core.model.RotationDirection
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
@@ -115,6 +121,36 @@ internal class MediaStoreStorageOps(
             put(MediaStore.MediaColumns.DISPLAY_NAME, newName)
         }
         resolver.update(idToUri(id), values, null, null) > 0
+    }
+
+    /**
+     * Rotate the image [id] 90° in [direction], writing the new orientation back to the underlying
+     * file (spec §7 · G3-1). Two strategies, in order:
+     *  1. **EXIF orientation rewrite** — lossless and fast; only the header's `Orientation` tag changes,
+     *     the pixel bytes are untouched. This is what ExifInterface can save for JPEG/PNG/WebP; other
+     *     apps and MediaStore's own thumbnailer honour the tag, so the photo shows rotated everywhere.
+     *  2. **Pixel re-encode fallback** — for formats ExifInterface can't write. We bake the file's
+     *     current display orientation (from any EXIF tag) plus the requested turn into the pixels, then
+     *     re-encode in a compatible format; a format we can't safely re-encode returns false (graceful).
+     *
+     * Either way we bump `DATE_MODIFIED` so `:core:index`'s version token (`dateModifiedMillis`) flips,
+     * which both invalidates the Coil thumbnail/full-image cache and makes MediaStore regenerate its
+     * thumbnail. Under All Files Access no per-item write consent is needed; a
+     * [RecoverableSecurityException] (the scoped-storage / MEDIA_PERMISSIONS path) is caught and
+     * surfaced as a plain failure rather than crashing — the consent IntentSender flow is a follow-up
+     * for that backend (spec §9.4). Non-images (video) return false.
+     */
+    override suspend fun rotate(id: MediaId, direction: RotationDirection): Boolean = withContext(io) {
+        val mime = (readString(id, MediaStore.Files.FileColumns.MIME_TYPE) ?: DEFAULT_MIME).lowercase()
+        if (!mime.startsWith("image/")) return@withContext false
+        val uri = idToUri(id)
+        try {
+            val rotated = rotateViaExif(uri, direction) || rotatePixels(uri, mime, direction)
+            if (rotated) touchDateModified(uri)
+            rotated
+        } catch (_: RecoverableSecurityException) {
+            false // scoped-storage write consent required — not reachable under All Files Access
+        }
     }
 
     override suspend fun albumRelativePath(bucketId: String): String? = withContext(io) {
@@ -269,6 +305,110 @@ internal class MediaStoreStorageOps(
         }
     }
 
+    /**
+     * Lossless rotate by rewriting only the EXIF `Orientation` tag. Opens the file read-write, reads
+     * the current orientation, asks the pure [ExifOrientation] math for the new value, saves it back.
+     * Returns false (so the caller falls back to a pixel re-encode) when the format can't carry a
+     * writable EXIF orientation — `saveAttributes` throws `IOException` for those.
+     */
+    private fun rotateViaExif(uri: Uri, direction: RotationDirection): Boolean =
+        try {
+            resolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+                val exif = ExifInterface(pfd.fileDescriptor)
+                val current = exif.getAttributeInt(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifInterface.ORIENTATION_NORMAL,
+                )
+                exif.setAttribute(
+                    ExifInterface.TAG_ORIENTATION,
+                    ExifOrientation.rotate(current, direction).toString(),
+                )
+                exif.saveAttributes()
+                true
+            } ?: false
+        } catch (_: java.io.IOException) {
+            false // format has no writable EXIF (e.g. HEIC/BMP/GIF) → caller re-encodes pixels
+        }
+
+    /**
+     * Fallback rotate for formats without a writable EXIF orientation: decode the stored pixels, bake
+     * in both the file's existing display orientation and the requested turn, and re-encode in place.
+     * Because `BitmapFactory` decodes the *stored* (un-oriented) pixels, we add any current EXIF
+     * rotation so the result isn't double-oriented, then clear the tag to normal when the format still
+     * carries one. Returns false for a format we can't re-encode (leaving the file untouched).
+     */
+    private fun rotatePixels(uri: Uri, mime: String, direction: RotationDirection): Boolean {
+        val format = compressFormatFor(mime) ?: return false
+        val existingDegrees = runCatching {
+            resolver.openInputStream(uri)?.use { ExifInterface(it).rotationDegrees }
+        }.getOrNull() ?: 0
+        val delta = if (direction == RotationDirection.RIGHT) 90 else 270
+        val totalDegrees = (existingDegrees + delta) % 360
+
+        val source = resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+            ?: return false
+        val matrix = Matrix().apply { postRotate(totalDegrees.toFloat()) }
+        val rotated = Bitmap.createBitmap(source, 0, 0, source.width, source.height, matrix, true)
+        if (rotated !== source) source.recycle()
+
+        val wrote = try {
+            resolver.openOutputStream(uri, "wt")?.use { out ->
+                rotated.compress(format, RECODE_QUALITY, out)
+            } ?: false
+        } finally {
+            rotated.recycle()
+        }
+        // We baked orientation into the pixels; make sure no residual EXIF tag re-applies it.
+        if (wrote) runCatching { clearExifOrientation(uri) }
+        return wrote
+    }
+
+    /** Reset the EXIF orientation to normal after a pixel re-encode (no-op if the format has no EXIF). */
+    private fun clearExifOrientation(uri: Uri) {
+        runCatching {
+            resolver.openFileDescriptor(uri, "rw")?.use { pfd ->
+                val exif = ExifInterface(pfd.fileDescriptor)
+                if (exif.getAttribute(ExifInterface.TAG_ORIENTATION) != null) {
+                    exif.setAttribute(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL.toString(),
+                    )
+                    exif.saveAttributes()
+                }
+            }
+        }
+    }
+
+    /**
+     * Nudge the index/caches to refresh after a rotate. The file rewrite already advances the row's
+     * `DATE_MODIFIED` (its file mtime) and `SIZE`, which is what flips the cache version token and lets
+     * the index's signature diff notice the change; an existing gallery photo's mtime is always an
+     * earlier second than "now", so the token reliably changes. This explicit `update` is belt-and-
+     * braces: on providers that honour a written `DATE_MODIFIED` it stamps the new second, and either
+     * way the `update` call itself pings the `ContentObserver` so the index re-syncs promptly rather
+     * than waiting for the next scan. (API 35's MediaProvider derives `DATE_MODIFIED` from the file
+     * mtime and ignores the written value — the notify is the part that matters there.)
+     */
+    private fun touchDateModified(uri: Uri) {
+        val values = ContentValues().apply {
+            put(MediaStore.MediaColumns.DATE_MODIFIED, System.currentTimeMillis() / 1000L)
+        }
+        runCatching { resolver.update(uri, values, null, null) }
+    }
+
+    /** A [Bitmap.CompressFormat] that matches [mime] for an in-place re-encode, or null if unsafe. */
+    private fun compressFormatFor(mime: String): Bitmap.CompressFormat? = when (mime) {
+        "image/jpeg", "image/jpg" -> Bitmap.CompressFormat.JPEG
+        "image/png" -> Bitmap.CompressFormat.PNG
+        "image/webp" ->
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                Bitmap.CompressFormat.WEBP_LOSSLESS
+            } else {
+                @Suppress("DEPRECATION") Bitmap.CompressFormat.WEBP
+            }
+        else -> null // don't re-encode into a container we can't faithfully write
+    }
+
     private fun idToUri(id: MediaId): Uri =
         ContentUris.withAppendedId(
             MediaStore.Files.getContentUri(EXTERNAL_VOLUME),
@@ -327,6 +467,10 @@ internal class MediaStoreStorageOps(
         const val EXTERNAL_VOLUME = "external"
         const val DEFAULT_MIME = "application/octet-stream"
         const val FALLBACK_FOLDER = "JGallery"
+
+        // Quality for the pixel re-encode fallback (JPEG/WebP-lossy). Visually lossless; the common
+        // JPEG/PNG/WebP path never reaches here — it rotates via a lossless EXIF-tag rewrite instead.
+        const val RECODE_QUALITY = 95
 
         val DESCRIBE_PROJECTION = arrayOf(
             MediaStore.Files.FileColumns.DISPLAY_NAME,
