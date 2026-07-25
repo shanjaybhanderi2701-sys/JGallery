@@ -160,7 +160,7 @@ fun AlbumOpProgressDialog(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(28.dp))
-                .background(JGalleryColors.Background)
+                .background(MaterialTheme.colorScheme.surface)
                 .padding(24.dp),
         ) {
             when (state) {
@@ -179,7 +179,7 @@ private fun RunningBody(state: AlbumOpUiState.Running, onCancel: () -> Unit) {
             text = "${ctx.verb.presentParticiple()} “${ctx.albumName}”",
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
-            color = JGalleryColors.Text,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         Text(
             text = buildString {
@@ -188,7 +188,7 @@ private fun RunningBody(state: AlbumOpUiState.Running, onCancel: () -> Unit) {
                 append(" to ${ctx.destinationLabel}")
             },
             style = MaterialTheme.typography.bodyMedium,
-            color = JGalleryColors.TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.padding(top = 4.dp),
         )
         Spacer(Modifier.height(20.dp))
@@ -197,21 +197,21 @@ private fun RunningBody(state: AlbumOpUiState.Running, onCancel: () -> Unit) {
                 text = runningCounter(state.progress, ctx.total),
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = JGalleryColors.Text,
+                color = MaterialTheme.colorScheme.onSurface,
                 modifier = Modifier.weight(1f).testTag("album_op_counter"),
             )
             Text(
                 text = "${state.progress.percent()}%",
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
-                color = JGalleryColors.Accent,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
         Spacer(Modifier.height(8.dp))
         if (state.progress == null || state.progress.total == 0) {
             LinearProgressIndicator(
                 Modifier.fillMaxWidth().height(6.dp).clip(RoundedCornerShape(3.dp)),
-                color = JGalleryColors.Accent,
+                color = MaterialTheme.colorScheme.primary,
             )
         } else {
             LinearProgressIndicator(
@@ -221,14 +221,14 @@ private fun RunningBody(state: AlbumOpUiState.Running, onCancel: () -> Unit) {
                     .height(6.dp)
                     .clip(RoundedCornerShape(3.dp))
                     .testTag("album_op_bar"),
-                color = JGalleryColors.Accent,
+                color = MaterialTheme.colorScheme.primary,
             )
         }
         state.progress?.currentName?.let {
             Text(
                 text = it,
                 style = MaterialTheme.typography.bodySmall,
-                color = JGalleryColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
                 modifier = Modifier.padding(top = 8.dp).testTag("album_op_current"),
@@ -271,7 +271,7 @@ private fun FinishedBody(
             text = finishedHeadline(state),
             style = MaterialTheme.typography.titleLarge,
             fontWeight = FontWeight.SemiBold,
-            color = JGalleryColors.Text,
+            color = MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.testTag("album_op_result_headline"),
         )
         if (partial) {
@@ -280,7 +280,7 @@ private fun FinishedBody(
                 text = "${state.summary.failed} items couldn't be " +
                     "${state.context.verb.pastParticiple()} and were left in place.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = JGalleryColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 8.dp),
             )
             Spacer(Modifier.height(16.dp))
@@ -326,7 +326,7 @@ private fun FailureRow(name: String, reason: String) {
             text = name,
             style = MaterialTheme.typography.bodyMedium,
             fontWeight = FontWeight.SemiBold,
-            color = JGalleryColors.Text,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )

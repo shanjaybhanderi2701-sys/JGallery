@@ -18,7 +18,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.appblish.jgallery.core.model.ColumnCount
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * "Column count" bottom sheet (design W1-06): a 2–6 selector that mirrors the pinch value — picking
@@ -48,7 +47,7 @@ fun ColumnCountSheet(
                         modifier = Modifier
                             .size(52.dp)
                             .background(
-                                color = if (selected) JGalleryColors.Accent else JGalleryColors.Surface,
+                                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                 shape = CircleShape,
                             )
                             .clickable {
@@ -61,7 +60,7 @@ fun ColumnCountSheet(
                         Text(
                             text = "$count",
                             style = MaterialTheme.typography.titleMedium,
-                            color = if (selected) JGalleryColors.OnAccent else JGalleryColors.Text,
+                            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
                         )
                     }
                 }

@@ -15,6 +15,7 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -27,7 +28,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * One canonical gallery title bar (design G1-D7 §1): a title on the left, then **Search + 3-dot
@@ -50,7 +50,7 @@ fun GalleryTopBar(
             Icon(
                 imageVector = Icons.Outlined.Search,
                 contentDescription = "Search",
-                tint = JGalleryColors.Text,
+                tint = MaterialTheme.colorScheme.onSurface,
             )
         }
         GalleryOverflowMenu(items = overflowItems, testTag = overflowTestTag)
@@ -108,7 +108,7 @@ fun GalleryOverflowMenu(
             Icon(
                 imageVector = Icons.Outlined.MoreVert,
                 contentDescription = contentDescription,
-                tint = JGalleryColors.Text,
+                tint = MaterialTheme.colorScheme.onSurface,
             )
         }
         DropdownMenu(

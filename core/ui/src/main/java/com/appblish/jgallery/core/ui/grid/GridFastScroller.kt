@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.LazyGridState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -44,7 +45,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
@@ -204,7 +204,7 @@ fun BoxScope.GridFastScroller(
                     .width(2.dp)
                     .fillMaxHeight()
                     .clip(RoundedCornerShape(1.dp))
-                    .background(JGalleryColors.TextSecondary.copy(alpha = 0.20f)),
+                    .background(MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.20f)),
             )
             Thumb(
                 fraction = fraction,
@@ -258,8 +258,8 @@ private fun BoxScope.Thumb(fraction: Float, grabbed: Boolean, trackHeightPx: Int
     val heightPx = with(density) { ThumbHeight.toPx() }
     val scale by animateFloatAsState(if (grabbed) ThumbGrabScale else 1f, label = "thumbScale")
     val y = (fraction * (trackHeightPx - heightPx).coerceAtLeast(0f)).roundToInt()
-    val container = if (grabbed) JGalleryColors.Accent else JGalleryColors.Background
-    val gripTint = if (grabbed) JGalleryColors.OnAccent else JGalleryColors.TextSecondary
+    val container = if (grabbed) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
+    val gripTint = if (grabbed) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant
     Box(
         modifier = Modifier
             .offset { IntOffset(0, y) }

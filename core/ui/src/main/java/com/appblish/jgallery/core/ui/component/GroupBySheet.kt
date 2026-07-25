@@ -22,7 +22,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import com.appblish.jgallery.core.model.GroupBy
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
 
 /**
@@ -43,7 +42,7 @@ fun GroupBySheet(
     ModalBottomSheet(
         onDismissRequest = onDismiss,
         shape = JGalleryDimens.SheetRadius,
-        containerColor = JGalleryColors.Background,
+        containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = { GrabHandle() },
         modifier = Modifier.testTag("group_by_sheet"),
     ) {
@@ -51,7 +50,7 @@ fun GroupBySheet(
             Text(
                 text = "Group by",
                 style = MaterialTheme.typography.headlineSmall,
-                color = JGalleryColors.Text,
+                color = MaterialTheme.colorScheme.onSurface,
             )
 
             GroupBy.entries.forEach { option ->
@@ -83,14 +82,14 @@ private fun GroupOptionRow(
         Text(
             text = label,
             style = MaterialTheme.typography.titleMedium,
-            color = if (selected) JGalleryColors.Accent else JGalleryColors.Text,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
         if (selected) {
             Icon(
                 imageVector = Icons.Filled.Check,
                 contentDescription = "Selected",
-                tint = JGalleryColors.Accent,
+                tint = MaterialTheme.colorScheme.primary,
             )
         }
     }
@@ -102,7 +101,7 @@ private fun GrabHandle() {
         Box(
             modifier = Modifier
                 .size(width = JGalleryDimens.GrabHandleWidth, height = JGalleryDimens.GrabHandleHeight)
-                .background(JGalleryColors.Surface, RoundedCornerShape(50)),
+                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(50)),
         )
     }
 }

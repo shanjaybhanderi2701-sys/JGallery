@@ -11,6 +11,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -19,7 +20,6 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * Corner select badge overlaid on a media tile while selection mode is active. Filled accent check
@@ -28,7 +28,7 @@ import com.appblish.jgallery.core.ui.theme.JGalleryColors
 @Composable
 fun BoxScope.SelectionCheckBadge(selected: Boolean, active: Boolean) {
     if (!active) return
-    val bg = if (selected) JGalleryColors.Accent else Color(0x66000000)
+    val bg = if (selected) MaterialTheme.colorScheme.primary else Color(0x66000000)
     Box(
         modifier = Modifier
             .align(Alignment.TopEnd)

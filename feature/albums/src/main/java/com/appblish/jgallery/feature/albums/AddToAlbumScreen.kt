@@ -22,6 +22,7 @@ import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.Button
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -116,11 +117,11 @@ fun AddToAlbumScreen(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             IconButton(onClick = onBack, modifier = Modifier.testTag("add_to_album_back")) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = JGalleryColors.Text)
+                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
             }
             Text(
                 text = "Add to $title",
-                color = JGalleryColors.Text,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 20.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -154,7 +155,7 @@ fun AddToAlbumScreen(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .fillMaxWidth()
-                            .background(JGalleryColors.Background)
+                            .background(MaterialTheme.colorScheme.surface)
                             .padding(16.dp),
                         horizontalArrangement = Arrangement.Center,
                     ) {
@@ -207,7 +208,7 @@ private fun AddToAlbumGrid(
                         // Pinch-release column swap slides each tile to its new slot (APP-519).
                         .animateItem(placementSpec = GridReflowPlacementSpec)
                         .aspectRatio(1f)
-                        .background(JGalleryColors.AccentSoft, tileShape)
+                        .background(MaterialTheme.colorScheme.primaryContainer, tileShape)
                         .clickable { onToggle(item.id) },
                 ) {
                     AsyncImage(

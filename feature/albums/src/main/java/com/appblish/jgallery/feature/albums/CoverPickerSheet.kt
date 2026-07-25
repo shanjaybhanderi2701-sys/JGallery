@@ -49,7 +49,7 @@ internal fun CoverPickerSheet(
         Text(
             text = "Choose cover for “$albumName”",
             style = MaterialTheme.typography.titleMedium,
-            color = JGalleryColors.Text,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 12.dp),
@@ -58,7 +58,7 @@ internal fun CoverPickerSheet(
             Text(
                 text = "This album has no photos to use as a cover yet.",
                 style = MaterialTheme.typography.bodyMedium,
-                color = JGalleryColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 24.dp),
             )
         } else {

@@ -142,7 +142,7 @@ internal fun AlbumCoverCard(
                 .clip(JGalleryDimens.AlbumCoverRadius)
                 .then(
                     if (selected) {
-                        Modifier.border(2.dp, JGalleryColors.Accent, JGalleryDimens.AlbumCoverRadius)
+                        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, JGalleryDimens.AlbumCoverRadius)
                     } else {
                         Modifier
                     },
@@ -176,18 +176,18 @@ internal fun AlbumCoverCard(
                     modifier = Modifier
                         .fillMaxSize()
                         .background(
-                            JGalleryColors.Accent.copy(alpha = if (selected) 0.28f else 0f),
+                            MaterialTheme.colorScheme.primary.copy(alpha = if (selected) 0.28f else 0f),
                         ),
                 )
                 Icon(
                     imageVector = if (selected) Icons.Filled.CheckCircle else Icons.Outlined.RadioButtonUnchecked,
                     contentDescription = if (selected) "Selected" else "Not selected",
-                    tint = if (selected) JGalleryColors.Accent else JGalleryColors.Background,
+                    tint = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
                     modifier = Modifier
                         .align(Alignment.TopEnd)
                         .padding(6.dp)
                         .size(24.dp)
-                        .then(if (selected) Modifier.background(JGalleryColors.Background, CircleShape) else Modifier)
+                        .then(if (selected) Modifier.background(MaterialTheme.colorScheme.surface, CircleShape) else Modifier)
                         .testTag(
                             if (selected) "album_selected_${album.bucketId}" else "album_unselected_${album.bucketId}",
                         ),
@@ -201,14 +201,14 @@ internal fun AlbumCoverCard(
                         .padding(6.dp)
                         .size(24.dp)
                         .clip(CircleShape)
-                        .background(JGalleryColors.Accent)
+                        .background(MaterialTheme.colorScheme.primary)
                         .testTag("album_pin_badge_${album.bucketId}"),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = Icons.Filled.PushPin,
                         contentDescription = "Pinned",
-                        tint = JGalleryColors.Background,
+                        tint = MaterialTheme.colorScheme.surface,
                         modifier = Modifier.size(14.dp),
                     )
                 }
@@ -217,7 +217,7 @@ internal fun AlbumCoverCard(
         Text(
             text = album.name,
             style = MaterialTheme.typography.titleMedium,
-            color = JGalleryColors.Text,
+            color = MaterialTheme.colorScheme.onSurface,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(top = 8.dp),
@@ -225,7 +225,7 @@ internal fun AlbumCoverCard(
         Text(
             text = "${album.itemCount}",
             style = MaterialTheme.typography.bodySmall,
-            color = JGalleryColors.TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

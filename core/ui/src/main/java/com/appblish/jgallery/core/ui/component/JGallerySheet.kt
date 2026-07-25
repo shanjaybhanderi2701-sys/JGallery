@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -53,7 +54,7 @@ fun JGallerySheet(
         onDismissRequest = onDismiss,
         modifier = modifier,
         shape = JGalleryDimens.SheetRadius,
-        containerColor = JGalleryColors.Background,
+        containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = { SheetHandle() },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = skipPartiallyExpanded),
     ) {
@@ -92,14 +93,14 @@ private fun SheetHeader(title: String, subtitle: String?) {
             text = title,
             fontSize = 20.sp,
             fontWeight = FontWeight.ExtraBold,
-            color = JGalleryColors.Text,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         if (subtitle != null) {
             Text(
                 text = subtitle,
                 fontSize = 12.5.sp,
                 fontWeight = FontWeight.SemiBold,
-                color = JGalleryColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp),
             )
         }

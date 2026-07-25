@@ -16,7 +16,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * Empty-library state (design a13): quiet icon + copy, image-forward, no dead-end taps.
@@ -41,20 +40,20 @@ fun EmptyTabState(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = JGalleryColors.TextSecondary,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(56.dp),
         )
         Text(
             text = title,
             style = MaterialTheme.typography.headlineSmall,
-            color = JGalleryColors.Text,
+            color = MaterialTheme.colorScheme.onSurface,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 16.dp),
         )
         Text(
             text = caption,
             style = MaterialTheme.typography.bodyLarge,
-            color = JGalleryColors.TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
             textAlign = TextAlign.Center,
             modifier = Modifier.padding(top = 8.dp),
         )

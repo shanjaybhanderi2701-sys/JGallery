@@ -17,6 +17,7 @@ import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
@@ -28,7 +29,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
 import com.appblish.jgallery.feature.onboarding.OnboardingCopy
 import com.appblish.jgallery.feature.onboarding.OnboardingLanguage
@@ -44,7 +44,7 @@ fun OnboardingLanguageScreen(
     onDone: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Surface(modifier = modifier.fillMaxSize(), color = JGalleryColors.Background) {
+    Surface(modifier = modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
         // Background fills edge-to-edge; the content stays inside the safe area so the title never
         // clips under the status bar and the CTA never clips under the nav bar (design §Inset, item 10).
         Column(
@@ -56,14 +56,14 @@ fun OnboardingLanguageScreen(
             Spacer(Modifier.height(32.dp))
             Text(
                 text = OnboardingCopy.LANGUAGE_TITLE,
-                color = JGalleryColors.Text,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 32.sp,
                 fontWeight = FontWeight.W800,
             )
             Spacer(Modifier.height(8.dp))
             Text(
                 text = OnboardingCopy.LANGUAGE_SUBTITLE,
-                color = JGalleryColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 15.sp,
             )
             Spacer(Modifier.height(16.dp))
@@ -86,8 +86,8 @@ fun OnboardingLanguageScreen(
                 modifier = Modifier.fillMaxWidth().height(JGalleryDimens.ButtonHeight),
                 shape = JGalleryDimens.ButtonRadius,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = JGalleryColors.Accent,
-                    contentColor = JGalleryColors.OnAccent,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
             ) {
                 Text(OnboardingCopy.LANGUAGE_CTA, fontSize = 16.sp, fontWeight = FontWeight.W600)
@@ -104,7 +104,7 @@ private fun LanguageRow(
     onClick: () -> Unit,
 ) {
     Surface(
-        color = if (selected) JGalleryColors.AccentSoft else JGalleryColors.Background,
+        color = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface,
         shape = RoundedCornerShape(14.dp),
         modifier = Modifier
             .fillMaxWidth()
@@ -117,18 +117,18 @@ private fun LanguageRow(
             RadioButton(
                 selected = selected,
                 onClick = null,
-                colors = RadioButtonDefaults.colors(selectedColor = JGalleryColors.Accent),
+                colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary),
             )
             Column(modifier = Modifier.padding(start = 8.dp)) {
                 Text(
                     text = language.displayName,
-                    color = JGalleryColors.Text,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 16.sp,
                     fontWeight = FontWeight.W600,
                 )
                 Text(
                     text = language.endonym,
-                    color = JGalleryColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 13.sp,
                 )
             }

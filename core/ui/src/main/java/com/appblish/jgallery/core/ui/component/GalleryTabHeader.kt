@@ -11,7 +11,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * Per-tab header (design §3): 32sp/800 title on the left, tab actions (column count, camera, …) on
@@ -30,7 +29,7 @@ fun GalleryTabHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.displaySmall,
-            color = JGalleryColors.Text,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         Spacer(modifier = Modifier.weight(1f))
         actions()

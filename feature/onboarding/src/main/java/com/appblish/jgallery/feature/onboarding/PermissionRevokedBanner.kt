@@ -12,6 +12,7 @@ import androidx.compose.material.icons.outlined.LockOpen
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -66,26 +67,26 @@ fun PermissionRevokedBanner(
         Column(modifier = Modifier.padding(start = 14.dp).fillMaxWidth()) {
             Text(
                 text = PermissionRecoveryCopy.BANNER_TITLE,
-                color = JGalleryColors.Text,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontWeight = FontWeight.SemiBold,
             )
             Text(
                 text = PermissionRecoveryCopy.BANNER_BODY,
-                color = JGalleryColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 4.dp),
             )
             if (permanentlyDenied) {
                 Text(
                     text = PermissionRecoveryCopy.PERMANENTLY_DENIED_HINT,
-                    color = JGalleryColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 4.dp),
                 )
             }
             Button(
                 onClick = onReRequest,
                 colors = ButtonDefaults.buttonColors(
-                    containerColor = JGalleryColors.Accent,
-                    contentColor = JGalleryColors.OnAccent,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
                 ),
                 modifier = Modifier.padding(top = 12.dp).testTag("permission_revoked_action"),
             ) {

@@ -30,7 +30,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * Building blocks for the Collections (G4) and Search (G3) tabs, which ship in Phase G1 as
@@ -88,13 +87,13 @@ fun SoonBadge(modifier: Modifier = Modifier, text: String = "Soon") {
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(percent = 50))
-            .background(JGalleryColors.AccentSoft)
+            .background(MaterialTheme.colorScheme.primaryContainer)
             .padding(horizontal = 10.dp, vertical = 4.dp),
     ) {
         Text(
             text = text,
             style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.SemiBold),
-            color = JGalleryColors.Accent,
+            color = MaterialTheme.colorScheme.primary,
         )
     }
 }
@@ -114,14 +113,14 @@ fun PlaceholderHero(
         modifier = modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(20.dp))
-            .background(JGalleryColors.AccentSoft)
+            .background(MaterialTheme.colorScheme.primaryContainer)
             .padding(20.dp),
         horizontalArrangement = Arrangement.spacedBy(16.dp),
     ) {
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = JGalleryColors.Accent,
+            tint = MaterialTheme.colorScheme.primary,
             modifier = Modifier.size(28.dp),
         )
         Column(
@@ -135,7 +134,7 @@ fun PlaceholderHero(
                 Text(
                     text = headline,
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold),
-                    color = JGalleryColors.Text,
+                    color = MaterialTheme.colorScheme.onSurface,
                     modifier = Modifier.weight(1f, fill = false),
                 )
                 Spacer(Modifier.width(8.dp))
@@ -144,7 +143,7 @@ fun PlaceholderHero(
             Text(
                 text = body,
                 style = MaterialTheme.typography.bodySmall,
-                color = JGalleryColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
     }
@@ -165,7 +164,7 @@ fun PreviewSectionHeader(
         Text(
             text = title,
             style = MaterialTheme.typography.titleMedium.copy(fontSize = 18.sp, fontWeight = SectionTitleWeight),
-            color = JGalleryColors.Text,
+            color = MaterialTheme.colorScheme.onSurface,
         )
         if (showSoon) SoonBadge()
     }
@@ -197,14 +196,14 @@ fun PreviewTile(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = JGalleryColors.TextSecondary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(30.dp),
             )
             Spacer(Modifier.height(10.dp))
             Text(
                 text = label,
                 style = MaterialTheme.typography.bodySmall,
-                color = JGalleryColors.TextSecondary,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
         }
@@ -224,7 +223,7 @@ fun PreviewChip(
     Row(
         modifier = modifier
             .clip(RoundedCornerShape(percent = 50))
-            .background(JGalleryColors.Surface)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -233,14 +232,14 @@ fun PreviewChip(
             Icon(
                 imageVector = icon,
                 contentDescription = null,
-                tint = JGalleryColors.TextSecondary,
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.size(16.dp),
             )
         }
         Text(
             text = label,
             style = MaterialTheme.typography.bodySmall,
-            color = JGalleryColors.TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }
@@ -257,7 +256,7 @@ fun PreviewSearchBar(
             .fillMaxWidth()
             .height(52.dp)
             .clip(RoundedCornerShape(percent = 50))
-            .background(JGalleryColors.Surface)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
             .padding(horizontal = 18.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -265,13 +264,13 @@ fun PreviewSearchBar(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = JGalleryColors.TextSecondary,
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
             modifier = Modifier.size(22.dp),
         )
         Text(
             text = hint,
             style = MaterialTheme.typography.bodyLarge,
-            color = JGalleryColors.TextSecondary,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
     }
 }

@@ -28,6 +28,7 @@ import androidx.compose.material.icons.outlined.Share
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -42,7 +43,6 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * A contextual multi-select action (design G1-D6 / TB-04). Each action is either **multi-safe** —
@@ -99,7 +99,7 @@ fun SelectionActionBar(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .background(JGalleryColors.Background)
+            .background(MaterialTheme.colorScheme.surface)
             .windowInsetsPadding(WindowInsets.navigationBars)
             .height(72.dp)
             .padding(horizontal = 8.dp)
@@ -146,7 +146,7 @@ fun RowScope.SelectionOverflowMenu(
         LabeledIconButton(
             label = "More",
             icon = Icons.Outlined.MoreVert,
-            tint = JGalleryColors.Text,
+            tint = MaterialTheme.colorScheme.onSurface,
             enabled = true,
             tag = "selection_action_more",
             onClick = { expanded = true },
@@ -158,7 +158,7 @@ fun RowScope.SelectionOverflowMenu(
             if (singleOnly.isNotEmpty()) {
                 Text(
                     text = "SINGLE ITEM ONLY",
-                    color = JGalleryColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
@@ -176,10 +176,10 @@ fun RowScope.SelectionOverflowMenu(
 private fun OverflowRow(action: SelectionAction, enabled: Boolean, onClick: () -> Unit) {
     DropdownMenuItem(
         text = {
-            Text(action.label, color = if (enabled) JGalleryColors.Text else JGalleryColors.TextSecondary)
+            Text(action.label, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
         },
         trailingIcon = if (!enabled) {
-            { Text("1 only", color = JGalleryColors.TextSecondary, fontSize = 11.sp) }
+            { Text("1 only", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 11.sp) }
         } else {
             null
         },
@@ -199,7 +199,7 @@ private fun RowScope.MultiActionButton(
     LabeledIconButton(
         label = action.label,
         icon = action.icon,
-        tint = if (action.destructive) JGalleryColors.Destructive else JGalleryColors.Text,
+        tint = if (action.destructive) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface,
         enabled = enabled,
         tag = action.tag,
         onClick = onClick,
@@ -218,7 +218,7 @@ private fun LabeledIconButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val resolved = if (enabled) tint else JGalleryColors.TextSecondary
+    val resolved = if (enabled) tint else MaterialTheme.colorScheme.onSurfaceVariant
     Column(
         modifier = modifier
             .selectable(selected = false, enabled = enabled, role = Role.Button, onClick = onClick)

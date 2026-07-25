@@ -23,7 +23,6 @@ import androidx.compose.ui.unit.dp
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 
 /**
  * "Sort By" bottom sheet (spec §6): the four cached-index sort keys — File Name / File Path /
@@ -96,14 +95,14 @@ private fun SortKeyRow(
         Text(
             text = label,
             style = MaterialTheme.typography.titleMedium,
-            color = if (selected) JGalleryColors.Accent else JGalleryColors.Text,
+            color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.weight(1f),
         )
         if (selected) {
             Icon(
                 imageVector = Icons.Filled.Check,
                 contentDescription = "Selected",
-                tint = JGalleryColors.Accent,
+                tint = MaterialTheme.colorScheme.primary,
             )
         }
     }
@@ -120,7 +119,7 @@ private fun DirectionChip(
     Row(
         modifier = modifier
             .background(
-                color = if (selected) JGalleryColors.Accent else JGalleryColors.Surface,
+                color = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                 shape = RoundedCornerShape(14.dp),
             )
             .clickable(onClick = onClick)
@@ -131,13 +130,13 @@ private fun DirectionChip(
         Icon(
             imageVector = icon,
             contentDescription = null,
-            tint = if (selected) JGalleryColors.OnAccent else JGalleryColors.Text,
+            tint = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
             modifier = Modifier.padding(end = 6.dp),
         )
         Text(
             text = label,
             style = MaterialTheme.typography.titleMedium,
-            color = if (selected) JGalleryColors.OnAccent else JGalleryColors.Text,
+            color = if (selected) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface,
         )
     }
 }

@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.Folder
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
@@ -32,7 +33,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
 import com.appblish.jgallery.feature.onboarding.OnboardingCopy
 
@@ -53,7 +53,7 @@ fun PermissionPrimerScreen(
         contentAlignment = Alignment.BottomCenter,
     ) {
         Surface(
-            color = JGalleryColors.Background,
+            color = MaterialTheme.colorScheme.surface,
             shape = JGalleryDimens.SheetRadius,
             modifier = Modifier.fillMaxWidth(),
         ) {
@@ -71,19 +71,19 @@ fun PermissionPrimerScreen(
                     modifier = Modifier
                         .padding(bottom = 20.dp)
                         .size(width = JGalleryDimens.GrabHandleWidth, height = JGalleryDimens.GrabHandleHeight)
-                        .background(JGalleryColors.Surface, RoundedCornerShape(3.dp)),
+                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(3.dp)),
                 )
 
                 Box(
                     modifier = Modifier
                         .size(64.dp)
-                        .background(JGalleryColors.AccentSoft, RoundedCornerShape(18.dp)),
+                        .background(MaterialTheme.colorScheme.primaryContainer, RoundedCornerShape(18.dp)),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(
                         imageVector = Icons.Rounded.Folder,
                         contentDescription = null,
-                        tint = JGalleryColors.Accent,
+                        tint = MaterialTheme.colorScheme.primary,
                         modifier = Modifier.size(32.dp),
                     )
                 }
@@ -91,7 +91,7 @@ fun PermissionPrimerScreen(
                 Spacer(Modifier.height(20.dp))
                 Text(
                     text = OnboardingCopy.PRIMER_TITLE,
-                    color = JGalleryColors.Text,
+                    color = MaterialTheme.colorScheme.onSurface,
                     fontSize = 22.sp,
                     fontWeight = FontWeight.W800,
                     textAlign = TextAlign.Center,
@@ -99,7 +99,7 @@ fun PermissionPrimerScreen(
                 Spacer(Modifier.height(8.dp))
                 Text(
                     text = OnboardingCopy.PRIMER_BODY,
-                    color = JGalleryColors.TextSecondary,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 15.sp,
                     textAlign = TextAlign.Center,
                 )
@@ -113,8 +113,8 @@ fun PermissionPrimerScreen(
                     modifier = Modifier.fillMaxWidth().height(JGalleryDimens.ButtonHeight),
                     shape = JGalleryDimens.ButtonRadius,
                     colors = ButtonDefaults.buttonColors(
-                        containerColor = JGalleryColors.Accent,
-                        contentColor = JGalleryColors.OnAccent,
+                        containerColor = MaterialTheme.colorScheme.primary,
+                        contentColor = MaterialTheme.colorScheme.onPrimary,
                     ),
                 ) {
                     Text(OnboardingCopy.PRIMER_CTA, fontSize = 16.sp, fontWeight = FontWeight.W600)
@@ -128,7 +128,7 @@ fun PermissionPrimerScreen(
 @Composable
 private fun MockSystemToggle() {
     Surface(
-        color = JGalleryColors.Surface,
+        color = MaterialTheme.colorScheme.surfaceVariant,
         shape = RoundedCornerShape(14.dp),
         modifier = Modifier.fillMaxWidth(),
     ) {
@@ -139,7 +139,7 @@ private fun MockSystemToggle() {
         ) {
             Text(
                 text = OnboardingCopy.PRIMER_TOGGLE_LABEL,
-                color = JGalleryColors.Text,
+                color = MaterialTheme.colorScheme.onSurface,
                 fontSize = 15.sp,
                 fontWeight = FontWeight.W600,
                 modifier = Modifier.weight(1f),
@@ -148,7 +148,7 @@ private fun MockSystemToggle() {
                 checked = false,
                 onCheckedChange = null,
                 colors = SwitchDefaults.colors(
-                    checkedTrackColor = JGalleryColors.Accent,
+                    checkedTrackColor = MaterialTheme.colorScheme.primary,
                     uncheckedTrackColor = Color(0xFFCBD0D8),
                 ),
             )
