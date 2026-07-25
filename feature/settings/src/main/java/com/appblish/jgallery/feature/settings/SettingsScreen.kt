@@ -342,7 +342,7 @@ private fun RadioOption(
     }
 }
 
-/** Slideshow interval dialog (§6): 2s / 4s / 6s / 10s, applies instantly on select. */
+/** Slideshow interval dialog (§6; APP-642): 0.5/1/2/3/4/5/6/10s, applies instantly on select. */
 @Composable
 private fun SlideshowIntervalDialog(
     currentMs: Long,
@@ -363,7 +363,7 @@ private fun SlideshowIntervalDialog(
                         label = slideshowLabel(ms),
                         selected = ms == currentMs,
                         onClick = { onSelect(ms) },
-                        testTag = "slideshow_option_${ms / 1000}s",
+                        testTag = "slideshow_option_${ms}ms",
                     )
                 }
             }
@@ -371,9 +371,21 @@ private fun SlideshowIntervalDialog(
     )
 }
 
-private val SLIDESHOW_INTERVALS_MS = listOf(2_000L, 4_000L, 6_000L, 10_000L)
+/**
+ * Slideshow interval choices (APP-642). Short options — 0.5/1/2/3/4/5s — sit alongside the original
+ * longer 6/10s dwell times. 500ms is the fastest the [ViewDefaults] seam allows; the store is
+ * millisecond-resolution so the half-second option survives without integer-seconds truncation.
+ */
+internal val SLIDESHOW_INTERVALS_MS =
+    listOf(500L, 1_000L, 2_000L, 3_000L, 4_000L, 5_000L, 6_000L, 10_000L)
 
-private fun slideshowLabel(ms: Long): String = "${ms / 1000}s"
+/**
+ * Renders a dwell interval as a compact seconds label. Sub-second values keep one decimal (500ms →
+ * "0.5s"); whole seconds drop the fractional part ("2s", not "2.0s") — so the label never truncates a
+ * half-second option down to "0s".
+ */
+internal fun slideshowLabel(ms: Long): String =
+    if (ms % 1000L == 0L) "${ms / 1000L}s" else "${ms / 1000.0}s"
 
 /** App version, surfaced from the settings-module BuildConfig (design SET-04). */
 private object AppVersion {
