@@ -21,31 +21,33 @@ import org.gradle.api.tasks.TaskAction
 import org.gradle.kotlin.dsl.register
 
 /**
- * CI egress guard (`jgallery.egress.guard`, APP-289) — originally made the §9.3 trust claim
+ * CI egress guard (`jgallery.egress.guard`, APP-289) — makes the §9.3 trust claim
  * ("works fully on your device … never uploaded or shared") durable BY CONSTRUCTION.
  *
- * **APP-614 RELAXATION (board Option A, APP-613).** The board chose to ship Firebase Crashlytics
- * for the 1.0 launch, deliberately retiring the §9.3 *zero-network* guarantee. This guard is now a
- * *bounded* egress guard, not a zero-egress guard: it allows EXACTLY the Firebase Crashlytics
- * surface (INTERNET + ACCESS_NETWORK_STATE; and — after the APP-619 Finding 1 hardening — the
- * EXACT reviewed Crashlytics + Analytics artifact set in [EgressDependencyPolicy], not the whole
- * `com.google.firebase` / `com.google.android.gms` / `com.google.android.datatransport` group
- * surface) and still fails the build on ANY other network permission, network/analytics dependency,
- * or unapproved artifact drifting in under an approved Google group. The §9.3 "never uploaded" copy is being pulled
- * separately under APP-616, which gates the Play upload (APP-517); Check 3 below keeps that copy
- * single-sourced so it can be removed as one mechanical set. The prior APP-285 Security sign-off is
- * superseded by the APP-613 decision and requires re-issue against the new (bounded) egress surface.
+ * **APP-637 — VARIANT-AWARE (release stays zero-egress).** Firebase Crashlytics is now a
+ * DEBUG-ONLY testing aid ([APP-636] decision), feeding the [APP-615] MCP crash-reading loop; the
+ * shipped RELEASE/benchmark artifact returns to the ORIGINAL [APP-289] hard zero-egress guarantee.
+ * The guard branches per variant (see [strictZeroEgressFor]):
+ *
+ *  - **release / benchmark** — strict zero-egress: INTERNET + ACCESS_NETWORK_STATE (and every other
+ *    network permission) are forbidden in the merged manifest, and ANY Firebase/GMS/datatransport
+ *    artifact on the runtime classpath fails the build. The §9.3 "never uploaded" claim is TRUE for
+ *    the shipped build again, so the trust copy STAYS (APP-616 is superseded/no-longer-required).
+ *  - **debug** — the bounded [APP-614]/[APP-619] surface: INTERNET + ACCESS_NETWORK_STATE are
+ *    permitted, and EXACTLY the reviewed Crashlytics artifact set in [EgressDependencyPolicy] is
+ *    exempt; any other network permission, denylisted dependency, or artifact drifting in under an
+ *    approved Google group still turns the debug build red.
  *
  * Three checks, aggregated under `:app:verifyNoEgress` (also wired into `check`):
  *
- *  1. [VerifyNoEgressManifestTask] — per variant, fails if any network-capable permission
- *     (INTERNET, network/wifi state) appears in the MERGED manifest, so a permission smuggled in
- *     by a library manifest is caught, not just ones declared in our sources.
+ *  1. [VerifyNoEgressManifestTask] — per variant, fails if a network-capable permission appears in
+ *     the MERGED manifest (strict variants also forbid INTERNET + ACCESS_NETWORK_STATE), so a
+ *     permission smuggled in by a library manifest is caught, not just ones declared in our sources.
  *  2. [VerifyNoEgressDependenciesTask] — per variant, fails if any coordinate in the RESOLVED
- *     runtime classpath (transitives included) matches the network/analytics denylist.
+ *     runtime classpath (transitives included) is denylisted / a shipped-variant egress artifact.
  *  3. [VerifyTrustClaimSingleSourceTask] — fails if trust-claim wording appears in production
  *     source outside the registered claim files. Keeps the claim auditable in one place
- *     (TrustCopy) so it can be pulled in one edit if egress ever lands (B1 on APP-285).
+ *     (TrustCopy) so it can be pulled in one edit if egress ever lands on release (B1 on APP-285).
  *
  * Complements — does not replace — the `RawStorageAccess` boundary lint, which covers
  * file/MediaStore/Environment but NOT network.
@@ -83,11 +85,15 @@ class EgressGuardConventionPlugin : Plugin<Project> {
         val androidComponents = extensions.getByType(ApplicationAndroidComponentsExtension::class.java)
         androidComponents.onVariants { variant ->
             val variantName = variant.name.replaceFirstChar(Char::uppercase)
+            // APP-637: only the `debug` variant carries the bounded Crashlytics allowlist; release +
+            // benchmark (the shipped/perf artifacts) enforce the original APP-289 zero-egress policy.
+            val strict = strictZeroEgressFor(variant.buildType)
 
             val manifestCheck = tasks.register<VerifyNoEgressManifestTask>("verifyNoEgressManifest$variantName") {
                 group = VERIFICATION_GROUP
                 description = "Fails if a network-capable permission is in the $variantName merged manifest."
                 mergedManifest.set(variant.artifacts.get(SingleArtifact.MERGED_MANIFEST))
+                strictZeroEgress.set(strict)
             }
 
             val dependencyCheck =
@@ -99,9 +105,19 @@ class EgressGuardConventionPlugin : Plugin<Project> {
                             .named("${variant.name}RuntimeClasspath")
                             .flatMap { it.incoming.resolutionResult.rootComponent },
                     )
+                    strictZeroEgress.set(strict)
                 }
 
-            umbrella.configure { dependsOn(manifestCheck, dependencyCheck, claimScan) }
+            // Per-variant umbrella (APP-637), e.g. `:app:verifyNoEgressRelease` (strict zero-egress)
+            // / `:app:verifyNoEgressDebug` (bounded Crashlytics allowlist) — the DoD entry points.
+            val variantUmbrella = tasks.register("verifyNoEgress$variantName") {
+                group = VERIFICATION_GROUP
+                description =
+                    "Runs the $variantName egress checks (${if (strict) "strict zero-egress" else "bounded Crashlytics allowlist"})."
+                dependsOn(manifestCheck, dependencyCheck, claimScan)
+            }
+
+            umbrella.configure { dependsOn(variantUmbrella) }
         }
 
         // A plain `./gradlew check` (and anything that lifecycles through it) runs the guard too.
@@ -110,6 +126,14 @@ class EgressGuardConventionPlugin : Plugin<Project> {
 
     private companion object {
         const val VERIFICATION_GROUP = "verification"
+
+        /**
+         * APP-637 variant policy: every build type EXCEPT `debug` is a shipped/perf artifact that
+         * must enforce strict zero-egress. `debug` (the only build type carrying the Crashlytics
+         * `debugImplementation` deps + `src/debug` manifest) gets the bounded APP-614/APP-619
+         * allowlist. A null build type (defensive) is treated as strict — fail closed.
+         */
+        fun strictZeroEgressFor(buildType: String?): Boolean = buildType != "debug"
 
         /**
          * The ONLY production files allowed to carry trust-claim wording (paths relative to the
@@ -125,168 +149,90 @@ class EgressGuardConventionPlugin : Plugin<Project> {
     }
 }
 
-/** Check 1: no network-capable permission may survive manifest merging. */
+/** Check 1: no network-capable permission may survive manifest merging (variant-aware, APP-637). */
 abstract class VerifyNoEgressManifestTask : DefaultTask() {
 
     @get:InputFile
     @get:PathSensitive(PathSensitivity.NONE)
     abstract val mergedManifest: RegularFileProperty
 
+    /**
+     * `true` for the release/benchmark zero-egress branch: INTERNET + ACCESS_NETWORK_STATE are also
+     * forbidden. `false` for the debug branch: those two are permitted (Crashlytics). APP-637.
+     */
+    @get:Input
+    abstract val strictZeroEgress: Property<Boolean>
+
     @TaskAction
     fun verify() {
+        val strict = strictZeroEgress.get()
         val manifest = mergedManifest.get().asFile
         val text = manifest.readText()
-        val hits = FORBIDDEN_PERMISSIONS.filter { text.contains(it) }
+        val forbidden = if (strict) STRICT_FORBIDDEN_PERMISSIONS else BOUNDED_FORBIDDEN_PERMISSIONS
+        val hits = forbidden.filter { text.contains(it) }
         if (hits.isNotEmpty()) {
             throw GradleException(
-                """
-                |EGRESS GUARD VIOLATION (§9.3 trust-claim integrity — see APP-285/APP-289):
-                |Network-capable permission(s) found in the merged manifest:
-                |${hits.joinToString("\n") { "  - $it" }}
-                |Merged manifest: $manifest
-                |
-                |Only INTERNET + ACCESS_NETWORK_STATE are permitted (APP-614: Firebase Crashlytics).
-                |Any OTHER network permission is still forbidden. Either remove it (check library
-                |manifests for the merge source), or — if a new egress surface is genuinely required
-                |— raise it as a product/privacy decision (like APP-613) before widening this guard.
-                """.trimMargin(),
+                if (strict) {
+                    """
+                    |EGRESS GUARD VIOLATION (§9.3 zero-egress — release/benchmark, APP-289/APP-637):
+                    |Network-capable permission(s) found in a SHIPPED variant's merged manifest:
+                    |${hits.joinToString("\n") { "  - $it" }}
+                    |Merged manifest: $manifest
+                    |
+                    |The release/benchmark build must be zero-egress — NO network permission at all.
+                    |Firebase Crashlytics is debug-only (APP-637); its INTERNET + firebase_* meta-data
+                    |belong in app/src/debug/AndroidManifest.xml, never in src/main. Remove the
+                    |permission (check library manifests for the merge source). If a shipped egress
+                    |surface is genuinely required, that reverses the APP-636 decision — raise it as a
+                    |product/privacy decision (like APP-613) before widening this guard.
+                    """.trimMargin()
+                } else {
+                    """
+                    |EGRESS GUARD VIOLATION (§9.3 trust-claim integrity — debug, APP-285/APP-289):
+                    |Network-capable permission(s) found in the debug merged manifest:
+                    |${hits.joinToString("\n") { "  - $it" }}
+                    |Merged manifest: $manifest
+                    |
+                    |On debug, only INTERNET + ACCESS_NETWORK_STATE are permitted (APP-614: Firebase
+                    |Crashlytics). Any OTHER network permission is still forbidden. Either remove it
+                    |(check library manifests for the merge source), or — if a new egress surface is
+                    |genuinely required — raise it as a product/privacy decision before widening this.
+                    """.trimMargin()
+                },
             )
         }
         logger.lifecycle(
-            "Egress guard: merged manifest within the approved egress surface " +
-                "(INTERNET + ACCESS_NETWORK_STATE only, APP-614).",
+            if (strict) {
+                "Egress guard: shipped-variant merged manifest is zero-egress (no network permission, APP-637)."
+            } else {
+                "Egress guard: debug merged manifest within the approved egress surface " +
+                    "(INTERNET + ACCESS_NETWORK_STATE only, APP-614)."
+            },
         )
     }
 
     private companion object {
         /**
-         * Network permissions that STILL fail the build. INTERNET and ACCESS_NETWORK_STATE were
-         * removed from this list under APP-614 (board Option A, APP-613) so Firebase Crashlytics
-         * can upload crash reports; every other network-capable permission stays forbidden, so an
-         * unrelated egress surface (wifi control, nearby devices, etc.) still turns the build red.
+         * Network permissions that ALWAYS fail the build, on every variant. An unrelated egress
+         * surface (wifi control, nearby devices, etc.) turns any build red.
          */
-        val FORBIDDEN_PERMISSIONS = listOf(
+        val BOUNDED_FORBIDDEN_PERMISSIONS = listOf(
             "android.permission.CHANGE_NETWORK_STATE",
             "android.permission.ACCESS_WIFI_STATE",
             "android.permission.CHANGE_WIFI_STATE",
             "android.permission.NEARBY_WIFI_DEVICES",
         )
-    }
-}
-
-/**
- * Pure, unit-testable egress classification for the resolved runtime graph. Keeps the APP-289
- * denylist and the APP-614 bounded allowlist off the Gradle task so the branch logic can be tested
- * without materialising a `ResolvedComponentResult` graph.
- *
- * **APP-619 Finding 1 hardening.** The APP-614 allowlist was group-level (`com.google.firebase:`,
- * `com.google.android.gms:`, `com.google.android.datatransport:`), so the ENTIRE Firebase/GMS
- * product surface — firebase-messaging, firebase-storage (user-file upload), firestore, auth,
- * play-services-ads, remote-config — would pass the guard green even though the board only approved
- * Crashlytics + Analytics. This narrows the exemption to an EXACT, reviewed artifact set and fails
- * closed on anything else under an approved group ([Verdict.Drift]): a new Google egress/data
- * surface entering the graph now turns the build red and gets a fresh egress + Play Data-safety
- * review, instead of silently shipping.
- */
-internal object EgressDependencyPolicy {
-
-    sealed interface Verdict {
-        /** Not a network/analytics coordinate (or an un-versioned project component). Ignore. */
-        object Clean : Verdict
-
-        /** Exact member of the reviewed Crashlytics + Analytics artifact set. Exempt from the denylist. */
-        object Approved : Verdict
 
         /**
-         * Under an approved Google egress GROUP but NOT on the reviewed artifact allowlist — a new
-         * Firebase/GMS surface. Fail closed pending review; do NOT treat as approved.
+         * The strict (release/benchmark) set: the always-forbidden permissions PLUS INTERNET and
+         * ACCESS_NETWORK_STATE, which are permitted on debug for Crashlytics but forbidden on any
+         * shipped artifact so the §9.3 zero-egress guarantee holds by construction (APP-637).
          */
-        object Drift : Verdict
-
-        /** A non-approved network/analytics library (APP-289 denylist hit). */
-        data class Denylisted(val token: String) : Verdict
+        val STRICT_FORBIDDEN_PERMISSIONS = listOf(
+            "android.permission.INTERNET",
+            "android.permission.ACCESS_NETWORK_STATE",
+        ) + BOUNDED_FORBIDDEN_PERMISSIONS
     }
-
-    fun classify(group: String, coordinate: String): Verdict {
-        val g = group.lowercase()
-        val c = coordinate.lowercase()
-        return when {
-            g.isEmpty() -> Verdict.Clean
-            g in APPROVED_EGRESS_GROUPS ->
-                if (c in APPROVED_EGRESS_ARTIFACTS) Verdict.Approved else Verdict.Drift
-            else -> DENYLIST.firstOrNull { c.contains(it) }?.let(Verdict::Denylisted) ?: Verdict.Clean
-        }
-    }
-
-    /** APP-289 denylist. Matched as substrings of the lowercased `group:name` coordinate. */
-    val DENYLIST = listOf(
-        "retrofit",
-        "okhttp",
-        "ktor",
-        "volley",
-        "firebase",
-        "analytics",
-        "crashlytics",
-        "sentry",
-        "amplitude",
-        "mixpanel",
-        "segment",
-        "apollo",
-        "grpc",
-    )
-
-    /** The three Google groups the board approved for the Crashlytics egress stack (APP-613/APP-614). */
-    val APPROVED_EGRESS_GROUPS = setOf(
-        "com.google.firebase",
-        "com.google.android.gms",
-        "com.google.android.datatransport",
-    )
-
-    /**
-     * APP-619 Finding 1: the EXACT `group:name` artifacts the Crashlytics + Analytics stack resolves
-     * to on `debugRuntimeClasspath` (Firebase BOM 33.5.1), captured from a real
-     * `:app:dependencies` resolution. Only these are exempt from the denylist; any OTHER artifact
-     * under an [APPROVED_EGRESS_GROUPS] group is [Verdict.Drift] and fails the build.
-     *
-     * To legitimately add one (e.g. a future Firebase product the board approves), resolve the new
-     * graph, add the exact coordinate here, and obtain a fresh Security sign-off in the SAME change.
-     * `firebase-config-interop` is only an interop interface stub (no remote-config runtime) and
-     * `play-services-ads-identifier` is a transitive of the measurement stack whose AdID collection
-     * is disabled at the manifest (APP-614 Finding 2) — both are analytics-stack transitives, not
-     * new product surfaces.
-     */
-    val APPROVED_EGRESS_ARTIFACTS = setOf(
-        "com.google.android.datatransport:transport-api",
-        "com.google.android.datatransport:transport-backend-cct",
-        "com.google.android.datatransport:transport-runtime",
-        "com.google.android.gms:play-services-ads-identifier",
-        "com.google.android.gms:play-services-base",
-        "com.google.android.gms:play-services-basement",
-        "com.google.android.gms:play-services-measurement",
-        "com.google.android.gms:play-services-measurement-api",
-        "com.google.android.gms:play-services-measurement-base",
-        "com.google.android.gms:play-services-measurement-impl",
-        "com.google.android.gms:play-services-measurement-sdk",
-        "com.google.android.gms:play-services-measurement-sdk-api",
-        "com.google.android.gms:play-services-stats",
-        "com.google.android.gms:play-services-tasks",
-        "com.google.firebase:firebase-analytics",
-        "com.google.firebase:firebase-annotations",
-        "com.google.firebase:firebase-bom",
-        "com.google.firebase:firebase-common",
-        "com.google.firebase:firebase-common-ktx",
-        "com.google.firebase:firebase-components",
-        "com.google.firebase:firebase-config-interop",
-        "com.google.firebase:firebase-crashlytics",
-        "com.google.firebase:firebase-datatransport",
-        "com.google.firebase:firebase-encoders",
-        "com.google.firebase:firebase-encoders-json",
-        "com.google.firebase:firebase-encoders-proto",
-        "com.google.firebase:firebase-installations",
-        "com.google.firebase:firebase-installations-interop",
-        "com.google.firebase:firebase-measurement-connector",
-        "com.google.firebase:firebase-sessions",
-    )
 }
 
 /** Check 2: no network/analytics library may enter the resolved runtime graph (transitives included). */
@@ -296,8 +242,16 @@ abstract class VerifyNoEgressDependenciesTask : DefaultTask() {
     @get:Input
     abstract val rootComponent: Property<ResolvedComponentResult>
 
+    /**
+     * `true` for the release/benchmark zero-egress branch (no Firebase exemption — ANY egress-group
+     * artifact is a violation). `false` for the debug bounded-allowlist branch. APP-637.
+     */
+    @get:Input
+    abstract val strictZeroEgress: Property<Boolean>
+
     @TaskAction
     fun verify() {
+        val strict = strictZeroEgress.get()
         val seen = mutableSetOf<String>()
         val queue = ArrayDeque(listOf(rootComponent.get()))
         val denylisted = sortedSetOf<String>()
@@ -310,7 +264,7 @@ abstract class VerifyNoEgressDependenciesTask : DefaultTask() {
             val moduleVersion = component.moduleVersion
             val group = moduleVersion?.group.orEmpty()
             val coordinate = moduleVersion?.let { "${it.group}:${it.name}" }.orEmpty()
-            when (val verdict = EgressDependencyPolicy.classify(group, coordinate)) {
+            when (val verdict = EgressDependencyPolicy.classify(group, coordinate, strict)) {
                 is EgressDependencyPolicy.Verdict.Denylisted ->
                     denylisted.add("${component.id.displayName}  (matched denylist token: '${verdict.token}')")
                 EgressDependencyPolicy.Verdict.Drift ->
@@ -327,7 +281,16 @@ abstract class VerifyNoEgressDependenciesTask : DefaultTask() {
         if (denylisted.isNotEmpty() || drift.isNotEmpty()) {
             throw GradleException(
                 buildString {
-                    appendLine("EGRESS GUARD VIOLATION (§9.3 trust-claim integrity — see APP-285/APP-289):")
+                    appendLine("EGRESS GUARD VIOLATION (§9.3 trust-claim integrity — see APP-285/APP-289/APP-637):")
+                    if (strict) {
+                        appendLine(
+                            "This is a SHIPPED variant (release/benchmark) — it must be ZERO-egress (APP-637). " +
+                                "Firebase Crashlytics is debug-only; any Firebase/GMS/network artifact here means " +
+                                "an egress dependency leaked onto a shipped classpath. It belongs on " +
+                                "`debugImplementation`, not `implementation`.",
+                        )
+                        appendLine()
+                    }
                     if (denylisted.isNotEmpty()) {
                         appendLine("Denylisted network/analytics dependencies in the resolved runtime classpath:")
                         denylisted.forEach { appendLine("  - $it") }
@@ -336,29 +299,32 @@ abstract class VerifyNoEgressDependenciesTask : DefaultTask() {
                     if (drift.isNotEmpty()) {
                         appendLine(
                             "Unapproved artifact(s) under an approved egress group (APP-619 Finding 1 — the " +
-                                "board approved Crashlytics + Analytics ONLY, not the whole Firebase/GMS surface):",
+                                "board approved Crashlytics ONLY, not the whole Firebase/GMS surface):",
                         )
                         drift.forEach { appendLine("  - $it") }
                         appendLine()
                     }
                     appendLine(
-                        "Transitives: run `./gradlew :app:dependencies --configuration debugRuntimeClasspath` " +
-                            "to find what pulls them in.",
+                        "Transitives: run `./gradlew :app:dependencies --configuration " +
+                            "${if (strict) "releaseRuntimeClasspath" else "debugRuntimeClasspath"}` to find what pulls them in.",
                     )
                     appendLine(
-                        "Fix a DENYLIST hit: remove/exclude the dependency, or — per the standing rule in the " +
-                            "APP-285 security-signoff doc — pull the trust-claim copy in the SAME change and " +
-                            "obtain a new Security sign-off.",
+                        "Fix a DENYLIST hit: remove/exclude the dependency (on a shipped variant, move it to " +
+                            "`debugImplementation`), or — per the standing rule in the APP-285 security-signoff " +
+                            "doc — pull the trust-claim copy in the SAME change and obtain a new Security sign-off.",
                     )
                     append(
-                        "Fix a DRIFT hit: a new Firebase/GMS surface entered the graph. Do NOT just add it — get " +
-                            "an egress + Play Data-safety review, then add the exact coordinate to " +
+                        "Fix a DRIFT hit (debug only): a new Firebase/GMS surface entered the graph. Do NOT just " +
+                            "add it — get an egress + Play Data-safety review, then add the exact coordinate to " +
                             "EgressDependencyPolicy.APPROVED_EGRESS_ARTIFACTS with Security sign-off.",
                     )
                 },
             )
         }
-        logger.lifecycle("Egress guard: resolved runtime classpath clean (${seen.size} components checked).")
+        logger.lifecycle(
+            "Egress guard: resolved runtime classpath clean (${seen.size} components checked, " +
+                "${if (strict) "strict zero-egress" else "debug bounded allowlist"}).",
+        )
     }
 }
 

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- DEBUG-ONLY egress for the Firebase Crashlytics testing aid (APP-637 / APP-636). Declared
+         here (never in src/main) so the network capability exists ONLY in the debug build that feeds
+         the APP-615 MCP crash-reading loop; the shipped release/benchmark merged manifest carries no
+         network permission and no Crashlytics ContentProvider. The variant-aware egress guard
+         (:app:verifyNoEgressRelease) fails the build if either of these ever leaks onto a shipped
+         variant. ACCESS_NETWORK_STATE lets Crashlytics defer uploads until connectivity is present. -->
+    <uses-permission android:name="android.permission.INTERNET" />
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+
+    <application>
+        <!-- Crash capture ON for the debug aid. No firebase-analytics dependency at all (APP-637),
+             so no Analytics/AdID/SSAID collection exists to disable — this is a pure crash aid. -->
+        <meta-data android:name="firebase_crashlytics_collection_enabled" android:value="true" />
+    </application>
+
+</manifest>
