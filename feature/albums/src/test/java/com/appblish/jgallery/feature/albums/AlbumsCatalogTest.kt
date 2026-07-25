@@ -97,6 +97,52 @@ class AlbumsCatalogTest {
         assertThat(AlbumsCatalog.videoFolderAlbums(emptyList())).isEmpty()
     }
 
+    // --- Favorites smart album (G3 · APP-543) ------------------------------------------------------
+
+    @Test
+    fun `Favorites appears only when items are starred and aggregates them, newest cover`() {
+        val albums = listOf(folder("dcim", "DCIM", count = 4, newest = 10, cover = "c"))
+        val favorites = listOf(
+            image("f-old", bucket = "dcim", mime = "image/jpeg").copy(dateTakenMillis = 100),
+            image("f-new", bucket = "misc", mime = "image/jpeg").copy(dateTakenMillis = 400),
+        )
+        val tab = AlbumsCatalog.buildAlbumsTab(albums, emptyList(), emptySet(), defaultSort, favorites = favorites)
+
+        val fav = tab.single { it.kind == AlbumKind.FAVORITES }
+        assertThat(fav.bucketId).isEqualTo(AlbumsCatalog.FAVORITES_BUCKET_ID)
+        assertThat(fav.itemCount).isEqualTo(2)
+        assertThat(fav.cover).isEqualTo(MediaId("f-new")) // newest starred item
+        assertThat(fav.isPriority).isTrue()
+    }
+
+    @Test
+    fun `no Favorites album when nothing is starred`() {
+        val tab = AlbumsCatalog.buildAlbumsTab(
+            listOf(folder("a", "A", count = 1, newest = 1, cover = "c")),
+            videos = emptyList(),
+            pinnedBucketIds = emptySet(),
+            sort = defaultSort,
+            favorites = emptyList(),
+        )
+        assertThat(tab.none { it.kind == AlbumKind.FAVORITES }).isTrue()
+    }
+
+    @Test
+    fun `Favorites sorts directly after Recent and before Camera, Screenshots, Video`() {
+        val albums = listOf(
+            folder("whatever", "Whatever", count = 1, newest = 999, cover = "c"),
+            folder("screenshots", "Screenshots", count = 2, newest = 100, cover = "c"),
+            folder("camera", "Camera", count = 5, newest = 50, cover = "c"),
+        )
+        val videos = listOf(video("v1", bucket = "camera", name = "Camera", taken = 7))
+        val favorites = listOf(image("f1", bucket = "camera", mime = "image/jpeg"))
+        val tab = AlbumsCatalog.buildAlbumsTab(albums, videos, emptySet(), defaultSort, favorites = favorites)
+
+        assertThat(tab.map { it.kindOrBucket() }).containsExactly(
+            "RECENT", "FAVORITES", "camera", "screenshots", "VIDEO", "whatever",
+        ).inOrder()
+    }
+
     // --- Priority ordering (item 7) ---------------------------------------------------------------
 
     @Test
@@ -309,6 +355,7 @@ class AlbumsCatalogTest {
     private fun Album.kindOrBucket(): String = when (kind) {
         AlbumKind.RECENT -> "RECENT"
         AlbumKind.VIDEO -> "VIDEO"
+        AlbumKind.FAVORITES -> "FAVORITES"
         AlbumKind.DEVICE_FOLDER -> bucketId
     }
 

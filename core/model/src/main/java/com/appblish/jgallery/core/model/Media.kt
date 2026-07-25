@@ -31,9 +31,9 @@ data class MediaItem(
 /**
  * What an [Album] card represents on the Albums tab.
  *
- * The index only ever produces [DEVICE_FOLDER]s; the feature layer synthesizes [RECENT] and [VIDEO]
- * "smart" albums on top of the cached index and tags them so ordering and navigation can treat them
- * specially (spec C4: Recent album, Video album with folder-wise grouping).
+ * The index only ever produces [DEVICE_FOLDER]s; the feature layer synthesizes [RECENT], [VIDEO], and
+ * [FAVORITES] "smart" albums on top of the cached index and tags them so ordering and navigation can
+ * treat them specially (spec C4: Recent album, Video album with folder-wise grouping; G3 Favorites).
  */
 enum class AlbumKind {
     /** A real device folder (MediaStore bucket). */
@@ -44,6 +44,9 @@ enum class AlbumKind {
 
     /** Synthetic "Video" — all videos, with folder-wise sub-grouping. */
     VIDEO,
+
+    /** Synthetic "Favorites" — the user's starred media (APP-543 / G3), newest-first. */
+    FAVORITES,
 }
 
 /**
