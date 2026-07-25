@@ -35,7 +35,7 @@ import com.appblish.jgallery.core.ui.theme.JGalleryColors
 /**
  * W3-05 video-codec-unsupported card (spec §8). Sits over the (dimmed) poster: a red-accented panel
  * that makes clear the FILE is fine but this device can't decode it, names the codec, and offers
- * "Open with" (hand the clip to a player that can) plus "Info". This is the graceful §8 fallback —
+ * "Open with" (hand the clip to a player that can) plus "Details". This is the graceful §8 fallback —
  * the viewer surfaces it instead of crashing on an undecodable clip.
  */
 @Composable
@@ -114,7 +114,7 @@ internal fun VideoErrorCard(
                         onClick = onInfo,
                         modifier = Modifier.testTag("viewer_video_error_info"),
                     ) {
-                        Text("Info", color = Color.White)
+                        Text("Details", color = Color.White) // APP-643 (#6): unified "Details" term
                     }
                 }
             }

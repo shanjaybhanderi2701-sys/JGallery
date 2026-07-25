@@ -1,5 +1,6 @@
 package com.appblish.jgallery
 
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Photo
@@ -9,6 +10,7 @@ import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -123,10 +125,19 @@ fun JGalleryApp(
             )
         },
     ) { innerPadding ->
+        // APP-643 (#4): the viewer is a true edge-to-edge immersive canvas — it draws the media behind
+        // the system bars and manages its own insets (see ImmersiveViewerEffect). It must therefore get
+        // the *full* window, not the Scaffold's inset padding. `Modifier.padding(innerPadding)` does not
+        // consume the insets, so any padding here is applied a second time by the viewer header's own
+        // `windowInsetsPadding(safeDrawing)` → the header sat ~2× the status-bar height too low. Zero the
+        // host padding for the viewer route; every other destination keeps the inset padding it relies on.
+        val currentRoute = navController.currentBackStackEntryAsState()
+            .value?.destination?.hierarchy?.firstOrNull()?.route
+        val hostPadding = if (currentRoute == VIEWER_ROUTE) PaddingValues(0.dp) else innerPadding
         NavHost(
             navController = navController,
             startDestination = GalleryTab.Default.route,
-            modifier = Modifier.padding(innerPadding),
+            modifier = Modifier.padding(hostPadding),
         ) {
             GalleryTab.entries.forEach { tab ->
                 composable(tab.route) { resolvedTabContent(tab) }

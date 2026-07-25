@@ -110,7 +110,7 @@ private enum class PickerMode { COPY, MOVE }
 /**
  * Full-screen viewer (spec §5, design W1-08/09/10): swipe pager across the launch scope, image
  * zoom with pager-safe gesture priority, Media3 video playback, dark viewer-only chrome. The overflow
- * + bottom-bar file actions (Copy/Move/Rename/Set-as/Delete/Info) run through the §7 E8 core via the
+ * + bottom-bar file actions (Copy/Move/Rename/Set-as/Delete/Details) run through the §7 E8 core via the
  * `:core:index` operations facade (W2-E12). Favourite / Rotate / Share / Edit stay deferred stubs.
  */
 @Composable
@@ -168,9 +168,14 @@ internal fun ViewerScreen(
     onBack: () -> Unit,
 ) {
     JGalleryViewerTheme {
-        // C1-02 (item 11): the viewer is an immersive, distraction-free canvas for as long as this
-        // route is on screen — dark status bar (light icons over media) + hidden system nav bar.
-        ImmersiveViewerEffect()
+        // Chrome visibility is hoisted here so the immersive window effect can toggle the *system*
+        // bars in lock-step with the app chrome (APP-643 #4). Survives config changes so a rotation
+        // mid-view doesn't pop the bars back. Default visible: chrome (and the status bar) show on entry.
+        var chromeVisible by rememberSaveable { mutableStateOf(true) }
+        // C1-02 (item 11) + APP-643 (#4): the viewer is an immersive, distraction-free canvas for as
+        // long as this route is on screen — light icons over the dark media, nav bar hidden throughout,
+        // and (new) the status bar hides together with the chrome for true sticky immersive on tap.
+        ImmersiveViewerEffect(chromeVisible = chromeVisible)
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -184,6 +189,8 @@ internal fun ViewerScreen(
                     ViewerPager(
                         state, playback, destinations, actionState, handlers,
                         favorites, onToggleFavorite, slideshowIntervalMs, onBack,
+                        chromeVisible = chromeVisible,
+                        onChromeVisibleChange = { chromeVisible = it },
                     )
             }
         }
@@ -193,11 +200,16 @@ internal fun ViewerScreen(
 /**
  * Immersive window setup for the viewer route (C1-02, item 11). Scoped to the viewer only via
  * [DisposableEffect]: on enter it draws the media edge-to-edge behind a **dark status bar** (light
- * icons, `isAppearanceLightStatusBars = false`) and **hides the system navigation bar** sticky-
- * immersive (`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE`); on exit it restores the app's light status bar
- * and re-shows the nav bar in one step, no flicker. The redlines (callouts #1/#4) keep the status bar
- * visible with light icons — only the nav bar is hidden — so every other screen keeps the light bar.
- * Edge-to-edge itself is already on from `enableEdgeToEdge()` in the Activity.
+ * icons, `isAppearanceLightStatusBars = false`) and **hides the system navigation bar** for the whole
+ * session, sticky-immersive (`BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE` — a swipe reveals a transient bar
+ * that auto-hides). On exit it restores the app's status bar, icon appearance and re-shows both system
+ * bars in one step, no flicker. Edge-to-edge itself is already on from `enableEdgeToEdge()` in the
+ * Activity, and APP-643 gives the viewer the full window (no Scaffold inset padding) so the media truly
+ * fills behind the bars.
+ *
+ * APP-643 (#4): the **status bar now hides and shows together with [chromeVisible]** — tapping the media
+ * to dismiss the app chrome also hides the status bar for a true full-screen canvas; tapping again brings
+ * both back. The nav bar stays hidden throughout (the bottom action bar is the viewer's own chrome).
  *
  * APP-593: the effect also paints the real status-bar plane the viewer canvas colour. The viewer only
  * flipped the status-bar *icons* to light but inherited the app's opaque **light (white)** status-bar
@@ -209,11 +221,13 @@ internal fun ViewerScreen(
  * the opaque tint isn't scrimmed; the colour, contrast flag and icon appearance are all restored on exit.
  */
 @Composable
-private fun ImmersiveViewerEffect() {
+private fun ImmersiveViewerEffect(chromeVisible: Boolean) {
     val view = LocalView.current
     if (view.isInEditMode) return
     val window = view.findActivity()?.window ?: return
     val statusBarTint = JGalleryColors.ViewerCanvas.toArgb()
+    // One-time window styling for the viewer session + restore-on-exit. Keyed on the tint (constant),
+    // so it runs once on enter and once on dispose regardless of chrome toggles.
     DisposableEffect(statusBarTint) {
         val controller = WindowCompat.getInsetsController(window, view)
         val previousLightStatusBars = controller.isAppearanceLightStatusBars
@@ -226,11 +240,23 @@ private fun ImmersiveViewerEffect() {
         window.statusBarColor = statusBarTint // dark plane behind the light icons — no white status bar
         controller.hide(WindowInsetsCompat.Type.navigationBars())
         onDispose {
-            controller.show(WindowInsetsCompat.Type.navigationBars())
+            controller.show(WindowInsetsCompat.Type.systemBars())
             controller.isAppearanceLightStatusBars = previousLightStatusBars
             window.statusBarColor = previousColor
             window.isStatusBarContrastEnforced = previousContrast
         }
+    }
+    // Toggle the status bar in lock-step with the app chrome (APP-643 #4). The nav bar is already hidden
+    // for the whole session, so hiding the status bar here yields a true full-screen immersive canvas.
+    DisposableEffect(chromeVisible) {
+        val controller = WindowCompat.getInsetsController(window, view)
+        if (chromeVisible) {
+            controller.isAppearanceLightStatusBars = false // re-assert light icons whenever it reappears
+            controller.show(WindowInsetsCompat.Type.statusBars())
+        } else {
+            controller.hide(WindowInsetsCompat.Type.statusBars())
+        }
+        onDispose {}
     }
 }
 
@@ -279,12 +305,13 @@ private fun ViewerPager(
     onToggleFavorite: (MediaId) -> Unit,
     slideshowIntervalMs: Long,
     onBack: () -> Unit,
+    chromeVisible: Boolean,
+    onChromeVisibleChange: (Boolean) -> Unit,
 ) {
     val items by rememberUpdatedState(state.items)
     val pagerState = rememberPagerState(
         initialPage = state.initialIndex.coerceIn(0, state.items.lastIndex),
     ) { items.size }
-    var chromeVisible by rememberSaveable { mutableStateOf(true) }
     var infoItem by remember { mutableStateOf<MediaItem?>(null) }
     var picker by remember { mutableStateOf<PickerMode?>(null) }
     var renaming by remember { mutableStateOf(false) }
@@ -311,7 +338,7 @@ private fun ViewerPager(
     BackHandler(enabled = slideshowOn) {
         slideshowOn = false
         slideshowPaused = false
-        chromeVisible = true
+        onChromeVisibleChange(true)
     }
 
     // Auto-advance driver (APP-544, video-dwell fix APP-548, configured interval APP-594). Runs only
@@ -349,7 +376,7 @@ private fun ViewerPager(
             when (item.type) {
                 MediaType.IMAGE -> ImagePage(
                     item = item,
-                    onToggleChrome = { chromeVisible = !chromeVisible },
+                    onToggleChrome = { onChromeVisibleChange(!chromeVisible) },
                     onOpenWith = { handlers.onOpenWith(item.id) },
                     onInfo = { infoItem = item },
                     onDelete = { handlers.onDelete(item.id) },
@@ -359,7 +386,7 @@ private fun ViewerPager(
                     createMediaSource = { playback.mediaSource(item) },
                     isSettledPage = pagerState.settledPage == page,
                     chromeVisible = chromeVisible,
-                    onChromeVisibleChange = { chromeVisible = it },
+                    onChromeVisibleChange = onChromeVisibleChange,
                     onOpenWith = { handlers.onOpenWith(item.id) },
                     onInfo = { infoItem = item },
                 )
@@ -399,7 +426,7 @@ private fun ViewerPager(
                 onInfo = { currentItem?.let { infoItem = it } },
                 onStartSlideshow = {
                     slideshowPaused = false
-                    chromeVisible = false
+                    onChromeVisibleChange(false)
                     slideshowOn = true
                 },
             )
@@ -418,7 +445,7 @@ private fun ViewerPager(
                 onStop = {
                     slideshowOn = false
                     slideshowPaused = false
-                    chromeVisible = true
+                    onChromeVisibleChange(true)
                 },
             )
         }
@@ -577,7 +604,7 @@ private fun ViewerActionBar(
         add("Move to" to onMoveTo)
         add("Rename" to onRename)
         if (item?.type == MediaType.IMAGE) add("Set as" to onSetAs)
-        add("Info" to onInfo)
+        add("Details" to onInfo) // APP-643 (#6): single term "Details" everywhere (dialog is titled Details)
     }
 
     Row(
