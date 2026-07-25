@@ -23,12 +23,14 @@ import com.appblish.jgallery.core.model.formatsPresentIn
  * Ordering, top → bottom, is a total, deterministic order (spec C4 items 6 & 7):
  *  0. **Pinned** albums (any kind), among themselves by the active sort — pins win over everything.
  *  1. **Recent** smart album.
- *  2. **Camera** folder.
- *  3. **Screenshots** folder.
- *  4. **Video** smart album.
- *  5. every other device folder, by the active sort.
+ *  2. **Favorites** smart album (G3 · APP-543).
+ *  3. **Camera** folder.
+ *  4. **Screenshots** folder.
+ *  5. **Video** smart album.
+ *  6. every other device folder, by the active sort.
  * Camera/Screenshots/Video are the "priority" folders that always precede ordinary folders; Recent
- * leads as the marquee smart album. A pinned album is promoted out of its usual tier to the very top.
+ * and Favorites lead as the marquee library-wide smart albums. A pinned album is promoted out of its
+ * usual tier to the very top.
  */
 internal object AlbumsCatalog {
 
@@ -55,8 +57,9 @@ internal object AlbumsCatalog {
 
     /**
      * The ordered Albums-tab list (spec C4). [deviceAlbums] are the index's real folders; [videos] is
-     * the video subset of the index (used to build the Video smart album); [pinnedBucketIds] and
-     * [sort] are the persisted user preferences.
+     * the video subset of the index (used to build the Video smart album); [favorites] is the starred
+     * subset of the index (used to build the Favorites smart album — G3 · APP-543); [pinnedBucketIds]
+     * and [sort] are the persisted user preferences.
      */
     fun buildAlbumsTab(
         deviceAlbums: List<Album>,
@@ -64,9 +67,11 @@ internal object AlbumsCatalog {
         pinnedBucketIds: Set<String>,
         sort: SortSpec,
         coverOverrides: Map<String, MediaId> = emptyMap(),
+        favorites: List<MediaItem> = emptyList(),
     ): List<Album> {
         val recent = recentAlbum(deviceAlbums)
         val video = videoAlbum(videos)
+        val favorite = favoritesAlbum(favorites)
 
         val enrichedFolders = deviceAlbums.map { folder ->
             folder.copy(
@@ -76,7 +81,8 @@ internal object AlbumsCatalog {
                 cover = coverOverrides[folder.bucketId] ?: folder.cover,
             )
         }
-        val smart = listOfNotNull(recent, video).map { it.copy(pinned = it.bucketId in pinnedBucketIds) }
+        val smart = listOfNotNull(recent, favorite, video)
+            .map { it.copy(pinned = it.bucketId in pinnedBucketIds) }
 
         return (smart + enrichedFolders).sortedWith(comparator(sort))
     }
@@ -92,8 +98,9 @@ internal object AlbumsCatalog {
     /**
      * Filter the Albums-tab list by the active format chip (design C1-06 callout 4): "Videos" surfaces
      * video-bearing albums, etc. [MediaFilter.ALL] is the identity. A device folder is kept when it
-     * holds that format ([bucketFormats]); the Recent smart album is kept when the library holds it
-     * anywhere; the Video smart album is a videos-only entry. Ordering is preserved.
+     * holds that format ([bucketFormats]); the Recent and Favorites library-wide smart albums are kept
+     * when the library holds it anywhere; the Video smart album is a videos-only entry. Ordering is
+     * preserved.
      */
     fun applyFormatFilter(
         albums: List<Album>,
@@ -104,7 +111,7 @@ internal object AlbumsCatalog {
         val presentAnywhere = bucketFormats.values.any { filter in it }
         return albums.filter { album ->
             when (album.kind) {
-                AlbumKind.RECENT -> presentAnywhere
+                AlbumKind.RECENT, AlbumKind.FAVORITES -> presentAnywhere
                 AlbumKind.VIDEO -> filter == MediaFilter.VIDEOS
                 AlbumKind.DEVICE_FOLDER -> filter in (bucketFormats[album.bucketId] ?: emptySet())
             }
@@ -174,10 +181,11 @@ internal object AlbumsCatalog {
     private fun rank(album: Album): Int = when {
         album.pinned -> 0
         album.kind == AlbumKind.RECENT -> 1
-        album.kind == AlbumKind.DEVICE_FOLDER && album.name.equals(CAMERA, ignoreCase = true) -> 2
-        album.kind == AlbumKind.DEVICE_FOLDER && album.name.equals(SCREENSHOTS, ignoreCase = true) -> 3
-        album.kind == AlbumKind.VIDEO -> 4
-        else -> 5
+        album.kind == AlbumKind.FAVORITES -> 2
+        album.kind == AlbumKind.DEVICE_FOLDER && album.name.equals(CAMERA, ignoreCase = true) -> 3
+        album.kind == AlbumKind.DEVICE_FOLDER && album.name.equals(SCREENSHOTS, ignoreCase = true) -> 4
+        album.kind == AlbumKind.VIDEO -> 5
+        else -> 6
     }
 
     /** Recent = the whole library, newest-first. Cover/newest come from the newest folder. */
@@ -193,6 +201,26 @@ internal object AlbumsCatalog {
             cover = newestFolder.cover,
             newestItemMillis = newestFolder.newestItemMillis,
             kind = AlbumKind.RECENT,
+            isPriority = true,
+        )
+    }
+
+    /**
+     * The Favorites smart album card (G3 · APP-543): an aggregate over the user's starred [favorites],
+     * covered by the newest starred item. Null when nothing is favorited — mirroring Recent/Video, the
+     * tile only appears once it has content (its empty state lives inside the opened grid). [isPriority]
+     * so it leads with the other library-wide smart albums.
+     */
+    private fun favoritesAlbum(favorites: List<MediaItem>): Album? {
+        if (favorites.isEmpty()) return null
+        val newest = favorites.maxBy { it.dateTakenMillis }
+        return Album(
+            bucketId = FAVORITES_BUCKET_ID,
+            name = FAVORITES_NAME,
+            itemCount = favorites.size,
+            cover = newest.id,
+            newestItemMillis = newest.dateTakenMillis,
+            kind = AlbumKind.FAVORITES,
             isPriority = true,
         )
     }

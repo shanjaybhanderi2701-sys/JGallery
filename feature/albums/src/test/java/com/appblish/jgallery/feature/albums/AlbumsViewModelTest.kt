@@ -1,5 +1,6 @@
 package com.appblish.jgallery.feature.albums
 
+import com.appblish.jgallery.core.index.FavoritesStore
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
@@ -9,6 +10,7 @@ import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
+import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.OperationProgress
 import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.model.SortDirection
@@ -50,7 +52,8 @@ class AlbumsViewModelTest {
         repository: FakeRepository = FakeRepository(),
         operations: FakeOperations = FakeOperations(),
         preferences: FakePreferences = FakePreferences(),
-    ) = AlbumsViewModel(repository, operations, preferences)
+        favorites: FakeFavoritesStore = FakeFavoritesStore(),
+    ) = AlbumsViewModel(repository, operations, preferences, favorites)
 
     @Test
     fun `starts Loading, empty index lands on Empty`() = runTest(dispatcher) {
@@ -80,6 +83,60 @@ class AlbumsViewModelTest {
             assertThat(folders.map { it.bucketId }).containsExactly("camera", "screenshots").inOrder()
             assertThat(folders.first().itemCount).isEqualTo(12)
         }
+
+    @Test
+    fun `Favorites smart album surfaces after Recent with the starred count and newest cover`() =
+        runTest(dispatcher) {
+            val repository = FakeRepository()
+            val favorites = FakeFavoritesStore(setOf(MediaId("m1"), MediaId("m3")))
+            // Whole-library media is snapshotted when the VM wires its catalog flow, so set it first.
+            repository.libraryMedia = listOf(
+                media("m1", bucket = "camera", taken = 100),
+                media("m2", bucket = "camera", taken = 200), // not starred
+                media("m3", bucket = "camera", taken = 250),
+            )
+            val vm = viewModel(repository = repository, favorites = favorites)
+
+            repository.albums.value = listOf(album("camera", count = 3, newest = 300))
+
+            val content = withTimeout(5_000) {
+                vm.state.first {
+                    it is AlbumsUiState.Content && it.albums.any { a -> a.kind == AlbumKind.FAVORITES }
+                } as AlbumsUiState.Content
+            }
+
+            val fav = content.albums.single { it.kind == AlbumKind.FAVORITES }
+            assertThat(fav.bucketId).isEqualTo(AlbumsCatalog.FAVORITES_BUCKET_ID)
+            assertThat(fav.itemCount).isEqualTo(2) // only m1 + m3 are starred
+            assertThat(fav.cover).isEqualTo(MediaId("m3")) // newest starred item (taken=250)
+            // Ordering: Favorites leads with the smart albums, directly after Recent (spec C4 / G3).
+            val smart = content.albums.filter { it.kind == AlbumKind.RECENT || it.kind == AlbumKind.FAVORITES }
+            assertThat(smart.map { it.kind })
+                .containsExactly(AlbumKind.RECENT, AlbumKind.FAVORITES).inOrder()
+        }
+
+    @Test
+    fun `un-starring the last favorite drops the Favorites tile`() = runTest(dispatcher) {
+        val repository = FakeRepository()
+        val favorites = FakeFavoritesStore(setOf(MediaId("m1")))
+        repository.libraryMedia = listOf(media("m1", bucket = "camera", taken = 100))
+        val vm = viewModel(repository = repository, favorites = favorites)
+
+        repository.albums.value = listOf(album("camera", count = 1, newest = 300))
+
+        // Present at first…
+        withTimeout(5_000) {
+            vm.state.first { it is AlbumsUiState.Content && (it).albums.any { a -> a.kind == AlbumKind.FAVORITES } }
+        }
+        // …then un-star the only favorite → the live starred set empties → tile disappears.
+        favorites.toggle(MediaId("m1"))
+        advanceUntilIdle()
+
+        val content = withTimeout(5_000) {
+            vm.state.first { it is AlbumsUiState.Content && (it).albums.none { a -> a.kind == AlbumKind.FAVORITES } }
+        } as AlbumsUiState.Content
+        assertThat(content.albums.none { it.kind == AlbumKind.FAVORITES }).isTrue()
+    }
 
     @Test
     fun `sort by File Name Ascending re-orders ordinary folders`() = runTest(dispatcher) {
@@ -583,8 +640,25 @@ class AlbumsViewModelTest {
         newestItemMillis = newest,
     )
 
+    private fun media(id: String, bucket: String, taken: Long) = MediaItem(
+        id = MediaId(id),
+        displayName = id,
+        type = MediaType.IMAGE,
+        bucketId = bucket,
+        bucketName = bucket,
+        dateTakenMillis = taken,
+        dateModifiedMillis = taken,
+        sizeBytes = 0,
+        width = 100,
+        height = 100,
+        durationMillis = 0,
+        mimeType = "image/jpeg",
+    )
+
     private class FakeRepository : MediaIndexRepository {
         val albums = MutableStateFlow<List<Album>>(emptyList())
+        /** Whole-library media (null-bucket query) — feeds the Video + Favorites smart albums. */
+        var libraryMedia: List<MediaItem> = emptyList()
         /** Media returned for a per-album (bucket-scoped) query — powers the "Set as cover" picker. */
         var albumMediaResult: List<MediaItem> = emptyList()
         /** Per-bucket media, used by the D4-03 flatten path to expand each folder to its member ids. */
@@ -593,11 +667,22 @@ class AlbumsViewModelTest {
         override fun observeAlbums(): Flow<List<Album>> = albums
         override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> {
             queriedBuckets += query.bucketId
-            val bucket = query.bucketId ?: return MutableStateFlow(emptyList())
+            val bucket = query.bucketId ?: return MutableStateFlow(libraryMedia)
             val media = albumMediaByBucket[bucket] ?: albumMediaResult
             return MutableStateFlow(media)
         }
         override suspend fun refresh() = Unit
+    }
+
+    /** In-memory [FavoritesStore] for the Favorites smart-album tests (mirrors AlbumDetailViewModelTest). */
+    private class FakeFavoritesStore(initial: Set<MediaId> = emptySet()) : FavoritesStore {
+        private val ids = MutableStateFlow(initial)
+        override val favoriteIds: Flow<Set<MediaId>> = ids
+        override fun isFavorite(id: MediaId): Flow<Boolean> = ids.map { id in it }
+        override suspend fun setFavorite(id: MediaId, favorite: Boolean) {
+            ids.value = if (favorite) ids.value + id else ids.value - id
+        }
+        override suspend fun toggle(id: MediaId) = setFavorite(id, id !in ids.value)
     }
 
     private class FakeOperations : MediaOperationsRepository {

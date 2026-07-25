@@ -7,16 +7,19 @@ import com.appblish.jgallery.core.model.MediaFilter
 
 /**
  * Route a tapped Albums-tab card to the right destination (spec C4). The Video smart album opens its
- * folder-wise grouping screen; Recent and real folders open the album-detail media grid (Recent via
- * its sentinel bucket id, which the detail ViewModel maps to a library-wide newest-first query).
+ * folder-wise grouping screen; the Favorites smart album opens the favorites collection (its sentinel
+ * bucket, mapped to a live starred-ids query by the detail ViewModel); Recent and real folders open the
+ * album-detail media grid (Recent via its sentinel bucket id, mapped to a library-wide newest-first
+ * query).
  *
  * [filter] is the active top-bar format chip (design C1-06, APP-467): it rides into album detail so a
- * folder opened while "Videos"/"Photos"/"GIFs" is selected shows only that media. The Video smart album
- * is already video-scoped, so the filter is irrelevant there.
+ * folder opened while "Videos"/"Photos"/"GIFs" is selected shows only that media. The Video and
+ * Favorites smart albums are their own collections, so the format chip is irrelevant there.
  */
 fun NavController.openAlbum(album: Album, filter: MediaFilter = MediaFilter.ALL) {
     when (album.kind) {
         AlbumKind.VIDEO -> navigateToVideoAlbums()
+        AlbumKind.FAVORITES -> navigateToFavorites()
         AlbumKind.RECENT, AlbumKind.DEVICE_FOLDER ->
             navigateToAlbumDetail(album.bucketId, album.name, filter = filter)
     }

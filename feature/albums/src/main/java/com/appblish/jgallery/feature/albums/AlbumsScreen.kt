@@ -556,6 +556,7 @@ private fun AlbumKind.detailsLabel(): String = when (this) {
     AlbumKind.DEVICE_FOLDER -> "Folder"
     AlbumKind.RECENT -> "Recent (all media)"
     AlbumKind.VIDEO -> "Video (all videos)"
+    AlbumKind.FAVORITES -> "Favorites (starred)"
 }
 
 /** Confirm moving the selected albums to the Trash (spec §7.5 — restorable, so a single confirm). */

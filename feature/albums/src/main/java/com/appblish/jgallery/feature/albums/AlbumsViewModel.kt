@@ -2,6 +2,7 @@ package com.appblish.jgallery.feature.albums
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.appblish.jgallery.core.index.FavoritesStore
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.MediaOperationsRepository
 import com.appblish.jgallery.core.model.Album
@@ -63,6 +64,19 @@ private data class AlbumsCatalogData(
 )
 
 /**
+ * The five index/preference streams that feed catalog assembly, bundled so the starred-ids set can be
+ * combined in as a sixth stream (kotlinx `combine` is typed only up to five). Destructured back out at
+ * the assembly step — see [AlbumsViewModel.catalog].
+ */
+private data class CatalogInputs(
+    val albums: List<Album>,
+    val media: List<MediaItem>,
+    val pinned: Set<String>,
+    val sort: SortSpec,
+    val coverOverrides: Map<String, MediaId>,
+)
+
+/**
  * Albums tab (spec §3, design a04): device folders with cover + count, served straight from the
  * cached index. The active [SortSpec] (spec §6) re-orders the already-loaded album list in memory —
  * no re-scan — and both sort and column density persist per tab. Create-album (spec §6) goes through
@@ -73,6 +87,7 @@ class AlbumsViewModel @Inject constructor(
     private val repository: MediaIndexRepository,
     private val operations: MediaOperationsRepository,
     private val preferences: AlbumsPreferences,
+    private val favoritesStore: FavoritesStore,
 ) : ViewModel() {
 
     private val createAlbumResults = Channel<CreateAlbumResult>(Channel.BUFFERED)
@@ -107,9 +122,11 @@ class AlbumsViewModel @Inject constructor(
     /**
      * The Albums tab (spec C4) plus per-bucket format presence for the filter row. Assembled by
      * [AlbumsCatalog] from cache-backed inputs: the device folders, the whole media set (for the Video
-     * smart album + the C1-06 filter's format presence), and the persisted pin/sort preferences.
-     * Recent/Video are synthesized on top and the whole list is ordered deterministically
-     * (pinned → Recent → Camera → Screenshots → Video → other folders by sort).
+     * smart album + the C1-06 filter's format presence), the persisted pin/sort preferences, and the
+     * starred-ids set (for the Favorites smart album — G3 · APP-543). Recent/Favorites/Video are
+     * synthesized on top and the whole list is ordered deterministically
+     * (pinned → Recent → Favorites → Camera → Screenshots → Video → other folders by sort). The starred
+     * set is combined in as a sixth stream so a star/un-star re-emits the tab (live count + cover).
      */
     private val catalog: Flow<AlbumsCatalogData> =
         combine(
@@ -119,12 +136,16 @@ class AlbumsViewModel @Inject constructor(
             preferences.sort,
             preferences.coverOverrides,
         ) { albums, media, pinned, sort, coverOverrides ->
+            CatalogInputs(albums, media, pinned, sort, coverOverrides)
+        }.combine(favoritesStore.favoriteIds) { inputs, favoriteIds ->
+            val (albums, media, pinned, sort, coverOverrides) = inputs
             if (albums.isEmpty()) {
                 AlbumsCatalogData(emptyList(), emptyMap(), libraryEmpty = true)
             } else {
                 val videos = media.filter { it.type == MediaType.VIDEO }
+                val favorites = media.filter { it.id in favoriteIds }
                 AlbumsCatalogData(
-                    albums = AlbumsCatalog.buildAlbumsTab(albums, videos, pinned, sort, coverOverrides),
+                    albums = AlbumsCatalog.buildAlbumsTab(albums, videos, pinned, sort, coverOverrides, favorites),
                     bucketFormats = AlbumsCatalog.bucketFormats(media),
                     libraryEmpty = false,
                     videoCoverByBucket = AlbumsCatalog.videoCoverByBucket(videos),
