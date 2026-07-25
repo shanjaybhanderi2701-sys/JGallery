@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
@@ -211,12 +212,40 @@ fun BoxScope.GridFastScroller(
                 grabbed = dragging,
                 trackHeightPx = trackHeightPx,
             )
-            if (dragging) {
-                val label = bubbleLabel(
-                    FastScrollMath.targetIndex(dragFraction, totalItems, visibleItems), bubbleCollapsed,
-                )
-                if (label != null) DateBubble(label = label, fraction = fraction, trackHeightPx = trackHeightPx)
-            }
+        }
+    }
+
+    // Context bubble — APP-592 root-cause fix. Previously drawn INSIDE the 48dp-wide touch column
+    // above, where DateBubble's `padding(end = TouchTarget + 8.dp)` (56dp) exceeded the 48dp parent
+    // width and collapsed the label to zero width, so the pill never appeared on device. APP-496 only
+    // JVM-tested the label string, never the rendered layout, and the pill is not adb-scriptable, so it
+    // slipped through. It now lives in the full BoxScope (the screen-width Box that hosts the scroller),
+    // so it has room to lay out and sits to the LEFT of the handle (C1-05 callout #4). Its own
+    // AnimatedVisibility is driven by [dragging] so it fades in on grab and FADES OUT on release
+    // (design §3), independent of the track's AUTO_HIDE_MS linger.
+    val bubbleText = if (dragging && totalItems > 0) {
+        bubbleLabel(FastScrollMath.targetIndex(dragFraction, totalItems, visibleItems), bubbleCollapsed)
+    } else {
+        null
+    }
+    // Retain the last non-null label so the text stays legible through the release fade-out, when
+    // `dragging` has already flipped false and `bubbleText` is null again.
+    var lastBubbleText by remember { mutableStateOf<String?>(null) }
+    if (bubbleText != null) lastBubbleText = bubbleText
+    AnimatedVisibility(
+        visible = bubbleText != null,
+        enter = fadeIn(),
+        exit = fadeOut(),
+        modifier = Modifier.matchParentSize(),
+    ) {
+        Box(modifier = Modifier.fillMaxSize()) {
+            DateBubble(
+                label = lastBubbleText.orEmpty(),
+                // dragFraction retains its last value after release, so the bubble holds position while
+                // it fades rather than jumping.
+                fraction = dragFraction,
+                trackHeightPx = trackHeightPx,
+            )
         }
     }
 }

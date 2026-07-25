@@ -1,6 +1,9 @@
 package com.appblish.jgallery.feature.photos
 
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
@@ -103,6 +106,56 @@ class PhotosGridTest {
         // Fling may take ~1s to settle; then AUTO_HIDE_MS=1500ms; then fade-out ~300ms. 5s covers all.
         composeRule.mainClock.advanceTimeBy(5000)
         composeRule.onNodeWithTag("fast_scroll_thumb").assertDoesNotExist()
+    }
+
+    /**
+     * APP-592 regression: the context bubble must LAY OUT and be visible during an active drag, and
+     * fade away after release. The old bug drew the pill inside the 48dp touch column while it applied
+     * `padding(end = 56dp)`, collapsing its content to zero width — [assertIsDisplayed] fails on a
+     * zero-size node, so this test fails on the pre-fix code and passes only once the pill lives in a
+     * full-width overlay. APP-496 only unit-tested the label string, never the render, so this is the
+     * layer that was missing.
+     */
+    @Test
+    fun fastScrollBubble_appearsDuringDrag_thenFadesOnRelease() {
+        setTenThousandItemGrid()
+        composeRule.mainClock.autoAdvance = false
+
+        // Reveal the scroller first. `fast_scroll_track` lives inside AnimatedVisibility(visible) and
+        // `visible` starts false — it only flips true on `dragging || isScrollInProgress`. With no
+        // prior scroll the track is never composed, so grabbing it straight away throws "could not find
+        // any node (TestTag = 'fast_scroll_track')". Swipe to trigger isScrollInProgress → visible, then
+        // advance past the fade-in but stay inside the 1.5s linger, exactly like the passing thumb test.
+        composeRule.onNodeWithTag("photos_grid").performTouchInput { swipeUp() }
+        composeRule.mainClock.advanceTimeBy(300) // past the track fade-in, inside AUTO_HIDE_MS
+        composeRule.onNodeWithTag("fast_scroll_track").assertIsDisplayed()
+
+        // Now grab the (composed) handle and hold mid-drag — do NOT release, so `dragging` stays true.
+        // topCenter → center is far past touch slop, so detectVerticalDragGestures reports an active
+        // vertical drag.
+        composeRule.onNodeWithTag("fast_scroll_track").performTouchInput {
+            down(topCenter)
+            moveTo(center)
+        }
+        composeRule.mainClock.advanceTimeBy(300) // past the bubble fade-in
+
+        // The pill is actually on screen with non-zero size (the exact thing the old bug broke)...
+        composeRule.onNodeWithTag("fast_scroll_bubble").assertIsDisplayed()
+        // ...and carries the sort-aware context label ("Month 2026 · item N of 10,000" for the default
+        // Last-Modified sort). All fixture dates are in 2026, so the year proves a real readout. The pill's
+        // Text is an UNMERGED child of the tagged Box (a plain testTag is not a merge boundary), so the year
+        // lives on that child node, not on the tag node — asserting assertTextContains on the tag alone finds
+        // no Text and throws on device. Scope the match to the bubble subtree via the ancestor tag so it
+        // can't collide with the "Month 2026" grid date headers.
+        composeRule.onNode(
+            hasText("2026", substring = true) and hasAnyAncestor(hasTestTag("fast_scroll_bubble")),
+        ).assertIsDisplayed()
+
+        // Release → `dragging` flips false → the bubble fades out (design §3), unlike the thumb which
+        // lingers AUTO_HIDE_MS. 1s covers the fade-out.
+        composeRule.onNodeWithTag("fast_scroll_track").performTouchInput { up() }
+        composeRule.mainClock.advanceTimeBy(1_000)
+        composeRule.onNodeWithTag("fast_scroll_bubble").assertDoesNotExist()
     }
 
     @Test
