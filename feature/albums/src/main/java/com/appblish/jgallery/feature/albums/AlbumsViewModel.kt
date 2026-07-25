@@ -25,6 +25,7 @@ import com.appblish.jgallery.core.ui.selection.AlbumOperationContext
 import com.appblish.jgallery.core.ui.selection.SelectionState
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.Flow
@@ -35,7 +36,9 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.last
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
@@ -64,9 +67,9 @@ private data class AlbumsCatalogData(
 )
 
 /**
- * The five index/preference streams that feed catalog assembly, bundled so the starred-ids set can be
- * combined in as a sixth stream (kotlinx `combine` is typed only up to five). Destructured back out at
- * the assembly step — see [AlbumsViewModel.catalog].
+ * The five index/preference streams that feed catalog assembly, bundled so the resolved favorites list
+ * can be combined in as a sixth stream (kotlinx `combine` is typed only up to five). Destructured back
+ * out at the assembly step — see [AlbumsViewModel.catalog].
  */
 private data class CatalogInputs(
     val albums: List<Album>,
@@ -82,6 +85,7 @@ private data class CatalogInputs(
  * no re-scan — and both sort and column density persist per tab. Create-album (spec §6) goes through
  * the §1.6 [MediaOperationsRepository], so this feature never links `:core:storage`.
  */
+@OptIn(ExperimentalCoroutinesApi::class)
 @HiltViewModel
 class AlbumsViewModel @Inject constructor(
     private val repository: MediaIndexRepository,
@@ -120,13 +124,31 @@ class AlbumsViewModel @Inject constructor(
     val filter: StateFlow<MediaFilter> = filterState.asStateFlow()
 
     /**
+     * The user's favorited media for the Favorites smart album (G3 · APP-543), resolved through the
+     * SAME repository id-query the Favorites album-detail grid uses: a star/un-star re-issues
+     * `observeMedia(ids = starred)` via [flatMapLatest] and re-emits the resolved subset (live count +
+     * cover). An empty starred set short-circuits to an empty list without a query.
+     *
+     * Resolving favorites on this dedicated reactive path — rather than filtering the whole-library
+     * `media` snapshot in-line inside the catalog `combine` — is the APP-640/APP-649 device fix: the tile
+     * membership now rides the identical, device-proven code path as the opened grid, so the tile can no
+     * longer disagree with what the grid shows. (On device the in-combine filter surfaced an empty
+     * Favorites subset while the detail grid resolved the same ids — a flow-assembly divergence, since
+     * the rows, ids and equality were identical between the two.)
+     */
+    private val favoritesMedia: Flow<List<MediaItem>> =
+        favoritesStore.favoriteIds.flatMapLatest { ids ->
+            if (ids.isEmpty()) flowOf(emptyList<MediaItem>()) else repository.observeMedia(MediaQuery(ids = ids))
+        }
+
+    /**
      * The Albums tab (spec C4) plus per-bucket format presence for the filter row. Assembled by
      * [AlbumsCatalog] from cache-backed inputs: the device folders, the whole media set (for the Video
      * smart album + the C1-06 filter's format presence), the persisted pin/sort preferences, and the
-     * starred-ids set (for the Favorites smart album — G3 · APP-543). Recent/Favorites/Video are
-     * synthesized on top and the whole list is ordered deterministically
-     * (pinned → Recent → Favorites → Camera → Screenshots → Video → other folders by sort). The starred
-     * set is combined in as a sixth stream so a star/un-star re-emits the tab (live count + cover).
+     * resolved favorites subset (for the Favorites smart album — G3 · APP-543). Recent/Favorites/Video
+     * are synthesized on top and the whole list is ordered deterministically
+     * (pinned → Recent → Favorites → Camera → Screenshots → Video → other folders by sort). The resolved
+     * [favoritesMedia] is combined in as a sixth stream so a star/un-star re-emits the tab.
      */
     private val catalog: Flow<AlbumsCatalogData> =
         combine(
@@ -137,13 +159,12 @@ class AlbumsViewModel @Inject constructor(
             preferences.coverOverrides,
         ) { albums, media, pinned, sort, coverOverrides ->
             CatalogInputs(albums, media, pinned, sort, coverOverrides)
-        }.combine(favoritesStore.favoriteIds) { inputs, favoriteIds ->
+        }.combine(favoritesMedia) { inputs, favorites ->
             val (albums, media, pinned, sort, coverOverrides) = inputs
             if (albums.isEmpty()) {
                 AlbumsCatalogData(emptyList(), emptyMap(), libraryEmpty = true)
             } else {
                 val videos = media.filter { it.type == MediaType.VIDEO }
-                val favorites = media.filter { it.id in favoriteIds }
                 AlbumsCatalogData(
                     albums = AlbumsCatalog.buildAlbumsTab(albums, videos, pinned, sort, coverOverrides, favorites),
                     bucketFormats = AlbumsCatalog.bucketFormats(media),

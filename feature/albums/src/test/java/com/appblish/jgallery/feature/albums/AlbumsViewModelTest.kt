@@ -139,6 +139,32 @@ class AlbumsViewModelTest {
     }
 
     @Test
+    fun `Favorites tile resolves through the id-restricted media query, not an in-memory library filter (APP-640)`() =
+        runTest(dispatcher) {
+            val repository = FakeRepository()
+            val favorites = FakeFavoritesStore(setOf(MediaId("m1"), MediaId("m3")))
+            repository.libraryMedia = listOf(
+                media("m1", bucket = "camera", taken = 100),
+                media("m2", bucket = "camera", taken = 200), // not starred
+                media("m3", bucket = "camera", taken = 250),
+            )
+            val vm = viewModel(repository = repository, favorites = favorites)
+            repository.albums.value = listOf(album("camera", count = 3, newest = 300))
+
+            val content = withTimeout(5_000) {
+                vm.state.first {
+                    it is AlbumsUiState.Content && it.albums.any { a -> a.kind == AlbumKind.FAVORITES }
+                } as AlbumsUiState.Content
+            }
+            assertThat(content.albums.single { it.kind == AlbumKind.FAVORITES }.itemCount).isEqualTo(2)
+            // APP-640/APP-649 device fix: favorites are fetched via observeMedia(ids = starred) — the same
+            // code path the Favorites album-detail grid uses — not by filtering the whole-library snapshot
+            // in-line inside the catalog combine. So the repo must have seen an id-restricted query carrying
+            // exactly the starred set. (The old in-combine filter never issued an ids query — this locks it.)
+            assertThat(repository.queriedIds).contains(setOf(MediaId("m1"), MediaId("m3")))
+        }
+
+    @Test
     fun `sort by File Name Ascending re-orders ordinary folders`() = runTest(dispatcher) {
         val repository = FakeRepository()
         val preferences = FakePreferences()
@@ -664,11 +690,18 @@ class AlbumsViewModelTest {
         /** Per-bucket media, used by the D4-03 flatten path to expand each folder to its member ids. */
         var albumMediaByBucket: Map<String, List<MediaItem>> = emptyMap()
         val queriedBuckets = mutableListOf<String?>()
+
+        /** Every id-restriction handed to [observeMedia] — lets a test assert favorites ride the ids-query. */
+        val queriedIds = mutableListOf<Set<MediaId>?>()
         override fun observeAlbums(): Flow<List<Album>> = albums
         override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> {
             queriedBuckets += query.bucketId
-            val bucket = query.bucketId ?: return MutableStateFlow(libraryMedia)
-            val media = albumMediaByBucket[bucket] ?: albumMediaResult
+            queriedIds += query.ids
+            val source = query.bucketId?.let { albumMediaByBucket[it] ?: albumMediaResult } ?: libraryMedia
+            // Honor MediaQuery.ids exactly as the real CachedMediaIndexRepository does (item.id in ids):
+            // the Favorites smart album resolves through this id-restricted query (APP-640 fix), so the
+            // fake must filter by it rather than ignore it.
+            val media = query.ids?.let { ids -> source.filter { it.id in ids } } ?: source
             return MutableStateFlow(media)
         }
         override suspend fun refresh() = Unit
