@@ -68,6 +68,19 @@ interface StorageAccess {
 
     suspend fun rename(id: MediaId, newDisplayName: String): OperationResult
 
+    /**
+     * Rotate the image [id] 90° in [direction], **persisting** the new orientation to the file so other
+     * apps and file managers see it rotated (spec §7 · G3-1) — an EXIF `Orientation` rewrite where the
+     * format allows (lossless), else a pixel re-encode; never an in-session view-only transform. The
+     * change bumps the item's modified-time, so the reactive index + thumbnail/full-image caches refresh
+     * without a manual invalidation. One-item [OperationResult]: `succeeded = 1`, or `failed = 1` with a
+     * reason (item gone, unrotatable format, or a scoped-storage write that needs consent). Off-thread.
+     */
+    suspend fun rotateImage(
+        id: MediaId,
+        direction: com.appblish.jgallery.core.model.RotationDirection,
+    ): OperationResult
+
     suspend fun createAlbum(name: String): OperationResult
 
     /**

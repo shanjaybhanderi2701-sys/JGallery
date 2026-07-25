@@ -193,6 +193,11 @@ internal class MediaStoreStorageAccess(
     override suspend fun rename(id: MediaId, newDisplayName: String): OperationResult =
         fileOps.rename(id, newDisplayName)
 
+    override suspend fun rotateImage(
+        id: MediaId,
+        direction: com.appblish.jgallery.core.model.RotationDirection,
+    ): OperationResult = fileOps.rotate(id, direction)
+
     // The cursor is closed by `use`; no stream/ownership transfer here, so Recycle is a false positive.
     @SuppressLint("Recycle")
     override suspend fun viewUri(id: MediaId): Uri? = withContext(io) {

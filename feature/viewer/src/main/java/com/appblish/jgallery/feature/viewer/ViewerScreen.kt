@@ -30,6 +30,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.MoreVert
+import androidx.compose.material.icons.filled.RotateLeft
 import androidx.compose.material.icons.filled.RotateRight
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.outlined.Delete
@@ -76,6 +77,7 @@ import com.appblish.jgallery.core.model.FileNames
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
+import com.appblish.jgallery.core.model.RotationDirection
 import com.appblish.jgallery.core.playback.PlaybackSources
 import com.appblish.jgallery.core.thumbs.coverRequest
 import com.appblish.jgallery.core.viewdefaults.ViewDefaults
@@ -97,6 +99,8 @@ internal data class ViewerActionHandlers(
     /** Create-and-fill: make album [name] and move [id] into it (C1-03 New-album tile, Move verb). */
     val onMoveToNewAlbum: (id: MediaId, name: String) -> Unit,
     val onRename: (id: MediaId, newName: String) -> Unit,
+    /** Rotate the image 90° left/right, persisting orientation to the file (G3-1 · APP-639). */
+    val onRotate: (id: MediaId, direction: RotationDirection) -> Unit,
     val onDelete: (id: MediaId) -> Unit,
     val onSetAs: (id: MediaId) -> Unit,
     /** Hand an undecodable video to another app (W3-05 "Open with", §8). Resolves via §1.6 viewUri. */
@@ -111,7 +115,8 @@ private enum class PickerMode { COPY, MOVE }
  * Full-screen viewer (spec §5, design W1-08/09/10): swipe pager across the launch scope, image
  * zoom with pager-safe gesture priority, Media3 video playback, dark viewer-only chrome. The overflow
  * + bottom-bar file actions (Copy/Move/Rename/Set-as/Delete/Info) run through the §7 E8 core via the
- * `:core:index` operations facade (W2-E12). Favourite / Rotate / Share / Edit stay deferred stubs.
+ * `:core:index` operations facade (W2-E12). Favourite (APP-543) and Rotate (G3-1 · APP-639) are live;
+ * Share / Edit stay deferred stubs.
  */
 @Composable
 internal fun ViewerRoute(
@@ -143,6 +148,7 @@ internal fun ViewerRoute(
             onCopyToNewAlbum = viewModel::copyToNewAlbum,
             onMoveToNewAlbum = viewModel::moveToNewAlbum,
             onRename = viewModel::rename,
+            onRotate = viewModel::rotate,
             onDelete = viewModel::delete,
             onSetAs = viewModel::setAs,
             onOpenWith = viewModel::openWith,
@@ -295,9 +301,6 @@ private fun ViewerPager(
     var slideshowPaused by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
-    val onStubAction: (String) -> Unit = { action ->
-        scope.launch { snackbarHostState.showSnackbar("$action arrives in a later phase") }
-    }
 
     // Surface each completed op's "done / reason" summary once, then clear it (spec §7.6).
     LaunchedEffect(actionState) {
@@ -378,8 +381,8 @@ private fun ViewerPager(
                 item = currentItem,
                 favorite = currentItem?.id in favorites,
                 onToggleFavorite = { currentItem?.let { onToggleFavorite(it.id) } },
+                onRotate = { dir -> currentItem?.let { handlers.onRotate(it.id, dir) } },
                 onBack = onBack,
-                onStubAction = onStubAction,
             )
         }
         AnimatedVisibility(
@@ -502,14 +505,14 @@ private fun ViewerPager(
     }
 }
 
-/** Header (design W1-08): back, filename, favorite (live G2 · APP-543), rotate (still a Wave-2 stub). */
+/** Header (design W1-08): back, filename, favorite (live G2 · APP-543), rotate L/R (live G3-1 · APP-639). */
 @Composable
 private fun ViewerHeader(
     item: MediaItem?,
     favorite: Boolean,
     onToggleFavorite: () -> Unit,
+    onRotate: (RotationDirection) -> Unit,
     onBack: () -> Unit,
-    onStubAction: (String) -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -544,8 +547,20 @@ private fun ViewerHeader(
                 tint = if (favorite) FavoriteRed else Color.White,
             )
         }
-        IconButton(onClick = { onStubAction("Rotate") }) {
-            Icon(Icons.Filled.RotateRight, contentDescription = "Rotate", tint = Color.White)
+        // Rotate is image-only — EXIF/pixel orientation has no meaning for a video (spec §7 · G3-1).
+        if (item?.type == MediaType.IMAGE) {
+            IconButton(
+                onClick = { onRotate(RotationDirection.LEFT) },
+                modifier = Modifier.testTag("viewer_rotate_left"),
+            ) {
+                Icon(Icons.Filled.RotateLeft, contentDescription = "Rotate left", tint = Color.White)
+            }
+            IconButton(
+                onClick = { onRotate(RotationDirection.RIGHT) },
+                modifier = Modifier.testTag("viewer_rotate_right"),
+            ) {
+                Icon(Icons.Filled.RotateRight, contentDescription = "Rotate right", tint = Color.White)
+            }
         }
     }
 }

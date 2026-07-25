@@ -67,6 +67,14 @@ internal interface StorageOps {
     suspend fun rename(id: MediaId, newName: String): Boolean
 
     /**
+     * Rotate the image [id] 90° in [direction], persisting the new orientation to the file so other
+     * apps see it rotated (spec §7 · G3-1) — an EXIF `Orientation` rewrite where the format supports
+     * it (lossless), else a pixel decode→rotate→re-encode. Bumps `DATE_MODIFIED` so the index/cache
+     * version token flips. Returns false if the item is gone or is not a rotatable image (e.g. video).
+     */
+    suspend fun rotate(id: MediaId, direction: com.appblish.jgallery.core.model.RotationDirection): Boolean
+
+    /**
      * The `RELATIVE_PATH` of the folder backing [bucketId] (read from any member row), or null when
      * the album has no rows. Used to compute the destination folder for an album rename.
      */

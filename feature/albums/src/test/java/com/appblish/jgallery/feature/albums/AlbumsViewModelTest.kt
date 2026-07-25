@@ -693,6 +693,7 @@ class AlbumsViewModelTest {
             return result
         }
         override suspend fun rename(id: MediaId, newDisplayName: String) = result
+        override suspend fun rotateImage(id: MediaId, direction: com.appblish.jgallery.core.model.RotationDirection) = result
         override suspend fun viewUri(id: MediaId): android.net.Uri? = null
         override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()

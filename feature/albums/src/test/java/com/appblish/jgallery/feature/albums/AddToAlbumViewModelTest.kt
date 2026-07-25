@@ -95,6 +95,7 @@ class AddToAlbumViewModelTest {
 
         override suspend fun createAlbum(name: String) = OperationResult(1, 0)
         override suspend fun rename(id: MediaId, newDisplayName: String) = OperationResult(1, 0)
+        override suspend fun rotateImage(id: MediaId, direction: com.appblish.jgallery.core.model.RotationDirection) = OperationResult(1, 0)
         override suspend fun viewUri(id: MediaId): android.net.Uri? = null
         override fun copy(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()
         override fun move(ids: List<MediaId>, destinationBucketId: String): Flow<FileOperationEvent> = emptyFlow()

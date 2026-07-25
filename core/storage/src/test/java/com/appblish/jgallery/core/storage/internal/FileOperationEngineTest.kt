@@ -3,6 +3,7 @@ package com.appblish.jgallery.core.storage.internal
 import com.appblish.jgallery.core.model.FileOperationEvent
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.OperationResult
+import com.appblish.jgallery.core.model.RotationDirection
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -241,6 +242,35 @@ class FileOperationEngineTest {
         assertThat(ops.namesInBucket("src")).containsExactly("Sunset.jpg")
     }
 
+    // --- rotate (single image) ---
+
+    @Test
+    fun `rotate reports success and records the turn`() = runTest {
+        val ops = FakeStorageOps().apply {
+            put("1", "photo.jpg", "image/jpeg", bytesOf(1, size = 2), bucket = "src")
+        }
+        val engine = FileOperationEngine(ops, StandardTestDispatcher(testScheduler))
+
+        assertThat(engine.rotate(MediaId("1"), RotationDirection.RIGHT))
+            .isEqualTo(OperationResult(succeeded = 1, failed = 0))
+        assertThat(ops.rotationsOf("1")).isEqualTo(1)
+    }
+
+    @Test
+    fun `rotate fails gracefully for a vanished item and surfaces a platform error`() = runTest {
+        val ops = FakeStorageOps().apply {
+            put("1", "photo.jpg", "image/jpeg", bytesOf(1, size = 2), bucket = "src")
+            rotateThrowIds += "boom"
+            put("boom", "bad.jpg", "image/jpeg", bytesOf(2, size = 2), bucket = "src")
+        }
+        val engine = FileOperationEngine(ops, StandardTestDispatcher(testScheduler))
+
+        // ops.rotate returns false for an unknown id → a one-item failure, no crash.
+        assertThat(engine.rotate(MediaId("missing"), RotationDirection.LEFT).failed).isEqualTo(1)
+        // a thrown platform failure is caught and reported, not propagated.
+        assertThat(engine.rotate(MediaId("boom"), RotationDirection.LEFT).failed).isEqualTo(1)
+    }
+
     // --- rename album (entity) ---
 
     @Test
@@ -339,10 +369,14 @@ class FileOperationEngineTest {
             val bytes: ByteArray,
             val bucketId: String,
             var relativePath: String = "Pictures/$bucketId/",
+            var rotations: Int = 0,
         )
 
         private val items = LinkedHashMap<String, Entry>()
         private val firstReadHooks = mutableMapOf<String, () -> Unit>()
+
+        /** Ids whose [rotate] throws, to exercise the engine's platform-failure isolation. */
+        val rotateThrowIds = mutableSetOf<String>()
         private var idSeq = 1000
         var committedSinks = 0
             private set
@@ -391,6 +425,15 @@ class FileOperationEngineTest {
         override suspend fun rename(id: MediaId, newName: String): Boolean {
             val entry = items[id.value] ?: return false
             entry.name = newName
+            return true
+        }
+
+        fun rotationsOf(id: String): Int = items[id]?.rotations ?: 0
+
+        override suspend fun rotate(id: MediaId, direction: RotationDirection): Boolean {
+            if (id.value in rotateThrowIds) error("simulated rotate failure")
+            val entry = items[id.value] ?: return false
+            entry.rotations++
             return true
         }
 

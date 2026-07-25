@@ -236,6 +236,20 @@ class ViewerViewModelTest {
     }
 
     @Test
+    fun `rotate right runs the persist op and surfaces the result`() = runTest {
+        val vm = viewModel(mediaId = "a")
+
+        vm.rotate(MediaId("a"), com.appblish.jgallery.core.model.RotationDirection.RIGHT)
+        advanceUntilIdle()
+
+        assertThat(operations.rotated)
+            .containsExactly(MediaId("a") to com.appblish.jgallery.core.model.RotationDirection.RIGHT)
+        val finished = vm.action.value as ViewerActionUiState.Finished
+        assertThat(finished.kind).isEqualTo(ViewerActionKind.ROTATE)
+        assertThat(finished.message()).isEqualTo("Rotated")
+    }
+
+    @Test
     fun `set as on a vanished item reports it is unavailable, not a broken intent`() = runTest {
         operations.viewUriResult = null // item deleted underneath us
         val vm = viewModel(mediaId = "a")
@@ -300,10 +314,18 @@ class ViewerViewModelTest {
         val copyCalls = mutableListOf<Pair<List<MediaId>, String>>()
         val newAlbumCalls = mutableListOf<Pair<List<MediaId>, String>>()
         val renamed = mutableListOf<Pair<MediaId, String>>()
+        val rotated = mutableListOf<Pair<MediaId, com.appblish.jgallery.core.model.RotationDirection>>()
 
         override suspend fun createAlbum(name: String) = result
         override suspend fun rename(id: MediaId, newDisplayName: String): OperationResult {
             renamed += id to newDisplayName
+            return result
+        }
+        override suspend fun rotateImage(
+            id: MediaId,
+            direction: com.appblish.jgallery.core.model.RotationDirection,
+        ): OperationResult {
+            rotated += id to direction
             return result
         }
         override suspend fun viewUri(id: MediaId): android.net.Uri? = viewUriResult
