@@ -8,7 +8,9 @@ import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -17,6 +19,9 @@ import androidx.navigation.compose.rememberNavController
 import com.appblish.jgallery.core.ui.nav.GalleryTab
 import com.appblish.jgallery.core.ui.nav.GalleryTabBar
 import com.appblish.jgallery.core.ui.nav.GalleryTabBarItem
+import com.appblish.jgallery.core.ui.window.LocalWindowSizeClass
+import com.appblish.jgallery.core.ui.window.desiredOrientation
+import com.appblish.jgallery.core.ui.window.findActivity
 import com.appblish.jgallery.feature.albums.ADD_TO_ALBUM_ROUTE
 import com.appblish.jgallery.feature.albums.ALBUM_DETAIL_ROUTE
 import com.appblish.jgallery.feature.albums.AlbumsScreen
@@ -70,6 +75,23 @@ fun JGalleryApp(
 ) {
     val navController = rememberNavController()
 
+    // Current top-level route: drives both the tab-bar visibility (below) and the central orientation
+    // writer. `firstOrNull()` on the destination hierarchy resolves to the route *template* (e.g.
+    // VIEWER_ROUTE) even for arg-filled destinations, so equality checks against the route constants hold.
+    val currentRoute = navController.currentBackStackEntryAsState()
+        .value?.destination?.hierarchy?.firstOrNull()?.route
+
+    // Adaptive foundation (APP-651): the single place that writes Activity.requestedOrientation.
+    // Compact (phone) list/detail screens lock to portrait; the full-screen viewer allows landscape
+    // (FULL_USER, honoring the system auto-rotate lock); Medium/Expanded never lock. Returning from
+    // the viewer to a list re-runs this and restores portrait. See desiredOrientation() for the policy.
+    val widthSizeClass = LocalWindowSizeClass.current.widthSizeClass
+    val activity = LocalContext.current.findActivity()
+    val isViewer = currentRoute == VIEWER_ROUTE
+    LaunchedEffect(activity, widthSizeClass, isViewer) {
+        activity?.requestedOrientation = desiredOrientation(widthSizeClass, isViewer)
+    }
+
     val resolvedTabContent: @Composable (GalleryTab) -> Unit = tabContent ?: { tab ->
         when (tab) {
             // Tapping a tile opens the E7 full-screen viewer, paged across the whole Photos stream.
@@ -99,8 +121,6 @@ fun JGalleryApp(
 
     Scaffold(
         bottomBar = {
-            val currentRoute = navController.currentBackStackEntryAsState()
-                .value?.destination?.hierarchy?.firstOrNull()?.route
             // Full-screen destinations own the whole canvas (their own chrome) — the tab bar hides for
             // them and returns on pop: the viewer, Recycle Bin, Search, album detail, and the album
             // create/add-photos flow.
