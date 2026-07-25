@@ -233,7 +233,7 @@ private fun CardActionRow(
             modifier = Modifier.weight(1f),
         )
         CardButton(
-            label = "Info",
+            label = "Details", // APP-643 (#6): unified "Details" term (matches the Details dialog)
             fill = Color(0x1FFFFFFF),
             content = Color.White,
             onClick = onInfo,
