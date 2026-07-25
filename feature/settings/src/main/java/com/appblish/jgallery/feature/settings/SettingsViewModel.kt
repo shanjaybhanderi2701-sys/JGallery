@@ -19,14 +19,15 @@ data class SettingsUiState(
     val themeMode: ThemeMode = ThemeMode.SYSTEM,
     val defaultSort: SortSpec = SortSpec(),
     val defaultColumns: ColumnCount = ColumnCount.DEFAULT,
-    val slideshowIntervalMs: Long = SettingsPreferences.DEFAULT_SLIDESHOW_INTERVAL_MS,
+    val slideshowIntervalMs: Long = ViewDefaults.DEFAULT_SLIDESHOW_INTERVAL_MS,
 )
 
 /**
- * Backs the Settings screen (design G2 Settings). Reads theme + slideshow off [SettingsPreferences]
- * and the app-wide default sort + grid density off the shared [ViewDefaults] seam (APP-569), exposing
- * them as one [SettingsUiState]; each setter persists immediately (no confirm — the dialog/sheet applies
- * on select, §3). Writing the defaults through [ViewDefaults] is what seeds the Photos/Albums tabs.
+ * Backs the Settings screen (design G2 Settings). Reads theme off [SettingsPreferences] and the app-wide
+ * default sort + grid density + slideshow interval off the shared [ViewDefaults] seam (APP-569, APP-594),
+ * exposing them as one [SettingsUiState]; each setter persists immediately (no confirm — the dialog/sheet
+ * applies on select, §3). Writing the defaults through [ViewDefaults] is what seeds the Photos/Albums
+ * tabs and the viewer's slideshow.
  * No loading/error states by design.
  */
 @HiltViewModel
@@ -40,7 +41,7 @@ class SettingsViewModel @Inject constructor(
             preferences.themeMode,
             viewDefaults.defaultSort,
             viewDefaults.defaultColumns,
-            preferences.slideshowIntervalMs,
+            viewDefaults.slideshowIntervalMs,
         ) { theme, sort, columns, slideshow ->
             SettingsUiState(theme, sort, columns, slideshow)
         }.stateIn(
@@ -57,5 +58,5 @@ class SettingsViewModel @Inject constructor(
         viewModelScope.launch { viewDefaults.setDefaultColumns(columns) }
 
     fun setSlideshowIntervalMs(ms: Long) =
-        viewModelScope.launch { preferences.setSlideshowIntervalMs(ms) }
+        viewModelScope.launch { viewDefaults.setSlideshowIntervalMs(ms) }
 }

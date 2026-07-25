@@ -14,6 +14,7 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.OperationResult
 import com.appblish.jgallery.core.playback.PlaybackSources
+import com.appblish.jgallery.core.viewdefaults.ViewDefaults
 import dagger.hilt.android.lifecycle.HiltViewModel
 import javax.inject.Inject
 import kotlinx.coroutines.Job
@@ -52,6 +53,7 @@ class ViewerViewModel @Inject constructor(
     repository: MediaIndexRepository,
     private val operations: MediaOperationsRepository,
     private val favoritesStore: FavoritesStore,
+    viewDefaults: ViewDefaults,
     savedStateHandle: SavedStateHandle,
     /** Boundary-routed Media3 sources, handed to the video pages (§1.6 — no uri ever reaches the UI). */
     val playback: PlaybackSources,
@@ -61,6 +63,19 @@ class ViewerViewModel @Inject constructor(
     val favorites: StateFlow<Set<MediaId>> =
         favoritesStore.favoriteIds
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
+
+    /**
+     * Configured slideshow auto-advance interval, read off the shared [ViewDefaults] seam (APP-594) so
+     * "Slideshow" starts with the value the user set in Settings — no `:feature:viewer → :feature:settings`
+     * edge. Seeded with the default so the very first frame after launch never dwells on a stale value.
+     */
+    val slideshowIntervalMs: StateFlow<Long> =
+        viewDefaults.slideshowIntervalMs
+            .stateIn(
+                viewModelScope,
+                SharingStarted.WhileSubscribed(5_000),
+                ViewDefaults.DEFAULT_SLIDESHOW_INTERVAL_MS,
+            )
 
     /** Star / un-star the item currently on screen from the viewer header. */
     fun toggleFavorite(id: MediaId) {

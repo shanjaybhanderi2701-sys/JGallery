@@ -16,6 +16,10 @@ dependencies {
     // The shared, app-agnostic video-player surface (APP-408): VideoPage delegates the ExoPlayer host
     // + gesture dispatcher + controls here and supplies only JGallery's poster/error chrome.
     implementation(project(":core:playerkit"))
+    // App-wide view-defaults seam (APP-569): the viewer reads the Settings-owned slideshow interval
+    // here (APP-594) rather than depending on :feature:settings — Settings is the writer, viewer the
+    // reader, and neither feature depends on the other.
+    implementation(project(":core:viewdefaults"))
 
     // Instrumented-only: closeSoftKeyboard() so the create-and-move sheet test (item 12) drops the IME
     // before teardown — otherwise the IME window keeps the host activity PAUSED and createComposeRule

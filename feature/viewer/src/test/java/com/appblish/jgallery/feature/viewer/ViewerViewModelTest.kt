@@ -11,7 +11,10 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.OperationResult
+import com.appblish.jgallery.core.model.ColumnCount
+import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.playback.PlaybackSources
+import com.appblish.jgallery.core.viewdefaults.ViewDefaults
 import com.google.common.truth.Truth.assertThat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
@@ -50,10 +53,13 @@ class ViewerViewModelTest {
 
     private val favoritesStore = FakeFavoritesStore()
 
+    private val viewDefaults = FakeViewDefaults()
+
     private fun viewModel(mediaId: String, bucketId: String? = null) = ViewerViewModel(
         repository = index,
         operations = operations,
         favoritesStore = favoritesStore,
+        viewDefaults = viewDefaults,
         savedStateHandle = SavedStateHandle(
             buildMap {
                 put(VIEWER_MEDIA_ID_ARG, mediaId)
@@ -76,6 +82,19 @@ class ViewerViewModelTest {
         vm.toggleFavorite(MediaId("a"))
         advanceUntilIdle()
         assertThat(vm.favorites.value).isEmpty()
+        job.cancel()
+    }
+
+    @Test
+    fun `exposes the configured slideshow interval from the view-defaults seam`() = runTest {
+        // APP-594: the slideshow starts with the value the user set in Settings, read via ViewDefaults.
+        viewDefaults.slideshowState.value = 6_000L
+        index.mediaFlow.value = listOf(item("a"))
+        val vm = viewModel(mediaId = "a")
+        val job = launch { vm.slideshowIntervalMs.collect {} } // WhileSubscribed: needs a live collector
+
+        advanceUntilIdle()
+        assertThat(vm.slideshowIntervalMs.value).isEqualTo(6_000L)
         job.cancel()
     }
 
@@ -330,5 +349,20 @@ class ViewerViewModelTest {
             ids.value = if (favorite) ids.value + id else ids.value - id
         }
         override suspend fun toggle(id: MediaId) = setFavorite(id, id !in ids.value)
+    }
+
+    /** In-memory [ViewDefaults] the test can preset; only the slideshow interval matters to the viewer. */
+    private class FakeViewDefaults(
+        interval: Long = ViewDefaults.DEFAULT_SLIDESHOW_INTERVAL_MS,
+    ) : ViewDefaults {
+        private val sortState = MutableStateFlow(SortSpec())
+        private val columnsState = MutableStateFlow(ColumnCount.DEFAULT)
+        val slideshowState = MutableStateFlow(interval)
+        override val defaultSort: Flow<SortSpec> = sortState
+        override val defaultColumns: Flow<ColumnCount> = columnsState
+        override val slideshowIntervalMs: Flow<Long> = slideshowState
+        override suspend fun setDefaultSort(sort: SortSpec) { sortState.value = sort }
+        override suspend fun setDefaultColumns(columns: ColumnCount) { columnsState.value = columns }
+        override suspend fun setSlideshowIntervalMs(ms: Long) { slideshowState.value = ms }
     }
 }
