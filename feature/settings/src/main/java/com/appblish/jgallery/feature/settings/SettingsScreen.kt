@@ -342,7 +342,7 @@ private fun RadioOption(
     }
 }
 
-/** Slideshow interval dialog (§6): 2s / 4s / 6s / 10s, applies instantly on select. */
+/** Slideshow interval dialog (§6): 0.5s / 1s / 2s / 3s / 4s / 5s / 6s / 10s, applies instantly on select. */
 @Composable
 private fun SlideshowIntervalDialog(
     currentMs: Long,
@@ -363,7 +363,7 @@ private fun SlideshowIntervalDialog(
                         label = slideshowLabel(ms),
                         selected = ms == currentMs,
                         onClick = { onSelect(ms) },
-                        testTag = "slideshow_option_${ms / 1000}s",
+                        testTag = "slideshow_option_${ms}ms",
                     )
                 }
             }
@@ -371,9 +371,21 @@ private fun SlideshowIntervalDialog(
     )
 }
 
-private val SLIDESHOW_INTERVALS_MS = listOf(2_000L, 4_000L, 6_000L, 10_000L)
+/**
+ * Selectable slideshow intervals (§6, APP-642). Sub-second (0.5s) is representable because the
+ * store is Long-ms end-to-end — see [slideshowLabel] for the decimal rendering that avoids the
+ * old integer-division "0s" truncation.
+ */
+internal val SLIDESHOW_INTERVALS_MS =
+    listOf(500L, 1_000L, 2_000L, 3_000L, 4_000L, 5_000L, 6_000L, 10_000L)
 
-private fun slideshowLabel(ms: Long): String = "${ms / 1000}s"
+/**
+ * Renders an interval in seconds, keeping one decimal only for sub-second values so 500ms shows as
+ * "0.5s" instead of the integer-division "0s". Whole seconds stay integer ("2s", not "2.0s").
+ * Kotlin's Double/Long toString is locale-independent, so no decimal-separator drift.
+ */
+internal fun slideshowLabel(ms: Long): String =
+    if (ms % 1_000L == 0L) "${ms / 1_000L}s" else "${ms / 1_000.0}s"
 
 /** App version, surfaced from the settings-module BuildConfig (design SET-04). */
 private object AppVersion {
