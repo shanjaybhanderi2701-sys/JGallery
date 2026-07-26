@@ -1,55 +1,45 @@
 package com.appblish.jgallery.core.ui.window
 
 import android.content.pm.ActivityInfo
-import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
-import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
 import org.junit.Assert.assertEquals
 import org.junit.Test
 
 /**
- * Policy coverage for [desiredOrientation] (APP-651). The three [ActivityInfo] constants are Java
- * compile-time `static final int`s, so they inline into this JVM unit test without an Android runtime.
+ * Policy coverage for [desiredOrientation] (APP-651; APP-676 — orientation-stable device signal). The
+ * three [ActivityInfo] constants are Java compile-time `static final int`s, so they inline into this
+ * JVM unit test without an Android runtime.
+ *
+ * The input is `isCompactWidthDevice` (derived from the rotation-invariant `smallestScreenWidthDp`),
+ * not the live window width class — a compact-width phone stays "compact device" in both orientations,
+ * so the portrait lock re-fires even when the phone is currently held landscape.
  */
-@OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
 class ScreenOrientationTest {
 
     @Test
-    fun compactNonViewer_locksPortrait() {
+    fun compactDeviceNonViewer_locksPortrait() {
         assertEquals(
             ActivityInfo.SCREEN_ORIENTATION_PORTRAIT,
-            desiredOrientation(WindowWidthSizeClass.Compact, isViewer = false),
+            desiredOrientation(isCompactWidthDevice = true, isViewer = false),
         )
     }
 
     @Test
-    fun compactViewer_allowsRotationHonoringSystemLock() {
+    fun compactDeviceViewer_allowsRotationHonoringSystemLock() {
         assertEquals(
             ActivityInfo.SCREEN_ORIENTATION_FULL_USER,
-            desiredOrientation(WindowWidthSizeClass.Compact, isViewer = true),
+            desiredOrientation(isCompactWidthDevice = true, isViewer = true),
         )
     }
 
     @Test
-    fun medium_neverLocks_evenInViewer() {
+    fun nonCompactDevice_neverLocks_evenInViewer() {
         assertEquals(
             ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
-            desiredOrientation(WindowWidthSizeClass.Medium, isViewer = false),
+            desiredOrientation(isCompactWidthDevice = false, isViewer = false),
         )
         assertEquals(
             ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
-            desiredOrientation(WindowWidthSizeClass.Medium, isViewer = true),
-        )
-    }
-
-    @Test
-    fun expanded_neverLocks_evenInViewer() {
-        assertEquals(
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
-            desiredOrientation(WindowWidthSizeClass.Expanded, isViewer = false),
-        )
-        assertEquals(
-            ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED,
-            desiredOrientation(WindowWidthSizeClass.Expanded, isViewer = true),
+            desiredOrientation(isCompactWidthDevice = false, isViewer = true),
         )
     }
 }

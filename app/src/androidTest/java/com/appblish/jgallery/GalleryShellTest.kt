@@ -37,8 +37,9 @@ class GalleryShellTest {
     @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     @Test
     fun twoTabShell_defaultsToPhotos_andBothTabsReachable_noRetiredTabs() {
-        // APP-651: the shell reads LocalWindowSizeClass for the orientation writer; provide a Compact
-        // (phone) size class so JGalleryApp renders as it does on a phone.
+        // APP-651: provide a Compact (phone) size class so JGalleryApp renders as it does on a phone.
+        // (APP-676 moved the orientation writer off the live width class onto smallestScreenWidthDp;
+        // this provider stays for layout realism — the writer no longer reads it.)
         val compactWindowSizeClass = WindowSizeClass.calculateFromSize(DpSize(400.dp, 800.dp))
         composeRule.setContent {
             JGalleryTheme {
