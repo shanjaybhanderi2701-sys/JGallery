@@ -22,6 +22,15 @@ object JGalleryDimens {
     val TabBarHeight = 56.dp
     val TabBarIconSize = 25.dp
     val TabBarActiveDotSize = 4.dp
+
+    /**
+     * Leading navigation-rail content width on Medium/Expanded windows (adaptive, APP-652 / spec
+     * §4.1): the rail replaces the bottom bar on tablets & unfolded foldables. Matches Material's
+     * 80dp rail so touch targets and glyph spacing feel native; the start display-cutout / system-bar
+     * inset is added on top via `windowInsetsPadding` so the rail background still bleeds to the
+     * physical edge (see [com.appblish.jgallery.core.ui.nav.GalleryNavRail]).
+     */
+    val NavRailWidth = 80.dp
     val PhotosGutter = 4.dp
     val AlbumsGutter = 12.dp
     val GrabHandleWidth = 44.dp

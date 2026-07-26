@@ -1,6 +1,15 @@
 package com.appblish.jgallery
 
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.consumeWindowInsets
+import androidx.compose.foundation.layout.displayCutout
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.systemBars
+import androidx.compose.foundation.layout.union
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Photo
 import androidx.compose.material.icons.filled.PhotoLibrary
@@ -12,10 +21,13 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavDestination.Companion.hierarchy
+import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
+import androidx.compose.material3.windowsizeclass.WindowWidthSizeClass
+import com.appblish.jgallery.core.ui.nav.GalleryNavRail
 import com.appblish.jgallery.core.ui.nav.GalleryTab
 import com.appblish.jgallery.core.ui.nav.GalleryTabBar
 import com.appblish.jgallery.core.ui.nav.GalleryTabBarItem
@@ -119,78 +131,148 @@ fun JGalleryApp(
         }
     }
 
-    Scaffold(
-        bottomBar = {
-            // Full-screen destinations own the whole canvas (their own chrome) — the tab bar hides for
-            // them and returns on pop: the viewer, Recycle Bin, Search, album detail, and the album
-            // create/add-photos flow.
-            if (currentRoute == VIEWER_ROUTE || currentRoute == TRASH_ROUTE ||
-                currentRoute == SEARCH_ROUTE || currentRoute == ALBUM_DETAIL_ROUTE ||
-                currentRoute == VIDEO_ALBUMS_ROUTE || currentRoute == NEW_ALBUM_ROUTE ||
-                currentRoute == ADD_TO_ALBUM_ROUTE || currentRoute == SETTINGS_ROUTE ||
-                currentRoute == ABOUT_ROUTE || currentRoute == LICENSES_ROUTE
-            ) return@Scaffold
-            GalleryTabBar(
-                items = GalleryTab.entries.map { it.tabBarItem },
-                selectedRoute = currentRoute,
-                onSelect = { item ->
-                    navController.navigate(item.route) {
-                        popUpTo(GalleryTab.Default.route) { saveState = true }
-                        launchSingleTop = true
-                        restoreState = true
-                    }
-                },
-            )
-        },
-    ) { innerPadding ->
-        NavHost(
-            navController = navController,
-            startDestination = GalleryTab.Default.route,
-            modifier = Modifier.padding(innerPadding),
-        ) {
-            GalleryTab.entries.forEach { tab ->
-                composable(tab.route) { resolvedTabContent(tab) }
-            }
-            // Album detail (spec §3): a bucket's media grid — the Albums surface for E11 multi-select.
-            albumDetailScreen(
-                onBack = { navController.popBackStack() },
-                onMediaClick = { item -> navController.navigateToViewer(item.id, item.bucketId) },
-                onOpenTrash = { navController.navigateToTrash() },
-                onAlbumCreated = { name -> navController.navigateToNewAlbum(name) },
-            )
-            // New-album empty prompt (design C1-09): after Create album, land here to add first photos.
-            newAlbumScreen(
-                onAddPhotos = { name -> navController.navigateToAddToAlbum(name) },
-                onBack = { navController.popBackStack() },
-            )
-            // Add-photos picker (design C1-09): copies the selection into the new album, then pops back.
-            addToAlbumScreen(
-                onDone = {
-                    // Pop past the picker AND the emptyNew prompt back to the Albums tab, where the new
-                    // album now renders with a cover. Falls back to a single pop if the prompt is gone.
-                    if (!navController.popBackStack(NEW_ALBUM_ROUTE, inclusive = true)) {
-                        navController.popBackStack()
-                    }
-                },
-            )
-            // Video smart album (spec C4): All Videos + folder-wise grouping; each opens a video-scoped grid.
-            videoAlbumsScreen(
-                onBack = { navController.popBackStack() },
-                onOpenAlbum = { album -> navController.openVideoMemberAlbum(album) },
-            )
-            // Full-screen viewer (E7). Grids open it via NavController.navigateToViewer(id, bucketId).
-            viewerScreen(onBack = { navController.popBackStack() })
-            // Full-screen Search (C1-01 item 10): opened from the Photos/Collections header search
-            // action. Tapping a result opens the shared viewer (paged across the whole library).
-            searchScreen(
-                onBack = { navController.popBackStack() },
-                onMediaClick = { item -> navController.navigateToViewer(item.id) },
-            )
-            // Recycle Bin (E9, spec §7.5). Opened from the Collections (Albums) header overflow.
-            trashScreen(onBack = { navController.popBackStack() })
-            // Settings (G2, APP-545): full-screen route opened from the overflow menu on both tabs.
-            settingsScreen(navController = navController, onBack = { navController.popBackStack() })
+    // Top-level navigation surface (adaptive, APP-652 / spec §4.1). Compact (phone) keeps the
+    // OnePlus bottom tab bar; Medium & Expanded (tablet / unfolded foldable) swap it for a leading
+    // navigation rail. Full-screen routes hide *both* — they own the whole canvas. Same tab set, same
+    // VM state, same route-driven selection: container swap only, no forked screens (spec §8).
+    val navItems = GalleryTab.entries.map { it.tabBarItem }
+    val onSelectTab: (GalleryTabBarItem) -> Unit = { item ->
+        navController.navigate(item.route) {
+            popUpTo(GalleryTab.Default.route) { saveState = true }
+            launchSingleTop = true
+            restoreState = true
         }
+    }
+    val showTopLevelNav = currentRoute !in FULL_SCREEN_ROUTES
+    val useNavRail = widthSizeClass != WindowWidthSizeClass.Compact
+
+    if (useNavRail && showTopLevelNav) {
+        // Medium / Expanded with a top-level tab visible: rail on the leading edge, content fills the
+        // rest. The rail owns the start + vertical safe insets and bleeds its background under the
+        // display cutout (see GalleryNavRail); the content Scaffold consumes the start inset so the
+        // system-bar / cutout gap is never applied a second time (coordination with APP-643).
+        Row(modifier = Modifier.fillMaxSize()) {
+            GalleryNavRail(
+                items = navItems,
+                selectedRoute = currentRoute,
+                onSelect = onSelectTab,
+            )
+            Scaffold(
+                modifier = Modifier
+                    .weight(1f)
+                    .consumeWindowInsets(
+                        WindowInsets.systemBars.union(WindowInsets.displayCutout)
+                            .only(WindowInsetsSides.Start),
+                    ),
+            ) { innerPadding ->
+                GalleryNavHost(
+                    navController = navController,
+                    resolvedTabContent = resolvedTabContent,
+                    modifier = Modifier.padding(innerPadding),
+                )
+            }
+        }
+    } else {
+        // Compact (phone), and every full-screen route on any size: a single Scaffold. The bottom bar
+        // shows only on Compact top-level tabs — behaviorally unchanged from before this adaptive work.
+        Scaffold(
+            bottomBar = {
+                if (!useNavRail && showTopLevelNav) {
+                    GalleryTabBar(
+                        items = navItems,
+                        selectedRoute = currentRoute,
+                        onSelect = onSelectTab,
+                    )
+                }
+            },
+        ) { innerPadding ->
+            GalleryNavHost(
+                navController = navController,
+                resolvedTabContent = resolvedTabContent,
+                modifier = Modifier.padding(innerPadding),
+            )
+        }
+    }
+}
+
+/**
+ * Routes that own the whole canvas (their own chrome): the top-level tab navigation — bottom bar on
+ * Compact, [GalleryNavRail] on Medium/Expanded — hides for these and returns on pop (the viewer,
+ * Recycle Bin, Search, album detail, the video smart-album grid, the album create/add-photos flow,
+ * and the Settings/About/Licenses stack). Extracted from the old inline bottom-bar allowlist so the
+ * bar↔rail swap shares a single source of truth.
+ */
+private val FULL_SCREEN_ROUTES = setOf(
+    VIEWER_ROUTE,
+    TRASH_ROUTE,
+    SEARCH_ROUTE,
+    ALBUM_DETAIL_ROUTE,
+    VIDEO_ALBUMS_ROUTE,
+    NEW_ALBUM_ROUTE,
+    ADD_TO_ALBUM_ROUTE,
+    SETTINGS_ROUTE,
+    ABOUT_ROUTE,
+    LICENSES_ROUTE,
+)
+
+/**
+ * The app's [NavHost] — the tab bodies plus every full-screen route. Hoisted out of [JGalleryApp] so
+ * the Compact (bottom-bar Scaffold) and Medium/Expanded (nav-rail Row) shells render the *same* graph
+ * without duplicating it (spec §8: reuse, don't fork). [modifier] carries the shell's content padding.
+ */
+@Composable
+private fun GalleryNavHost(
+    navController: NavHostController,
+    resolvedTabContent: @Composable (GalleryTab) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    NavHost(
+        navController = navController,
+        startDestination = GalleryTab.Default.route,
+        modifier = modifier,
+    ) {
+        GalleryTab.entries.forEach { tab ->
+            composable(tab.route) { resolvedTabContent(tab) }
+        }
+        // Album detail (spec §3): a bucket's media grid — the Albums surface for E11 multi-select.
+        albumDetailScreen(
+            onBack = { navController.popBackStack() },
+            onMediaClick = { item -> navController.navigateToViewer(item.id, item.bucketId) },
+            onOpenTrash = { navController.navigateToTrash() },
+            onAlbumCreated = { name -> navController.navigateToNewAlbum(name) },
+        )
+        // New-album empty prompt (design C1-09): after Create album, land here to add first photos.
+        newAlbumScreen(
+            onAddPhotos = { name -> navController.navigateToAddToAlbum(name) },
+            onBack = { navController.popBackStack() },
+        )
+        // Add-photos picker (design C1-09): copies the selection into the new album, then pops back.
+        addToAlbumScreen(
+            onDone = {
+                // Pop past the picker AND the emptyNew prompt back to the Albums tab, where the new
+                // album now renders with a cover. Falls back to a single pop if the prompt is gone.
+                if (!navController.popBackStack(NEW_ALBUM_ROUTE, inclusive = true)) {
+                    navController.popBackStack()
+                }
+            },
+        )
+        // Video smart album (spec C4): All Videos + folder-wise grouping; each opens a video-scoped grid.
+        videoAlbumsScreen(
+            onBack = { navController.popBackStack() },
+            onOpenAlbum = { album -> navController.openVideoMemberAlbum(album) },
+        )
+        // Full-screen viewer (E7). Grids open it via NavController.navigateToViewer(id, bucketId).
+        viewerScreen(onBack = { navController.popBackStack() })
+        // Full-screen Search (C1-01 item 10): opened from the Photos/Collections header search
+        // action. Tapping a result opens the shared viewer (paged across the whole library).
+        searchScreen(
+            onBack = { navController.popBackStack() },
+            onMediaClick = { item -> navController.navigateToViewer(item.id) },
+        )
+        // Recycle Bin (E9, spec §7.5). Opened from the Collections (Albums) header overflow.
+        trashScreen(onBack = { navController.popBackStack() })
+        // Settings (G2, APP-545): full-screen route opened from the overflow menu on both tabs.
+        settingsScreen(navController = navController, onBack = { navController.popBackStack() })
     }
 }
 

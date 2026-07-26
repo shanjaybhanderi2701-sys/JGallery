@@ -66,5 +66,44 @@ class GalleryShellTest {
         // Retired tabs: Albums (now the Collections body) and Search (now a header action) are gone.
         composeRule.onNodeWithTag("tab_albums").assertDoesNotExist()
         composeRule.onNodeWithTag("tab_search").assertDoesNotExist()
+
+        // Compact shows the bottom bar, never the rail.
+        composeRule.onNodeWithTag("gallery_tab_bar").assertIsDisplayed()
+        composeRule.onNodeWithTag("gallery_nav_rail").assertDoesNotExist()
+    }
+
+    /**
+     * APP-652 DoD: on a **Medium** width (tablet / unfolded foldable) the shell replaces the bottom
+     * bar with a leading [com.appblish.jgallery.core.ui.nav.GalleryNavRail] — same two destinations,
+     * same route ids (the `tab_<route>` tags are shared with the bar), same VM state — while the
+     * bottom `gallery_tab_bar` is gone. Photos stays the default and both tabs remain reachable.
+     */
+    @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
+    @Test
+    fun mediumWidth_showsNavigationRail_replacingBottomBar_bothTabsReachable() {
+        val mediumWindowSizeClass = WindowSizeClass.calculateFromSize(DpSize(800.dp, 1000.dp))
+        composeRule.setContent {
+            JGalleryTheme {
+                CompositionLocalProvider(LocalWindowSizeClass provides mediumWindowSizeClass) {
+                    JGalleryApp { tab ->
+                        Text(
+                            text = "${tab.label} stub",
+                            modifier = Modifier.testTag("${tab.route}_screen"),
+                        )
+                    }
+                }
+            }
+        }
+
+        // The rail is on the leading edge; the bottom bar is gone (container swap, not a fork).
+        composeRule.onNodeWithTag("gallery_nav_rail").assertIsDisplayed()
+        composeRule.onNodeWithTag("gallery_tab_bar").assertDoesNotExist()
+
+        // Photos is still the default; both tabs reachable via the rail.
+        composeRule.onNodeWithTag("photos_screen").assertIsDisplayed()
+        composeRule.onNodeWithText("Albums").performClick()
+        composeRule.onNodeWithTag("collections_screen").assertIsDisplayed()
+        composeRule.onNodeWithText("Photos").performClick()
+        composeRule.onNodeWithTag("photos_screen").assertIsDisplayed()
     }
 }
