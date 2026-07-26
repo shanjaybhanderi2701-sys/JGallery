@@ -180,7 +180,7 @@ fun AlbumDetailScreen(
         state = state,
         viewSettings = viewSettings,
         favorites = favorites,
-        onToggleFavorite = viewModel::toggleFavorite,
+        onSetFavorites = viewModel::setFavorites,
         selection = selection,
         bulk = bulk,
         destinations = destinations,
@@ -232,7 +232,9 @@ fun AlbumDetailScreen(
     modifier: Modifier = Modifier,
     isFavoritesView: Boolean = false,
     favorites: Set<MediaId> = emptySet(),
-    onToggleFavorite: (MediaId) -> Unit = {},
+    // Favorites rework (APP-670): grid tiles no longer toggle; bulk Add/Remove flows through the selection
+    // overflow (§5). The per-tile badge is a read-only indicator bound to [favorites].
+    onSetFavorites: (Set<MediaId>, Boolean) -> Unit = { _, _ -> },
     viewSettings: AlbumViewSettings = AlbumViewSettings(),
     selection: SelectionState<MediaId> = SelectionState(),
     bulk: BulkOperationUiState = BulkOperationUiState.Idle,
@@ -377,6 +379,10 @@ fun AlbumDetailScreen(
                 onShare = onShare,
                 // Save a copy (G2 · APP-549): multi-safe overflow entry → SAF folder pick then export.
                 onExport = onExport,
+                // Favorites Add/Remove (APP-670, spec §5): identical to the Photos tab — composition rule
+                // + snackbar/undo owned by the scaffold. Never added to the album selection bar (§7.1).
+                favoriteIds = favorites,
+                onSetFavorites = onSetFavorites,
                 modifier = modifier.testTag("album_detail_screen"),
             ) {
                 // Pull-to-refresh (design G1-D7 item 13): shared wrapper, identical to the other grids.
@@ -389,7 +395,6 @@ fun AlbumDetailScreen(
                         favorites = favorites,
                         onColumnsChange = onColumnsChange,
                         onMediaClick = onMediaClick,
-                        onToggleFavorite = onToggleFavorite,
                         onToggle = onToggle,
                         onBeginSelect = onBeginSelect,
                         onDragSelect = onDragSelect,
@@ -534,7 +539,6 @@ private fun AlbumDetailGrid(
     favorites: Set<MediaId>,
     onColumnsChange: (ColumnCount) -> Unit,
     onMediaClick: (MediaItem) -> Unit,
-    onToggleFavorite: (MediaId) -> Unit,
     onToggle: (MediaId) -> Unit,
     onBeginSelect: (MediaId) -> Unit,
     onDragSelect: (MediaId, List<MediaId>) -> Unit,
@@ -614,9 +618,12 @@ private fun AlbumDetailGrid(
                                     if (selection.isActive) onToggle(item.id) else onMediaClick(item)
                                 },
                         ) {
+                            val favorited = item.id in favorites
                             AsyncImage(
                                 model = item.thumbnailRequest(),
-                                contentDescription = item.displayName,
+                                // The favorite indicator is decorative, so its state is merged into the
+                                // tile's own label instead (APP-670, spec §6).
+                                contentDescription = if (favorited) "${item.displayName}, Favorited" else item.displayName,
                                 contentScale = ContentScale.Crop,
                                 modifier = Modifier.fillMaxSize().tileSelectScale(scale).clip(tileShape)
                                     .background(JGalleryColors.TilePlaceholder),
@@ -630,14 +637,12 @@ private fun AlbumDetailGrid(
                                 selected = selection.isSelected(item.id),
                                 active = selection.isActive,
                             )
-                            // Star in place (G2 · APP-543); hidden in selection mode. In the Favorites
-                            // view, un-starring here drops the tile from the grid reactively.
-                            FavoriteHeartBadge(
-                                favorite = item.id in favorites,
-                                visible = !selection.isActive,
-                                columns = columns.value,
-                                onClick = { onToggleFavorite(item.id) },
-                            )
+                            // Favorited indicator (APP-670, spec §3): a passive corner badge — no control.
+                            // Suppressed in selection mode so the corner reads cleanly against the tick. In
+                            // the Favorites view, a bulk "Remove" reactively drops those tiles from the grid.
+                            if (!selection.isActive) {
+                                FavoriteHeartBadge(favorite = favorited)
+                            }
                         }
                     }
                 }
