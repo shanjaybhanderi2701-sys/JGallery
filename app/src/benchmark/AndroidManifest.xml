@@ -2,6 +2,12 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
+    <!-- APP-637 hard zero-egress (benchmark is release-like / strict): strip the unused
+         ACCESS_NETWORK_STATE that androidx.media3 (ExoPlayer) declares transitively, same as the
+         release source set. Keeps :app:verifyNoEgressManifestBenchmark green — the perf artifact
+         carries zero network permissions too. -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+
     <!-- benchmark variant ONLY (spec §11 10k frame-time gate, APP-342). Never merged into
          debug/release, so this profiling surface can never ship to users.
 

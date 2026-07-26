@@ -17,15 +17,18 @@ R8 keep rules live in `app/proguard-rules.pro`. They rely on library-supplied co
 (persisted `MediaType` enum names) plus narrow `-dontwarn` safety nets. Do **not** add broad keeps —
 over-keeping defeats the shrink and invalidates the perf build.
 
-## §9.3 integrity under R8
-The APP-289 egress guard runs per-variant, including `release`:
+## Bounded egress under R8 (APP-614)
+The APP-289 egress guard runs per-variant, including `release`. As of APP-614 (board Option A,
+APP-613) it is a **bounded** guard: it permits **only** the Firebase Crashlytics surface
+(`INTERNET` + `ACCESS_NETWORK_STATE`; `com.google.firebase`/`com.google.android.gms`/
+`com.google.android.datatransport` deps) and still fails on any other network permission or dep:
 ```
-./gradlew :app:verifyNoEgressManifestRelease   # no INTERNET / network perm in merged manifest
-./gradlew :app:verifyNoEgressDependenciesRelease
+./gradlew :app:verifyNoEgressManifestRelease      # INTERNET + ACCESS_NETWORK_STATE only
+./gradlew :app:verifyNoEgressDependenciesRelease  # Firebase/GMS only; all other network libs blocked
 ```
-Green release egress guard == the "works fully on device, never uploaded" claim still holds for the
-shipped APK. Verified on this config: the release merged manifest declares **zero** network
-permissions.
+The §9.3 "never uploaded" claim no longer holds; its store/trust copy is pulled under **APP-616**,
+which gates the Play upload (APP-517). Crashlytics R8 mapping upload on `release` is documented in
+the repo-root `RELEASE.md`.
 
 ## Building the APK
 ```

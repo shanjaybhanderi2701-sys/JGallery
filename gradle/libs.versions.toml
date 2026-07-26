@@ -23,6 +23,14 @@ coil = "3.2.0"
 media3 = "1.4.1"
 exifinterface = "1.4.1"
 
+# Firebase Crashlytics (APP-614) — crash reporting for the 1.0 launch. Board chose Option A
+# (APP-613), retiring the §9.3 zero-network guarantee for Google Firebase/GMS only; the egress
+# guard (APP-289) is relaxed to allow exactly these coordinates, every other network dep stays
+# denylisted. firebase-crashlytics + firebase-analytics versions are pinned by the BOM.
+firebaseBom = "33.5.1"          # crashlytics 19.2.x + analytics 22.1.x
+googleServicesPlugin = "4.4.2"  # com.google.gms.google-services — processes google-services.json
+crashlyticsPlugin = "3.0.2"     # com.google.firebase.crashlytics — release mapping-file upload
+
 # Performance — 10k-item scroll frame-time gate (spec §11 DoD, APP-342)
 benchmark = "1.3.3"          # androidx.benchmark.macro — FrameTimingMetric
 uiautomator = "2.3.0"        # drives the app externally for the macrobenchmark scroll
@@ -93,6 +101,11 @@ androidx-exifinterface = { group = "androidx.exifinterface", name = "exifinterfa
 media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 media3-ui = { group = "androidx.media3", name = "media3-ui", version.ref = "media3" }
 
+# --- Firebase Crashlytics (APP-614) — BOM-managed; egress-guard-approved (Google Firebase only) ---
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebaseBom" }
+firebase-crashlytics = { group = "com.google.firebase", name = "firebase-crashlytics" }
+firebase-analytics = { group = "com.google.firebase", name = "firebase-analytics" }
+
 # --- Lint custom-rule authoring ---
 lint-api = { group = "com.android.tools.lint", name = "lint-api", version.ref = "lint" }
 lint-checks = { group = "com.android.tools.lint", name = "lint-checks", version.ref = "lint" }
@@ -126,6 +139,11 @@ kotlin-jvm = { id = "org.jetbrains.kotlin.jvm", version.ref = "kotlin" }
 kotlin-compose = { id = "org.jetbrains.kotlin.plugin.compose", version.ref = "kotlin" }
 ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 hilt = { id = "com.google.dagger.hilt.android", version.ref = "hilt" }
+
+# Firebase Crashlytics (APP-614). google-services processes app/google-services.json; crashlytics
+# uploads the R8 mapping file on release builds so stack traces de-obfuscate.
+google-services = { id = "com.google.gms.google-services", version.ref = "googleServicesPlugin" }
+firebase-crashlytics = { id = "com.google.firebase.crashlytics", version.ref = "crashlyticsPlugin" }
 
 # JGallery convention plugins (defined in build-logic)
 jgallery-android-application = { id = "jgallery.android.application", version = "unspecified" }

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "312934398591",
+    "project_id": "jgallery-5b48b",
+    "storage_bucket": "jgallery-5b48b.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:312934398591:android:d0ca35771b2a5c07f79d4a",
+        "android_client_info": {
+          "package_name": "com.appblish.jgallery"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDTybV4JGpTwUVt1W96dahzBsENFN-0swA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
