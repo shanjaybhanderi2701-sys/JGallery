@@ -10,6 +10,7 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
@@ -19,7 +20,7 @@ import androidx.navigation.compose.rememberNavController
 import com.appblish.jgallery.core.ui.nav.GalleryTab
 import com.appblish.jgallery.core.ui.nav.GalleryTabBar
 import com.appblish.jgallery.core.ui.nav.GalleryTabBarItem
-import com.appblish.jgallery.core.ui.window.LocalWindowSizeClass
+import com.appblish.jgallery.core.ui.window.COMPACT_WIDTH_THRESHOLD_DP
 import com.appblish.jgallery.core.ui.window.desiredOrientation
 import com.appblish.jgallery.core.ui.window.findActivity
 import com.appblish.jgallery.feature.albums.ADD_TO_ALBUM_ROUTE
@@ -82,14 +83,21 @@ fun JGalleryApp(
         .value?.destination?.hierarchy?.firstOrNull()?.route
 
     // Adaptive foundation (APP-651): the single place that writes Activity.requestedOrientation.
-    // Compact (phone) list/detail screens lock to portrait; the full-screen viewer allows landscape
-    // (FULL_USER, honoring the system auto-rotate lock); Medium/Expanded never lock. Returning from
-    // the viewer to a list re-runs this and restores portrait. See desiredOrientation() for the policy.
-    val widthSizeClass = LocalWindowSizeClass.current.widthSizeClass
+    // Compact-width phones lock list/detail screens to portrait; the full-screen viewer allows
+    // landscape (FULL_USER, honoring the system auto-rotate lock); tablets/foldables never lock.
+    //
+    // APP-676: the lock decision keys off smallestScreenWidthDp (an sw-qualifier value invariant
+    // across rotation), NOT the live window width class. A phone rotated to landscape momentarily has
+    // an Expanded live width; keying off that would drop the lock and never restore it. Using the
+    // stable device width means returning from a rotated viewer — or cold-launching while held
+    // landscape — re-locks portrait. (Layout branching still keys off the live width class elsewhere;
+    // only orientation-lock needs the stable signal.) See desiredOrientation() for the policy.
+    val isCompactWidthDevice =
+        LocalConfiguration.current.smallestScreenWidthDp < COMPACT_WIDTH_THRESHOLD_DP
     val activity = LocalContext.current.findActivity()
     val isViewer = currentRoute == VIEWER_ROUTE
-    LaunchedEffect(activity, widthSizeClass, isViewer) {
-        activity?.requestedOrientation = desiredOrientation(widthSizeClass, isViewer)
+    LaunchedEffect(activity, isCompactWidthDevice, isViewer) {
+        activity?.requestedOrientation = desiredOrientation(isCompactWidthDevice, isViewer)
     }
 
     val resolvedTabContent: @Composable (GalleryTab) -> Unit = tabContent ?: { tab ->
