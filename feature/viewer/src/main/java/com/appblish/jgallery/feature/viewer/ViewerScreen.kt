@@ -14,6 +14,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -59,7 +60,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.style.TextOverflow
@@ -81,6 +84,9 @@ import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
 import com.appblish.jgallery.core.ui.selection.MoveDestinationSheet
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryViewerTheme
+import com.appblish.jgallery.core.ui.window.DevicePosture
+import com.appblish.jgallery.core.ui.window.chromeHingeInsetPx
+import com.appblish.jgallery.core.ui.window.rememberDevicePosture
 import kotlinx.coroutines.launch
 
 /** The single-item file actions the viewer runs, bundled so the pager takes one param, not six. */
@@ -196,17 +202,28 @@ private fun ImmersiveViewerEffect() {
     val view = LocalView.current
     if (view.isInEditMode) return
     val window = view.findActivity()?.window ?: return
-    DisposableEffect(Unit) {
-        val controller = WindowCompat.getInsetsController(window, view)
+    val controller = remember(window, view) { WindowCompat.getInsetsController(window, view) }
+
+    // Capture the app's real status-bar appearance once on entry and restore it (plus the nav bar)
+    // exactly once when the viewer leaves composition — no per-rotation teardown, so no flicker.
+    DisposableEffect(controller) {
         val previousLightStatusBars = controller.isAppearanceLightStatusBars
-        controller.systemBarsBehavior =
-            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-        controller.isAppearanceLightStatusBars = false // light (white) icons over the dark media
-        controller.hide(WindowInsetsCompat.Type.navigationBars())
         onDispose {
             controller.show(WindowInsetsCompat.Type.navigationBars())
             controller.isAppearanceLightStatusBars = previousLightStatusBars
         }
+    }
+
+    // APP-655 §6.4: APP-593's viewer status-bar treatment must be orientation-safe. Re-assert the
+    // dark status bar (light icons over media) + hidden system nav on entry AND on every configuration
+    // change (rotate/fold) — the window insets controller state is not guaranteed to survive a config
+    // change. Keyed on orientation; the writes are idempotent so re-applying never flickers.
+    val orientation = LocalConfiguration.current.orientation
+    LaunchedEffect(controller, orientation) {
+        controller.systemBarsBehavior =
+            WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        controller.isAppearanceLightStatusBars = false // light (white) icons over the dark media
+        controller.hide(WindowInsetsCompat.Type.navigationBars())
     }
 }
 
@@ -244,6 +261,23 @@ private fun Context.launchOpenWith(uri: Uri) {
     runCatching { startActivity(Intent.createChooser(view, "Open with")) }
 }
 
+/**
+ * Horizontal padding that pushes the viewer chrome (top action bar / bottom controls) off an
+ * occluding fold hinge onto the wider panel (APP-655 §7.2 "never a tappable target under the hinge
+ * occlusion"). Resolves to no padding for a flat device or a seamless (non-occluding) fold — the
+ * common case — so ordinary phones/tablets pay nothing. The half-open split layout itself is the
+ * explicitly-deferred nice-to-have; this is only the occlusion guard.
+ */
+@Composable
+private fun rememberChromeHingePadding(posture: DevicePosture): PaddingValues {
+    if (posture !is DevicePosture.HalfOpen || posture.occludingBoundsPx == null) return PaddingValues()
+    val density = LocalDensity.current
+    val configuration = LocalConfiguration.current
+    val widthPx = with(density) { configuration.screenWidthDp.dp.roundToPx() }
+    val (startPx, endPx) = chromeHingeInsetPx(widthPx, posture)
+    return with(density) { PaddingValues(start = startPx.toDp(), end = endPx.toDp()) }
+}
+
 @Composable
 private fun ViewerPager(
     state: ViewerUiState.Ready,
@@ -260,10 +294,19 @@ private fun ViewerPager(
         initialPage = state.initialIndex.coerceIn(0, state.items.lastIndex),
     ) { items.size }
     var chromeVisible by rememberSaveable { mutableStateOf(true) }
-    var infoItem by remember { mutableStateOf<MediaItem?>(null) }
-    var picker by remember { mutableStateOf<PickerMode?>(null) }
-    var renaming by remember { mutableStateOf(false) }
+    // APP-655 §7.3: open dialogs must survive a config change (rotate/fold). rememberSaveable, not
+    // plain remember, so a config change keeps the dialog open. MediaItem is intentionally platform-
+    // free (never Parcelable, §1.6), so the *info* target is persisted by its stable id string and
+    // resolved back to the live item below; picker/rename are an enum / Boolean and save directly.
+    var infoItemId by rememberSaveable { mutableStateOf<String?>(null) }
+    var picker by rememberSaveable { mutableStateOf<PickerMode?>(null) }
+    var renaming by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
+
+    // Foldable posture (APP-655 §7.2): never place a tappable chrome target under an occluding hinge.
+    // Contained in :core:ui — the feature layer only sees DevicePosture + the derived chrome padding.
+    val posture = rememberDevicePosture()
+    val chromeHingePadding = rememberChromeHingePadding(posture)
     val scope = rememberCoroutineScope()
     val onStubAction: (String) -> Unit = { action ->
         scope.launch { snackbarHostState.showSnackbar("$action arrives in a later phase") }
@@ -290,7 +333,7 @@ private fun ViewerPager(
                     item = item,
                     onToggleChrome = { chromeVisible = !chromeVisible },
                     onOpenWith = { handlers.onOpenWith(item.id) },
-                    onInfo = { infoItem = item },
+                    onInfo = { infoItemId = item.id.value },
                     onDelete = { handlers.onDelete(item.id) },
                 )
                 MediaType.VIDEO -> VideoPage(
@@ -300,7 +343,7 @@ private fun ViewerPager(
                     chromeVisible = chromeVisible,
                     onChromeVisibleChange = { chromeVisible = it },
                     onOpenWith = { handlers.onOpenWith(item.id) },
-                    onInfo = { infoItem = item },
+                    onInfo = { infoItemId = item.id.value },
                 )
             }
         }
@@ -318,6 +361,7 @@ private fun ViewerPager(
                 onToggleFavorite = { currentItem?.let { onToggleFavorite(it.id) } },
                 onBack = onBack,
                 onStubAction = onStubAction,
+                hingePadding = chromeHingePadding,
             )
         }
         AnimatedVisibility(
@@ -333,7 +377,8 @@ private fun ViewerPager(
                 onRename = { renaming = true },
                 onSetAs = { currentItem?.let { handlers.onSetAs(it.id) } },
                 onDelete = { currentItem?.let { handlers.onDelete(it.id) } },
-                onInfo = { currentItem?.let { infoItem = it } },
+                onInfo = { currentItem?.let { infoItemId = it.id.value } },
+                hingePadding = chromeHingePadding,
             )
         }
         SnackbarHost(
@@ -349,8 +394,12 @@ private fun ViewerPager(
             )
         }
 
-        infoItem?.let { item ->
-            MediaInfoDialog(item = item, onDismiss = { infoItem = null })
+        // Resolve the persisted id back to the live item; if it was deleted while the dialog was
+        // "open" across a config change, the id no longer matches and the dialog simply stays closed.
+        infoItemId?.let { id ->
+            items.firstOrNull { it.id.value == id }?.let { item ->
+                MediaInfoDialog(item = item, onDismiss = { infoItemId = null })
+            }
         }
 
         picker?.let { mode ->
@@ -417,14 +466,19 @@ private fun ViewerHeader(
     onToggleFavorite: () -> Unit,
     onBack: () -> Unit,
     onStubAction: (String) -> Unit,
+    hingePadding: PaddingValues = PaddingValues(),
 ) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            // safeDrawing keeps controls clear of the display cutout / side gesture insets in landscape
+            // (§6.2); hingePadding then routes them off an occluding fold hinge (§7.2). The gradient
+            // stays full-width (applied before both) so the scrim still spans edge-to-edge.
             .background(
                 Brush.verticalGradient(listOf(Color.Black.copy(alpha = 0.65f), Color.Transparent)),
             )
             .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(hingePadding)
             .height(56.dp)
             .testTag("viewer_header"),
         verticalAlignment = Alignment.CenterVertically,
@@ -471,6 +525,7 @@ private fun ViewerActionBar(
     onSetAs: () -> Unit,
     onDelete: () -> Unit,
     onInfo: () -> Unit,
+    hingePadding: PaddingValues = PaddingValues(),
 ) {
     var menuOpen by remember { mutableStateOf(false) }
 
@@ -491,6 +546,7 @@ private fun ViewerActionBar(
                 Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = 0.75f))),
             )
             .windowInsetsPadding(WindowInsets.safeDrawing)
+            .padding(hingePadding)
             .height(76.dp)
             .testTag("viewer_actions"),
         verticalAlignment = Alignment.CenterVertically,

@@ -6,6 +6,8 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -44,7 +46,13 @@ internal fun MediaInfoDialog(item: MediaItem, onDismiss: () -> Unit) {
         textContentColor = Color.White,
         title = { Text("Details") },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            // Short-height landscape (height Compact): the AlertDialog caps its own height and stays a
+            // centered dialog (never a tall sheet, §6.2); make the rows scroll so nothing clips or
+            // pushes Close off-screen if the detail set ever grows past the capped height.
+            Column(
+                modifier = Modifier.verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
                 rows.forEach { row ->
                     Row(modifier = Modifier.fillMaxWidth()) {
                         Text(

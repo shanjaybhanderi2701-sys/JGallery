@@ -9,6 +9,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -87,7 +88,9 @@ private fun RenderablePhoto(
     onToggleChrome: () -> Unit,
     onDecodeError: () -> Unit,
 ) {
-    val zoomState = remember(item.id) { ZoomState() }
+    // rememberSaveable (not plain remember) so zoom/pan survive rotate/fold + process death (APP-655
+    // §7.3). Keyed on item.id so a recycled pager page never inherits the previous photo's zoom.
+    val zoomState = rememberSaveable(item.id, saver = ZoomState.Saver()) { ZoomState() }
     zoomState.contentAspectRatio = item.aspectRatioOrZero()
     val scope = rememberCoroutineScope()
     val context = LocalPlatformContext.current

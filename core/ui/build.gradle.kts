@@ -19,6 +19,11 @@ dependencies {
     api(platform(libs.androidx.compose.bom))
     api(libs.androidx.compose.material3.window.sizeclass)
 
+    // Foldable posture (APP-655 §7.2): WindowInfoTracker + FoldingFeature. Kept `implementation`, not
+    // `api` — DevicePosture is our own sealed type; androidx.window's FoldingFeature never leaks past
+    // this module's public surface, so consumers depend on DevicePosture, not androidx.window.
+    implementation(libs.androidx.window)
+
     // The shared decode/degrade hook (MediaDecodeBox, spec §8) wraps Coil's AsyncImage so image and
     // video tiles fall back to the D3 placeholder uniformly. The model type stays opaque here — this
     // module never learns about :core:thumbs request types, so the §1.6 boundary is unaffected.

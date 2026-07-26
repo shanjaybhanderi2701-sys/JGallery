@@ -7,6 +7,7 @@ import androidx.compose.runtime.Stable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -28,12 +29,14 @@ import androidx.compose.ui.util.lerp
  */
 @Stable
 internal class ZoomState(
+    initialScale: Float = 1f,
+    initialOffset: Offset = Offset.Zero,
     private val maxScale: Float = MAX_SCALE,
     private val doubleTapScale: Float = DOUBLE_TAP_SCALE,
 ) {
-    var scale by mutableFloatStateOf(1f)
+    var scale by mutableFloatStateOf(initialScale)
         private set
-    var offset by mutableStateOf(Offset.Zero)
+    var offset by mutableStateOf(initialOffset)
         private set
 
     /** Viewport size, fed from `onSizeChanged`. */
@@ -107,5 +110,18 @@ internal class ZoomState(
         const val MAX_SCALE = 8f // design §3: pinch range 1–8×
         const val DOUBLE_TAP_SCALE = 2.5f // design §3: double-tap zooms to 2.5× at the tap point
         private const val SCALE_EPSILON = 0.01f
+
+        /**
+         * Persist zoom/pan across configuration change (rotate/fold) and process death (APP-655 §7.3,
+         * architect-verified gap APP-648). Mirrors `GridZoomState.Saver`: only the user-driven state —
+         * [scale] and [offset] — is saved; [containerSize] is re-fed by the next `onSizeChanged` and
+         * [contentAspectRatio] by the item, so both restore themselves on the first frame after
+         * recreation. The clamps in [transform]/[clampOffset] re-apply once the container is measured,
+         * so a saved offset can never end up out of bounds.
+         */
+        fun Saver(): Saver<ZoomState, List<Float>> = Saver(
+            save = { listOf(it.scale, it.offset.x, it.offset.y) },
+            restore = { ZoomState(initialScale = it[0], initialOffset = Offset(it[1], it[2])) },
+        )
     }
 }

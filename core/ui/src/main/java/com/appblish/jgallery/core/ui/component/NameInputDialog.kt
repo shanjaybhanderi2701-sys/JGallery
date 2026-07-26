@@ -9,7 +9,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -34,7 +34,9 @@ fun NameInputDialog(
 ) {
     // Seed the field with the caller's value AND park the cursor at its end, so a pre-filled Rename
     // lets you keep typing where the name leaves off instead of prepending at index 0 (spec §7.3).
-    var value by remember {
+    // rememberSaveable (not plain remember) so an in-progress edit survives a config change / rotate
+    // while the dialog is open (APP-655 §7.3) — TextFieldValue.Saver persists text + selection.
+    var value by rememberSaveable(stateSaver = TextFieldValue.Saver) {
         mutableStateOf(TextFieldValue(initialValue, selection = TextRange(initialValue.length)))
     }
     val trimmed = value.text.trim()
