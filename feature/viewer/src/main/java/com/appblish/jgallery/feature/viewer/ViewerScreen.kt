@@ -9,6 +9,8 @@ import android.view.View
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
@@ -61,11 +63,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.view.WindowCompat
@@ -592,15 +599,37 @@ private fun ViewerHeader(
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
         )
+        // "Like" pop on tap (APP-670, spec §6): a quick 1.0→1.2→1.0 scale bounce. Driven from the tap
+        // (not from [favorite] changing) so paging between a favorited and non-favorited item doesn't
+        // bounce — only a deliberate toggle does.
+        val heartScale = remember { Animatable(1f) }
+        val heartScope = rememberCoroutineScope()
         IconButton(
-            onClick = onToggleFavorite,
+            onClick = {
+                onToggleFavorite()
+                heartScope.launch {
+                    heartScale.snapTo(1f)
+                    heartScale.animateTo(1.2f, tween(90))
+                    heartScale.animateTo(1f, tween(90))
+                }
+            },
             enabled = item != null,
-            modifier = Modifier.testTag(if (favorite) "viewer_favorited" else "viewer_unfavorited"),
+            modifier = Modifier
+                .testTag(if (favorite) "viewer_favorited" else "viewer_unfavorited")
+                // Announce the toggle state to TalkBack, not just a label (spec §6).
+                .semantics {
+                    role = Role.Switch
+                    stateDescription = if (favorite) "Favorited" else "Not favorited"
+                },
         ) {
             Icon(
                 imageVector = if (favorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                contentDescription = if (favorite) "Unfavorite" else "Favorite",
+                contentDescription = if (favorite) "Remove from Favorites" else "Add to Favorites",
                 tint = if (favorite) FavoriteRed else Color.White,
+                modifier = Modifier.graphicsLayer {
+                    scaleX = heartScale.value
+                    scaleY = heartScale.value
+                },
             )
         }
         // Rotate is image-only — EXIF/pixel orientation has no meaning for a video (spec §7 · G3-1).

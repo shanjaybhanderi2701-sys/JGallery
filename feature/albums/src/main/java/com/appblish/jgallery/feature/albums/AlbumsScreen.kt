@@ -394,8 +394,10 @@ fun AlbumsScreen(
                         SelectionAction.SET_COVER -> singleSelected?.let { onCoverPickerOpen(it); showCoverPicker = true }
                         SelectionAction.DETAILS -> showDetails = true
                         // Share (APP-541) and Save a copy (APP-549) are media-only, never offered on the
-                        // album-entity bar.
-                        SelectionAction.SHARE, SelectionAction.EXPORT -> Unit
+                        // album-entity bar. Favorite Add/Remove (APP-670) is likewise media-only —
+                        // favoriting whole albums is out of the model (spec §7.1), so never offered here.
+                        SelectionAction.SHARE, SelectionAction.EXPORT,
+                        SelectionAction.FAVORITE, SelectionAction.UNFAVORITE -> Unit
                     }
                 },
             )

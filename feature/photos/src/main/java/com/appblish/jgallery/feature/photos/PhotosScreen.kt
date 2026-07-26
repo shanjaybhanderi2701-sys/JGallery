@@ -207,7 +207,7 @@ fun PhotosScreen(
         onOpenSettings = onOpenSettings,
         onCreateAlbum = viewModel::createAlbum,
         favorites = favorites,
-        onToggleFavorite = viewModel::toggleFavorite,
+        onSetFavorites = viewModel::setFavorites,
         onToggle = viewModel::toggleSelection,
         onBeginSelect = viewModel::beginSelection,
         onDragSelect = viewModel::dragSelectTo,
@@ -260,7 +260,9 @@ fun PhotosScreen(
     onOpenSettings: () -> Unit = {},
     onCreateAlbum: (String) -> Unit = {},
     favorites: Set<MediaId> = emptySet(),
-    onToggleFavorite: (MediaId) -> Unit = {},
+    // Favorites rework (APP-670): the grid no longer toggles per tile; bulk Add/Remove flows through the
+    // selection overflow (§5). The badge is a read-only indicator bound to [favorites].
+    onSetFavorites: (Set<MediaId>, Boolean) -> Unit = { _, _ -> },
     onToggle: (MediaId) -> Unit = {},
     onBeginSelect: (MediaId) -> Unit = {},
     onDragSelect: (MediaId, List<MediaId>) -> Unit = { _, _ -> },
@@ -392,6 +394,10 @@ fun PhotosScreen(
                 onShare = onShare,
                 // Save a copy (G2 · APP-549): multi-safe overflow entry → SAF folder pick then export.
                 onExport = onExport,
+                // Favorites Add/Remove (APP-670, spec §5): the composition rule + snackbar/undo live in
+                // the scaffold; the badge on each tile reflects [favorites] reactively.
+                favoriteIds = favorites,
+                onSetFavorites = onSetFavorites,
                 modifier = modifier.testTag("photos_screen"),
             ) {
                 // The nested-scroll connection sits on the ancestor of the grid so it sees each scroll
@@ -424,7 +430,6 @@ fun PhotosScreen(
                                 favorites = favorites,
                                 onColumnsChange = onColumnsChange,
                                 onMediaClick = onMediaClick,
-                                onToggleFavorite = onToggleFavorite,
                                 onToggle = onToggle,
                                 onBeginSelect = onBeginSelect,
                                 onDragSelect = onDragSelect,
@@ -509,7 +514,6 @@ private fun PhotosGrid(
     favorites: Set<MediaId>,
     onColumnsChange: (ColumnCount) -> Unit,
     onMediaClick: (MediaItem) -> Unit,
-    onToggleFavorite: (MediaId) -> Unit,
     onToggle: (MediaId) -> Unit,
     onBeginSelect: (MediaId) -> Unit,
     onDragSelect: (MediaId, List<MediaId>) -> Unit,
@@ -572,7 +576,6 @@ private fun PhotosGrid(
                         selectionActive = selection.isActive,
                         selected = selection.isSelected(cell.item.id),
                         favorite = cell.item.id in favorites,
-                        onToggleFavorite = { onToggleFavorite(cell.item.id) },
                         onClick = {
                             if (selection.isActive) onToggle(cell.item.id) else onMediaClick(cell.item)
                         },
@@ -807,7 +810,6 @@ private fun MediaTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     favorite: Boolean = false,
-    onToggleFavorite: (() -> Unit)? = null,
 ) {
     val scale = rememberTileSelectScale(selected)
     // Panoramas letterbox the full horizon on a dark cell instead of cropping to a square (W3-03);
@@ -822,8 +824,11 @@ private fun MediaTile(
             // The clickable tile is the semantic element: it announces (and is addressable by) the
             // file name regardless of decode state. The inner preview drops its own description when
             // it falls back to a placeholder (APP-364), so anchoring the name here keeps the tile
-            // stable for a11y and for interaction tests (APP-446).
-            .semantics { contentDescription = item.displayName },
+            // stable for a11y and for interaction tests (APP-446). The favorite indicator is decorative,
+            // so its state is merged into the tile's own label instead (APP-670, spec §6).
+            .semantics {
+                contentDescription = if (favorite) "${item.displayName}, Favorited" else item.displayName
+            },
     ) {
         Box(
             modifier = Modifier
@@ -866,15 +871,10 @@ private fun MediaTile(
             }
         }
         SelectionCheckBadge(selected = selected, active = selectionActive)
-        // Star in place from the grid (G2 · APP-543). Hidden in selection mode — the tile tap then
-        // belongs to selection, so a competing heart hit-target would be ambiguous.
-        if (onToggleFavorite != null) {
-            FavoriteHeartBadge(
-                favorite = favorite,
-                visible = !selectionActive,
-                columns = columns,
-                onClick = onToggleFavorite,
-            )
+        // Favorited indicator (APP-670, spec §3): a passive corner badge — no control. Suppressed while
+        // selection is active so the corner reads cleanly against the selection scrim/tick.
+        if (!selectionActive) {
+            FavoriteHeartBadge(favorite = favorite)
         }
     }
 }

@@ -38,9 +38,16 @@ class AlbumsCatalogTest {
     }
 
     @Test
-    fun `empty library yields no smart albums`() {
+    fun `empty device albums yields only the always-visible Favorites tile`() {
+        // APP-670: Favorites is a permanent first-class destination and is always emitted (empty state).
+        // Recent/Video still need content, so with no device folders + no media the tab is just Favorites.
+        // (The truly-empty-library UX — no folders at all — is the VM's whole-tab Empty state, which never
+        // reaches the catalog; see AlbumsViewModel.)
         val tab = AlbumsCatalog.buildAlbumsTab(emptyList(), emptyList(), emptySet(), defaultSort)
-        assertThat(tab).isEmpty()
+        assertThat(tab.map { it.kind }).containsExactly(AlbumKind.FAVORITES)
+        val fav = tab.single()
+        assertThat(fav.itemCount).isEqualTo(0)
+        assertThat(fav.cover).isNull()
     }
 
     // --- Video smart album + folder-wise grouping (items 4, 5) -------------------------------------
@@ -100,7 +107,7 @@ class AlbumsCatalogTest {
     // --- Favorites smart album (G3 · APP-543) ------------------------------------------------------
 
     @Test
-    fun `Favorites appears only when items are starred and aggregates them, newest cover`() {
+    fun `Favorites aggregates starred items with the newest as cover`() {
         val albums = listOf(folder("dcim", "DCIM", count = 4, newest = 10, cover = "c"))
         val favorites = listOf(
             image("f-old", bucket = "dcim", mime = "image/jpeg").copy(dateTakenMillis = 100),
@@ -116,7 +123,9 @@ class AlbumsCatalogTest {
     }
 
     @Test
-    fun `no Favorites album when nothing is starred`() {
+    fun `Favorites album is always present even when nothing is starred (empty state)`() {
+        // APP-670 (lead ruling 2026-07-26): the Favorites tile is always visible; at zero favorites it
+        // shows an empty-state cover (no cover MediaId) and count 0 — it does NOT disappear.
         val tab = AlbumsCatalog.buildAlbumsTab(
             listOf(folder("a", "A", count = 1, newest = 1, cover = "c")),
             videos = emptyList(),
@@ -124,7 +133,10 @@ class AlbumsCatalogTest {
             sort = defaultSort,
             favorites = emptyList(),
         )
-        assertThat(tab.none { it.kind == AlbumKind.FAVORITES }).isTrue()
+        val fav = tab.single { it.kind == AlbumKind.FAVORITES }
+        assertThat(fav.itemCount).isEqualTo(0)
+        assertThat(fav.cover).isNull()
+        assertThat(fav.isPriority).isTrue()
     }
 
     @Test
@@ -155,8 +167,9 @@ class AlbumsCatalogTest {
         val videos = listOf(video("v1", bucket = "camera", name = "Camera", taken = 7))
         val tab = AlbumsCatalog.buildAlbumsTab(albums, videos, emptySet(), defaultSort)
 
+        // APP-670: the always-visible Favorites tile sits at rank 2, directly after Recent (empty here).
         assertThat(tab.map { it.kindOrBucket() }).containsExactly(
-            "RECENT", "camera", "screenshots", "VIDEO", "whatever",
+            "RECENT", "FAVORITES", "camera", "screenshots", "VIDEO", "whatever",
         ).inOrder()
     }
 
@@ -184,8 +197,8 @@ class AlbumsCatalogTest {
 
         assertThat(tab.first().bucketId).isEqualTo("holiday")
         assertThat(tab.first().pinned).isTrue()
-        // Recent + Camera still follow, in their usual order.
-        assertThat(tab.map { it.kindOrBucket() }).containsExactly("holiday", "RECENT", "camera").inOrder()
+        // Recent + the always-visible Favorites tile (APP-670) + Camera still follow, in their usual order.
+        assertThat(tab.map { it.kindOrBucket() }).containsExactly("holiday", "RECENT", "FAVORITES", "camera").inOrder()
     }
 
     @Test
@@ -259,8 +272,9 @@ class AlbumsCatalogTest {
 
         val filtered = AlbumsCatalog.applyFormatFilter(tab, MediaFilter.VIDEOS, bucketFormats)
 
+        // Favorites (like Recent) is present under any filter (APP-670) — it stays after Recent.
         assertThat(filtered.map { it.kindOrBucket() })
-            .containsExactly("RECENT", "camera", "VIDEO").inOrder()
+            .containsExactly("RECENT", "FAVORITES", "camera", "VIDEO").inOrder()
         assertThat(filtered.none { it.kindOrBucket() == "shots" }).isTrue()
     }
 
@@ -279,8 +293,8 @@ class AlbumsCatalogTest {
 
         val filtered = AlbumsCatalog.applyFormatFilter(tab, MediaFilter.GIFS, bucketFormats)
 
-        // Recent stays (library has a GIF somewhere); the Video smart album and camera drop.
-        assertThat(filtered.map { it.kindOrBucket() }).containsExactly("RECENT", "downloads").inOrder()
+        // Recent + the always-present Favorites tile (APP-670) stay; the Video smart album and camera drop.
+        assertThat(filtered.map { it.kindOrBucket() }).containsExactly("RECENT", "FAVORITES", "downloads").inOrder()
     }
 
     // --- Video-filter covers (G1-D7 item 8) --------------------------------------------------------

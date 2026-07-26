@@ -159,9 +159,18 @@ class AlbumDetailViewModel @Inject constructor(
         favoritesStore.favoriteIds
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    /** Star / un-star a tile in place from an album (or the Favorites) grid. */
+    /** Star / un-star a single item (viewer header / single-select overflow path). */
     fun toggleFavorite(id: MediaId) {
         viewModelScope.launch { favoritesStore.toggle(id) }
+    }
+
+    /**
+     * Bulk Add/Remove-to-Favorites from the selection overflow (APP-670, spec §5). Idempotent set writes
+     * over the whole selection so "Add" over a mixed selection favorites only the remainder and Undo is a
+     * clean inverse. In the Favorites smart view, a "Remove" reactively drops those tiles from the grid.
+     */
+    fun setFavorites(ids: Set<MediaId>, favorite: Boolean) {
+        viewModelScope.launch { ids.forEach { favoritesStore.setFavorite(it, favorite) } }
     }
 
     val selectionController = MediaSelectionController(

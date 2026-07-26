@@ -2,16 +2,27 @@ package com.appblish.jgallery.core.ui.selection
 
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.material3.SnackbarDuration
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.testTag
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.MediaId
+import kotlinx.coroutines.launch
 
 /**
  * The whole multi-select chrome for a media grid (spec §7.6), reused verbatim by the Photos tab and
@@ -40,6 +51,13 @@ import com.appblish.jgallery.core.model.MediaId
  * @param onExport multi-safe **Save a copy** action (G2 · APP-549); when non-null a "Save a copy" entry
  *   is added to the shared ⋮ overflow (valid for any selection ≥ 1). The host launches the SAF folder
  *   picker (`ACTION_OPEN_DOCUMENT_TREE`) and streams the selection into the granted tree.
+ * @param favoriteIds the currently-favorited ids (Favorites rework · APP-670, spec §5); combined with the
+ *   live selection this drives which of Add/Remove-to-Favorites the ⋮ overflow shows.
+ * @param onSetFavorites multi-safe **Add / Remove from Favorites** (spec §2b/§2c/§5); when non-null the
+ *   overflow gains an "Add to Favorites" and/or "Remove from Favorites" entry per the selection's favorite
+ *   composition (none→Add only, all→Remove only, mixed→both). Each is an idempotent set write over the
+ *   whole selection: `onSetFavorites(selectedIds, true|false)`. The scaffold owns the snackbar + Undo and
+ *   dismisses the selection afterward, as other bulk ops do.
  */
 @Composable
 fun SelectionScaffold(
@@ -62,6 +80,8 @@ fun SelectionScaffold(
     onRename: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
     onExport: (() -> Unit)? = null,
+    favoriteIds: Set<MediaId> = emptySet(),
+    onSetFavorites: ((ids: Set<MediaId>, favorite: Boolean) -> Unit)? = null,
     grid: @Composable () -> Unit,
 ) {
     // Which action, if any, is waiting on a destination pick or a delete confirm.
@@ -81,46 +101,94 @@ fun SelectionScaffold(
         }
     }
 
-    Column(modifier.fillMaxSize()) {
-        if (selection.isActive) {
-            SelectionTopBar(
-                count = selection.count,
-                allSelected = allIds.isNotEmpty() && selection.selected.containsAll(allIds),
-                onClose = onClearSelection,
-                onSelectAll = onSelectAll,
-                onDeselectAll = onClearSelection,
+    // Favorites rework (APP-670, spec §5): the selection's favorite composition decides which of Add /
+    // Remove-to-Favorites the overflow offers. none-favorited → Add only; all-favorited → Remove only;
+    // mixed → both. At N=1 this degenerates to the single-select "Add or Remove" of §2b, so single and
+    // multi share one path. Only computed when the host supports favoriting ([onSetFavorites] != null).
+    val selectedIds = selection.selected
+    val favoritedInSelection = if (onSetFavorites != null) selectedIds.count { it in favoriteIds } else 0
+    val favoriteActions = favoriteSelectionActions(selectedIds.size, favoritedInSelection)
+    val showAddFavorite = onSetFavorites != null && favoriteActions.showAdd
+    val showRemoveFavorite = onSetFavorites != null && favoriteActions.showRemove
+
+    // Snackbar + Undo host for bulk favorite writes (spec §6). Owned here so both media surfaces get it.
+    val snackbarHostState = remember { SnackbarHostState() }
+    val scope = rememberCoroutineScope()
+    // Fire an idempotent set write over the captured [ids], dismiss the selection, then offer a clean
+    // inverse via Undo (spec §6 — capture the ids at action time; do not recompute from live state).
+    val applyFavorites: (ids: Set<MediaId>, favorite: Boolean) -> Unit = { ids, favorite ->
+        onSetFavorites?.invoke(ids, favorite)
+        onClearSelection()
+        val n = ids.size
+        scope.launch {
+            val message = if (favorite) "Added $n to Favorites" else "Removed $n from Favorites"
+            val result = snackbarHostState.showSnackbar(
+                message = message,
+                actionLabel = "UNDO",
+                duration = SnackbarDuration.Short,
             )
-        } else {
-            tabHeader()
+            if (result == SnackbarResult.ActionPerformed) onSetFavorites?.invoke(ids, !favorite)
+        }
+    }
+
+    Box(modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            if (selection.isActive) {
+                SelectionTopBar(
+                    count = selection.count,
+                    allSelected = allIds.isNotEmpty() && selection.selected.containsAll(allIds),
+                    onClose = onClearSelection,
+                    onSelectAll = onSelectAll,
+                    onDeselectAll = onClearSelection,
+                )
+            } else {
+                tabHeader()
+            }
+
+            Box(Modifier.weight(1f).fillMaxSize()) { grid() }
+
+            if (selection.isActive) {
+                BulkActionBar(
+                    enabled = bulk !is BulkOperationUiState.Running,
+                    onAction = { action ->
+                        if (isLargeSelection(selection.count)) pendingLarge = action else routeAction(action)
+                    },
+                    onDetails = details?.let { { showDetails = true } },
+                    // Shared ⋮ overflow: favorite Add/Remove lead (spec §2b — the top multi-safe slot),
+                    // then Share (G2 · APP-541) + Save a copy (G2 · APP-549), then single-only Rename
+                    // (G1-D8 item 1, enabled only when exactly one item is selected).
+                    overflowActions = buildList {
+                        if (showAddFavorite) add(SelectionAction.FAVORITE)
+                        if (showRemoveFavorite) add(SelectionAction.UNFAVORITE)
+                        if (onShare != null) add(SelectionAction.SHARE)
+                        if (onExport != null) add(SelectionAction.EXPORT)
+                        if (onRename != null) add(SelectionAction.RENAME)
+                    },
+                    selectionCount = selection.count,
+                    onOverflowAction = { action ->
+                        when (action) {
+                            // Capture the live selection now, before the action dismisses it (spec §6).
+                            SelectionAction.FAVORITE -> applyFavorites(selectedIds, true)
+                            SelectionAction.UNFAVORITE -> applyFavorites(selectedIds, false)
+                            SelectionAction.SHARE -> onShare?.invoke()
+                            SelectionAction.EXPORT -> onExport?.invoke()
+                            SelectionAction.RENAME -> onRename?.invoke()
+                            else -> Unit
+                        }
+                    },
+                )
+            }
         }
 
-        Box(Modifier.weight(1f).fillMaxSize()) { grid() }
-
-        if (selection.isActive) {
-            BulkActionBar(
-                enabled = bulk !is BulkOperationUiState.Running,
-                onAction = { action ->
-                    if (isLargeSelection(selection.count)) pendingLarge = action else routeAction(action)
-                },
-                onDetails = details?.let { { showDetails = true } },
-                // Shared ⋮ overflow: multi-safe Share (G2 · APP-541) + Save a copy (G2 · APP-549) first,
-                // then single-only Rename (G1-D8 item 1, enabled only when exactly one item is selected).
-                overflowActions = buildList {
-                    if (onShare != null) add(SelectionAction.SHARE)
-                    if (onExport != null) add(SelectionAction.EXPORT)
-                    if (onRename != null) add(SelectionAction.RENAME)
-                },
-                selectionCount = selection.count,
-                onOverflowAction = { action ->
-                    when (action) {
-                        SelectionAction.SHARE -> onShare?.invoke()
-                        SelectionAction.EXPORT -> onExport?.invoke()
-                        SelectionAction.RENAME -> onRename?.invoke()
-                        else -> Unit
-                    }
-                },
-            )
-        }
+        // Bulk-favorite feedback (spec §6): floats above the (now-dismissed) selection bar, clear of the
+        // navigation bar. Only ever shows for favorite Add/Remove — other bulk ops keep their dialogs.
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .windowInsetsPadding(WindowInsets.navigationBars)
+                .testTag("favorites_snackbar"),
+        )
     }
 
     if (showDetails && details != null) {

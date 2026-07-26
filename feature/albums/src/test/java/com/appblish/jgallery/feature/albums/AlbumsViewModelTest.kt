@@ -116,7 +116,9 @@ class AlbumsViewModelTest {
         }
 
     @Test
-    fun `un-starring the last favorite drops the Favorites tile`() = runTest(dispatcher) {
+    fun `un-starring the last favorite keeps the Favorites tile in its empty state`() = runTest(dispatcher) {
+        // APP-670 (lead ruling 2026-07-26): the Favorites tile is always visible. Un-starring the last
+        // favorite must NOT drop it — it reverts to the empty state (count 0, no cover), still present.
         val repository = FakeRepository()
         val favorites = FakeFavoritesStore(setOf(MediaId("m1")))
         repository.libraryMedia = listOf(media("m1", bucket = "camera", taken = 100))
@@ -124,18 +126,24 @@ class AlbumsViewModelTest {
 
         repository.albums.value = listOf(album("camera", count = 1, newest = 300))
 
-        // Present at first…
+        // Present with content at first…
         withTimeout(5_000) {
-            vm.state.first { it is AlbumsUiState.Content && (it).albums.any { a -> a.kind == AlbumKind.FAVORITES } }
+            vm.state.first {
+                it is AlbumsUiState.Content && it.albums.any { a -> a.kind == AlbumKind.FAVORITES && a.itemCount == 1 }
+            }
         }
-        // …then un-star the only favorite → the live starred set empties → tile disappears.
+        // …then un-star the only favorite → the live starred set empties → tile stays, now empty.
         favorites.toggle(MediaId("m1"))
         advanceUntilIdle()
 
         val content = withTimeout(5_000) {
-            vm.state.first { it is AlbumsUiState.Content && (it).albums.none { a -> a.kind == AlbumKind.FAVORITES } }
+            vm.state.first {
+                it is AlbumsUiState.Content && it.albums.any { a -> a.kind == AlbumKind.FAVORITES && a.itemCount == 0 }
+            }
         } as AlbumsUiState.Content
-        assertThat(content.albums.none { it.kind == AlbumKind.FAVORITES }).isTrue()
+        val fav = content.albums.single { it.kind == AlbumKind.FAVORITES }
+        assertThat(fav.itemCount).isEqualTo(0)
+        assertThat(fav.cover).isNull()
     }
 
     @Test
