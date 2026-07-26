@@ -8,7 +8,6 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
-import com.appblish.jgallery.core.ui.theme.JGalleryTheme
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -32,7 +31,7 @@ class AlbumViewControlsTest {
     @Test
     fun overflow_opens_the_sort_sheet() {
         composeRule.setContent {
-            JGalleryTheme {
+            TestGalleryHost {
                 AlbumDetailScreen(
                     title = "Camera",
                     sourceBucketId = "camera",
@@ -50,7 +49,7 @@ class AlbumViewControlsTest {
     @Test
     fun overflow_opens_the_column_count_sheet() {
         composeRule.setContent {
-            JGalleryTheme {
+            TestGalleryHost {
                 AlbumDetailScreen(
                     title = "Camera",
                     sourceBucketId = "camera",
@@ -68,7 +67,7 @@ class AlbumViewControlsTest {
     @Test
     fun overflow_opens_the_group_by_sheet() {
         composeRule.setContent {
-            JGalleryTheme {
+            TestGalleryHost {
                 AlbumDetailScreen(
                     title = "Camera",
                     sourceBucketId = "camera",
@@ -87,7 +86,7 @@ class AlbumViewControlsTest {
     fun scope_toggle_reports_this_album_only() {
         var scope: ViewScope? = null
         composeRule.setContent {
-            JGalleryTheme {
+            TestGalleryHost {
                 AlbumDetailScreen(
                     title = "Camera",
                     sourceBucketId = "camera",

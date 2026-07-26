@@ -22,7 +22,6 @@ import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.ui.selection.SelectionState
-import com.appblish.jgallery.core.ui.theme.JGalleryTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -55,7 +54,7 @@ class AlbumsOrganizationTest {
         onPinSelected: () -> Unit = {},
     ) {
         composeRule.setContent {
-            JGalleryTheme {
+            TestGalleryHost {
                 // Hoist the selection like the ViewModel does, so long-press/tap drive the real bar.
                 var selection by remember { mutableStateOf(SelectionState<String>()) }
                 AlbumsScreen(

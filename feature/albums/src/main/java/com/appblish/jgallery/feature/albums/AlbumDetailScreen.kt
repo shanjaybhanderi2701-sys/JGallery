@@ -74,6 +74,8 @@ import com.appblish.jgallery.core.ui.component.FavoriteHeartBadge
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
+import com.appblish.jgallery.core.ui.window.GridContent
+import com.appblish.jgallery.core.ui.window.adaptiveColumns
 import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.SkeletonGrid
@@ -332,7 +334,7 @@ fun AlbumDetailScreen(
 
     when (state) {
         AlbumDetailUiState.Loading -> Column(modifier.fillMaxSize().testTag("album_detail_screen")) {
-            header(); SkeletonGrid(columns = viewSettings.columns)
+            header(); SkeletonGrid(columns = adaptiveColumns(viewSettings.columns, GridContent.MEDIA))
         }
         AlbumDetailUiState.Empty -> Column(modifier.fillMaxSize().testTag("album_detail_screen")) {
             header()
@@ -544,7 +546,10 @@ private fun AlbumDetailGrid(
     // writes to the same source of truth, so pinch and the Grid-size sheet stay in lock-step and both
     // survive process death. Same callback-driven pinch primitive the Photos tab uses.
     val gridState = rememberLazyGridState()
-    val tileShape = JGalleryDimens.tileRadius(columns)
+    // APP-653: render at the width-derived count (Medium/Expanded add columns); pinch below still
+    // reads/writes the persisted per-album `columns` pref, so the bonus is never saved.
+    val renderColumns = adaptiveColumns(columns, GridContent.MEDIA)
+    val tileShape = JGalleryDimens.tileRadius(renderColumns)
 
     // Group-by sectioning (APP-499): the shared core:ui grouping, identical to the Photos timeline, so
     // the album grid grows sticky Day/Month/Year headers when the shared menu's Group-by is set. NONE
@@ -571,7 +576,7 @@ private fun AlbumDetailGrid(
             ),
     ) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(columns.value),
+            columns = GridCells.Fixed(renderColumns.value),
             state = gridState,
             horizontalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
             verticalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
@@ -619,7 +624,7 @@ private fun AlbumDetailGrid(
                             // Item 8 (design C1-08): shared video play-icon overlay so videos are
                             // distinguishable in the album grid too — same disc/scrim/duration pill.
                             if (item.type == MediaType.VIDEO) {
-                                VideoOverlay(durationMillis = item.durationMillis, columns = columns.value)
+                                VideoOverlay(durationMillis = item.durationMillis, columns = renderColumns.value)
                             }
                             SelectionCheckBadge(
                                 selected = selection.isSelected(item.id),
@@ -630,7 +635,7 @@ private fun AlbumDetailGrid(
                             FavoriteHeartBadge(
                                 favorite = item.id in favorites,
                                 visible = !selection.isActive,
-                                columns = columns.value,
+                                columns = renderColumns.value,
                                 onClick = { onToggleFavorite(item.id) },
                             )
                         }

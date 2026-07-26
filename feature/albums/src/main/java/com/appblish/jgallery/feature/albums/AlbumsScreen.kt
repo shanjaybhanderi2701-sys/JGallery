@@ -49,6 +49,8 @@ import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.thumbs.coverRequest
 import com.appblish.jgallery.core.ui.selection.AlbumOpProgressDialog
+import com.appblish.jgallery.core.ui.window.GridContent
+import com.appblish.jgallery.core.ui.window.adaptiveColumns
 import com.appblish.jgallery.core.ui.selection.AlbumOpUiState
 import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
 import com.appblish.jgallery.core.ui.selection.MoveDestinationSheet
@@ -324,7 +326,7 @@ fun AlbumsScreen(
 
         Box(Modifier.weight(1f).fillMaxSize()) {
             when (state) {
-                AlbumsUiState.Loading -> SkeletonGrid(columns = columns)
+                AlbumsUiState.Loading -> SkeletonGrid(columns = adaptiveColumns(columns, GridContent.ALBUM_TILES))
                 AlbumsUiState.Empty -> EmptyTabState(
                     icon = Icons.Outlined.PhotoLibrary,
                     title = "No albums yet",

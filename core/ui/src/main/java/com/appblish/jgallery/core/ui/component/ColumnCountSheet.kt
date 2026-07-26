@@ -42,7 +42,10 @@ fun ColumnCountSheet(
                 modifier = Modifier.fillMaxWidth().padding(vertical = 24.dp),
                 horizontalArrangement = Arrangement.SpaceEvenly,
             ) {
-                (ColumnCount.MIN..ColumnCount.MAX).forEach { count ->
+                // The user preference is a phone-portrait value: offer MIN..PREF_MAX only, so the saved
+                // pref never exceeds the touch-target ceiling. Larger widths add columns via the
+                // render-time adaptive bonus (APP-653), not by persisting a higher count here.
+                (ColumnCount.MIN..ColumnCount.PREF_MAX).forEach { count ->
                     val selected = count == current.value
                     Box(
                         modifier = Modifier

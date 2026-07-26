@@ -45,6 +45,8 @@ import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.selection.selectableGridDrag
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
+import com.appblish.jgallery.core.ui.window.GridContent
+import com.appblish.jgallery.core.ui.window.adaptiveColumns
 
 /**
  * Reusable album cover grid shared by the Albums tab and the Video smart album's folder-wise screen
@@ -85,9 +87,13 @@ internal fun AlbumCoverGrid(
         Modifier
     }
 
+    // APP-653: render album tiles at the width-derived count (Compact = pref, Expanded = pref+1); pinch
+    // below still reads/writes the persisted `columns` pref, so the bonus is never saved.
+    val renderColumns = adaptiveColumns(columns, GridContent.ALBUM_TILES)
+
     Box(modifier = modifier.fillMaxSize().then(selectionModifier)) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(columns.value),
+            columns = GridCells.Fixed(renderColumns.value),
             state = gridState,
             horizontalArrangement = Arrangement.spacedBy(JGalleryDimens.AlbumsGutter),
             verticalArrangement = Arrangement.spacedBy(JGalleryDimens.AlbumsGutter),
