@@ -10,12 +10,14 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -115,6 +117,9 @@ fun AlbumDetailScreen(
     modifier: Modifier = Modifier,
     onOpenTrash: () -> Unit = {},
     onAlbumCreated: (name: String) -> Unit = {},
+    // When embedded as the right pane of the Expanded two-pane Collections (APP-654 §4.2) the list is
+    // always visible, so the pane owns no back affordance. Full-screen callers keep the default.
+    showBack: Boolean = true,
     viewModel: AlbumDetailViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -208,6 +213,7 @@ fun AlbumDetailScreen(
         onOpenCamera = { viewModel.requestCapture(CaptureKind.PHOTO) },
         onShare = viewModel::shareSelected,
         onExport = { exportFolderPicker.launch(null) },
+        showBack = showBack,
         modifier = modifier,
     )
 }
@@ -260,6 +266,8 @@ fun AlbumDetailScreen(
     onOpenCamera: () -> Unit = {},
     onShare: () -> Unit = {},
     onExport: () -> Unit = {},
+    // Hide the header back button when rendered as the Expanded two-pane detail pane (APP-654 §4.2).
+    showBack: Boolean = true,
 ) {
     var showSortSheet by remember { mutableStateOf(false) }
     var showColumnSheet by remember { mutableStateOf(false) }
@@ -271,8 +279,13 @@ fun AlbumDetailScreen(
             modifier = Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            IconButton(onClick = onBack, modifier = Modifier.testTag("album_detail_back")) {
-                Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
+            if (showBack) {
+                IconButton(onClick = onBack, modifier = Modifier.testTag("album_detail_back")) {
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back", tint = MaterialTheme.colorScheme.onSurface)
+                }
+            } else {
+                // Two-pane detail pane (APP-654): no back button, but keep the title's left inset.
+                Spacer(Modifier.width(12.dp))
             }
             Text(
                 text = title,

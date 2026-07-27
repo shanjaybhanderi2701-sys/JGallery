@@ -26,7 +26,7 @@ import com.appblish.jgallery.core.ui.window.desiredOrientation
 import com.appblish.jgallery.core.ui.window.findActivity
 import com.appblish.jgallery.feature.albums.ADD_TO_ALBUM_ROUTE
 import com.appblish.jgallery.feature.albums.ALBUM_DETAIL_ROUTE
-import com.appblish.jgallery.feature.albums.AlbumsScreen
+import com.appblish.jgallery.feature.albums.CollectionsTab
 import com.appblish.jgallery.feature.albums.NEW_ALBUM_ROUTE
 import com.appblish.jgallery.feature.albums.VIDEO_ALBUMS_ROUTE
 import com.appblish.jgallery.feature.albums.addToAlbumScreen
@@ -108,7 +108,10 @@ fun JGalleryApp(
             )
             // Collections tab body = the Albums grid (spec C4). Album taps route by kind; Search is a
             // header action; the overflow's "Recycle Bin" re-homes the retired Collections utility.
-            GalleryTab.COLLECTIONS -> AlbumsScreen(
+            // Width-adaptive (APP-654): Compact/Medium = single pane (full-screen album detail on tap,
+            // via openAlbum); Expanded = two-pane list+detail rendered inline (no full-screen push), so
+            // the tab bar stays visible over it — the ALBUM_DETAIL_ROUTE bar-hide below is untouched.
+            GalleryTab.COLLECTIONS -> CollectionsTab(
                 onAlbumClick = { album, filter -> navController.openAlbum(album, filter) },
                 // Create-album (design C1-09): route into the new album's empty "Add photos" prompt so
                 // it gets a cover and appears on the Albums home once the first item is added (APP-416).
@@ -117,6 +120,9 @@ fun JGalleryApp(
                 onOpenTrash = { navController.navigateToTrash() },
                 onOpenFavorites = { navController.navigateToFavorites() },
                 onOpenSettings = { navController.navigateToSettings() },
+                // Expanded detail-pane tile → the shared full-screen viewer, scoped to the album (same
+                // as the full-screen album-detail route wires below).
+                onMediaClick = { item -> navController.navigateToViewer(item.id, item.bucketId) },
             )
         }
     }
