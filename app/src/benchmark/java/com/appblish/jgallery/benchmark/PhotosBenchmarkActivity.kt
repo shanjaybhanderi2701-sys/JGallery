@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -36,11 +37,14 @@ import com.appblish.jgallery.feature.photos.PhotosScreen
 import com.appblish.jgallery.feature.photos.PhotosTimeline
 import com.appblish.jgallery.feature.photos.PhotosUiState
 import com.appblish.jgallery.feature.photos.buildPhotosTimeline
+import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import java.time.LocalDate
 import java.time.ZoneId
 
@@ -65,7 +69,18 @@ import java.time.ZoneId
  *
  * The root sets [testTagsAsResourceId] so the out-of-process macrobenchmark can locate the
  * `photos_grid` list by resource-id via UiAutomator.
+ *
+ * ## Real-pipeline mode (APP-699)
+ * The default [BenchmarkGrid] path hand-builds ONE timeline and feeds the stateless `PhotosScreen` —
+ * it measures the list/layout + decode hot path in isolation but BYPASSES the production data path
+ * (Room → `CachedMediaIndexRepository` → `PhotosViewModel` → `buildPhotosTimeline`), which APP-697
+ * named the #1 scroll-perf suspect. `--ez bench_real_pipeline true` selects [RealPipelineGrid], which
+ * seeds the corpus into MediaStore and then renders the REAL, Hilt-injected `PhotosScreen()` so peak
+ * memory / query cost / frame timing reflect the whole production pipeline, not a shortcut. The
+ * activity is [AndroidEntryPoint] purely so that real path resolves its `hiltViewModel()`; this
+ * annotation lives in the benchmark source set only and never reaches a shipped APK.
  */
+@AndroidEntryPoint
 @OptIn(ExperimentalComposeUiApi::class) // testTagsAsResourceId — the supported UiAutomator seam
 class PhotosBenchmarkActivity : ComponentActivity() {
 
@@ -75,7 +90,15 @@ class PhotosBenchmarkActivity : ComponentActivity() {
         val corpusSize = intent.getIntExtra(EXTRA_CORPUS_SIZE, BenchmarkCorpusSeeder.DEFAULT_CORPUS_SIZE)
         val optedIn = intent.getBooleanExtra(EXTRA_OPT_IN, false)
         val cleanupMode = intent.getBooleanExtra(EXTRA_CLEANUP, false)
+        val realPipeline = intent.getBooleanExtra(EXTRA_REAL_PIPELINE, false)
         val appContext = applicationContext
+
+        // Install the counting image loader BEFORE setContent (before the grid's first image request)
+        // so it wins the lazy SingletonImageLoader resolution. Real-pipeline mode only — the
+        // layout-only lane keeps the untouched production loader.
+        if (realPipeline && optedIn && !cleanupMode) {
+            BenchDecodeCounters.install(appContext)
+        }
 
         setContent {
             JGalleryTheme {
@@ -85,8 +108,13 @@ class PhotosBenchmarkActivity : ComponentActivity() {
                     // here. Deletes every synthetic asset, then shows a UiAutomator-visible done tag.
                     cleanupMode -> CleanupScreen(appContext)
 
-                    // (2) Explicit opt-in (`--ez bench_opt_in true`, passed only by the macrobenchmark
-                    // or a deliberate adb launch): the real seed-and-scroll benchmark surface.
+                    // (2a) Real-pipeline opt-in (`--ez bench_real_pipeline true --ez bench_opt_in
+                    // true`): seed the corpus then render the REAL Hilt `PhotosScreen`, exercising the
+                    // Room → repository → ViewModel → timeline path (APP-699).
+                    realPipeline && optedIn -> RealPipelineGrid(appContext, corpusSize)
+
+                    // (2b) Explicit opt-in (`--ez bench_opt_in true`, passed only by the macrobenchmark
+                    // or a deliberate adb launch): the layout-only seed-and-scroll benchmark surface.
                     optedIn -> BenchmarkGrid(appContext, corpusSize)
 
                     // (3) Casual tap-launch / no opt-in: NEVER seed (that is what polluted JD's real
@@ -95,6 +123,64 @@ class PhotosBenchmarkActivity : ComponentActivity() {
                     else -> GuardScreen(appContext)
                 }
             }
+        }
+    }
+
+    /**
+     * Real-pipeline benchmark surface (APP-699). Seeds the corpus into MediaStore (idempotent,
+     * off-main), then — once seeding is done so the production sync enumerates a fully-populated
+     * library — renders the REAL Hilt-injected `PhotosScreen()`. That drives the whole production
+     * pipeline: the repository's background sync upserts the corpus into Room, Room's
+     * `SELECT * FROM media` flow feeds `CachedMediaIndexRepository.applyQuery` (filter + sort), and
+     * `PhotosViewModel` re-derives `buildPhotosTimeline` (a second sort + the per-cell arrays) before
+     * Compose ever sees a frame. `photos_grid` appears only once that path yields Content, so the
+     * macrobenchmark's grid-ready wait doubles as a "Room populated to N items" barrier.
+     *
+     * A light background loop logs the decode / cache-hit counters (`JGALLERY_BENCH_DECODE_COUNTS`)
+     * every [COUNTER_LOG_INTERVAL_MS] so the logcat timeline shows decodes plateau while cache hits
+     * climb on a re-scroll — the proof of zero re-decode.
+     */
+    @Composable
+    private fun RealPipelineGrid(appContext: Context, corpusSize: Int) {
+        // Seed first (await) so the first production sync sees the whole corpus — avoids a race where
+        // an empty first sync yields the Empty state before the inserts' change signal re-syncs.
+        val seeded by produceState(initialValue = false, corpusSize) {
+            withContext(Dispatchers.IO) {
+                BenchmarkCorpusSeeder.seed(appContext, corpusSize, optedIn = true)
+            }
+            value = true
+        }
+
+        if (seeded) {
+            // Periodic counter readout for the logcat proof (APP-699 decodeCount / cacheHit).
+            LaunchedEffect(Unit) {
+                while (isActive) {
+                    delay(COUNTER_LOG_INTERVAL_MS)
+                    android.util.Log.i(
+                        BenchDecodeCounters.TAG,
+                        "JGALLERY_BENCH_DECODE_COUNTS ${BenchDecodeCounters.snapshot()}",
+                    )
+                }
+            }
+            // The default overload injects the REAL PhotosViewModel via hiltViewModel(); every
+            // callback stays at its no-op default (we only scroll). testTagsAsResourceId exposes
+            // `photos_grid` to UiAutomator.
+            PhotosScreen(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .semantics { testTagsAsResourceId = true },
+            )
+        } else {
+            // Pre-seed placeholder — deliberately NOT `photos_grid`, so the macrobenchmark keeps
+            // waiting through the seed + first sync rather than measuring an empty screen.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .semantics {
+                        testTagsAsResourceId = true
+                        testTag = "bench_seeding"
+                    },
+            )
         }
     }
 
@@ -143,7 +229,19 @@ class PhotosBenchmarkActivity : ComponentActivity() {
     private fun CleanupScreen(appContext: Context) {
         val deleted by produceState<Int?>(initialValue = null) {
             value = withContext(kotlinx.coroutines.Dispatchers.IO) {
-                BenchmarkCorpusSeeder.cleanup(appContext)
+                val removed = BenchmarkCorpusSeeder.cleanup(appContext)
+                // APP-699 real-pipeline mode also POPULATES the on-disk Room index cache (the
+                // production sync upserts the seeded corpus). That DB is a rebuildable cache, not a
+                // source of truth, so dropping it here leaves no bench rows behind for a later normal
+                // launch. Named by the string literal on purpose — MediaIndexDatabase.NAME is internal
+                // to :core:index and unreachable from the benchmark source set. Harmless (returns
+                // false) when the layout-only lane never touched Room.
+                val droppedIndex = appContext.deleteDatabase(MEDIA_INDEX_DB_NAME)
+                android.util.Log.i(
+                    BenchmarkCorpusSeeder.TAG,
+                    "JGALLERY_BENCH_CLEANUP_INDEX droppedIndexCache=$droppedIndex",
+                )
+                removed
             }
         }
         val done = deleted != null
@@ -221,7 +319,24 @@ class PhotosBenchmarkActivity : ComponentActivity() {
          */
         const val EXTRA_CLEANUP = "bench_cleanup"
 
+        /**
+         * When `true` (with [EXTRA_OPT_IN]) the activity renders the REAL Hilt `PhotosScreen` so the
+         * scroll drives the production Room → repository → ViewModel → timeline path (APP-699), rather
+         * than the layout-only hand-built timeline. Defaults to `false` (the layout-only lane).
+         */
+        const val EXTRA_REAL_PIPELINE = "bench_real_pipeline"
+
         const val BENCH_ACTIVITY = "com.appblish.jgallery.benchmark.PhotosBenchmarkActivity"
+
+        /**
+         * On-disk name of the index Room cache (mirror of the internal `MediaIndexDatabase.NAME`,
+         * which is not visible from this source set). Only referenced by the self-cleaning teardown to
+         * drop the rebuildable cache the real-pipeline sync populated.
+         */
+        const val MEDIA_INDEX_DB_NAME = "media-index.db"
+
+        /** Cadence of the decode/cache-hit counter readout in real-pipeline mode. */
+        const val COUNTER_LOG_INTERVAL_MS = 750L
     }
 }
 

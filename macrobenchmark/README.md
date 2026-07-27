@@ -45,6 +45,45 @@ the authoritative physical/FTL run, R0-2).
 | `BenchmarkCorpusSeeder` | `app/src/benchmark/…` | seeds ≥10k real JPEG/PNG/HEIC/WebP files into MediaStore (idempotent) so a fling drives real decode/IO |
 | `:macrobenchmark` | this module (`com.android.test`) | separate test APK; `targetProjectPath = ":app"`, `testBuildType = "benchmark"` |
 
+## APP-699 — real-pipeline mode, scale, cold pass, peak memory, decode counts
+
+APP-697 found the harness above measured a **hand-built timeline fed to the stateless
+`PhotosScreen`**, so it *bypassed* the production data path (Room → `CachedMediaIndexRepository` →
+`PhotosViewModel` → `buildPhotosTimeline`) that the report named the **#1 scroll-perf suspect**.
+APP-699 adds the missing coverage — **all harness/instrumentation code, no production behaviour
+change**:
+
+| Gap | What was added |
+|-----|----------------|
+| **Real-pipeline mode** | `PhotosBenchmarkActivity` is now `@AndroidEntryPoint` and, under `--ez bench_real_pipeline true`, renders the **real Hilt `PhotosScreen()`** (default `hiltViewModel()`), so the fling drives the production Room→repo→VM→timeline path. |
+| **Scale 5k / 15k / 50k** | `Scale` enum; each `@Test` seeds its own corpus. 5k/15k run locally now; **50k is infra-gated** (needs a large/repartitioned AVD or physical device, ~8–12 GB; the shared AVD has ~3.8 GB free). |
+| **Cold pass** | `realPipeline_15k_cold` runs `StartupMode.COLD` (WARM caveat from APP-382 still applies on the emulator — treat COLD emulator numbers as directional). |
+| **Peak memory** | Per-iteration `dumpsys meminfo` sampled across both scroll passes; logged `JGALLERY_BENCH_MEM peakPssKb=… javaHeapKb=… nativeHeapKb=… totalPssKb=…`. |
+| **decode-count + cache-hit** | Real-pipeline mode wraps the **real Coil `ImageLoader`** (same caches) with a counting `EventListener` (harness-only, via `SingletonImageLoader.setSafe`). The test flings **down then back up**; the app logs `JGALLERY_BENCH_DECODE_COUNTS decodeCount=… cacheHit=… success=…` on a timer, so decodes plateau while cache hits climb on the return fling — the **zero-re-decode** proof. |
+| **True minified R8 target** | `-Pjgallery.bench.minify=true` flips the `benchmark` build type to `isMinifyEnabled`/`isShrinkResources` = true with the shipped `release` R8 config + `app/benchmark-rules.pro`, so numbers reflect the shrunk code graph. Off by default. |
+| **Self-cleaning (hardened)** | Teardown deletes every seeded MediaStore row **and** drops the rebuildable Room index cache the real-pipeline sync populated (`deleteDatabase("media-index.db")`), then verifies `remaining=0`. |
+
+### Run the new lanes
+
+```bash
+# real-pipeline, local emulator, 5k then 15k (the "runs locally now" DoD gate)
+./gradlew :macrobenchmark:connectedBenchmarkAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.appblish.jgallery.macrobenchmark.PhotosScrollBenchmark#realPipeline_5k_warm \
+  -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR
+
+# true minified R8 release-like target
+./gradlew :macrobenchmark:connectedBenchmarkAndroidTest -Pjgallery.bench.minify=true \
+  -Pandroid.testInstrumentationRunnerArguments.androidx.benchmark.suppressErrors=EMULATOR
+
+# 50k (authoritative) — only on a large-AVD / physical device (see infra note above)
+./gradlew :macrobenchmark:connectedBenchmarkAndroidTest \
+  -Pandroid.testInstrumentationRunnerArguments.class=com.appblish.jgallery.macrobenchmark.PhotosScrollBenchmark#realPipeline_50k_warm
+```
+
+Artifacts per run: FrameTimingMetric P50/P90/P99 in `*-benchmarkData.json`, plus grep-able logcat
+lines `JGALLERY_BENCH_JANK` (jank%), `JGALLERY_BENCH_MEM` (peak memory), and
+`JGALLERY_BENCH_DECODE_COUNTS` (decode/cache-hit).
+
 ## Self-cleaning fixture (APP-458)
 
 The seeder writes thousands of real files into MediaStore, so the fixture is built to **leave the

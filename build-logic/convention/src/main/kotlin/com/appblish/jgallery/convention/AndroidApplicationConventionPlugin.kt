@@ -53,17 +53,32 @@ class AndroidApplicationConventionPlugin : Plugin<Project> {
                 }
                 // The macrobenchmark target (spec §11 10k-scroll frame-time gate, APP-342).
                 // A release-like, NON-debuggable, profileable variant — macrobenchmark refuses
-                // debuggable builds because JIT/debug hooks distort frame timing. Kept minify-off
-                // so the measured code path matches the tiles/list users actually scroll (not a
-                // shrunk graph) and so the benchmark-only PhotosBenchmarkActivity survives without
-                // keep rules. Debug-signed so it installs on CI/dev without a release keystore.
-                // Profileable is declared in app/src/benchmark/AndroidManifest.xml.
+                // debuggable builds because JIT/debug hooks distort frame timing. Debug-signed so it
+                // installs on CI/dev without a release keystore. Profileable is declared in
+                // app/src/benchmark/AndroidManifest.xml.
+                //
+                // Minification is OFF by default (the measured code path matches the tiles/list users
+                // scroll and the benchmark-only PhotosBenchmarkActivity survives without keep rules),
+                // but `-Pjgallery.bench.minify=true` flips it to a TRUE minified, R8-shrunk,
+                // release-like target (APP-699 measurement gap): same R8/resource-shrinking config as
+                // `release`, so before/after numbers reflect the shipped code graph rather than the
+                // un-shrunk benchmark graph. The benchmark keep rules (app/benchmark-rules.pro) keep
+                // the fixture surface + Hilt entry points R8 would otherwise strip.
                 create("benchmark") {
                     initWith(getByName("release"))
-                    isMinifyEnabled = false
-                    isShrinkResources = false
+                    val minifyBench =
+                        (target.findProperty("jgallery.bench.minify") as? String)?.toBoolean() == true
+                    isMinifyEnabled = minifyBench
+                    isShrinkResources = minifyBench
                     isDebuggable = false
                     signingConfig = signingConfigs.getByName("debug")
+                    if (minifyBench) {
+                        proguardFiles(
+                            getDefaultProguardFile("proguard-android-optimize.txt"),
+                            "proguard-rules.pro",
+                            "benchmark-rules.pro",
+                        )
+                    }
                     // Feature/core modules only publish debug+release; consume their release
                     // variant from this benchmark variant.
                     matchingFallbacks += "release"
