@@ -25,9 +25,12 @@ import java.time.ZoneOffset
 import java.util.Locale
 
 /**
- * E11 multi-select DoD gate (spec §7.6) on the REAL Photos grid via its stateless overload: selection
- * chrome swaps in, the bulk bar drives the right action, tapping in selection mode toggles instead of
- * opening the viewer, Select All reports every tile, and Copy/Delete open the picker/confirm.
+ * E11 multi-select DoD gate (spec §7.6) on the REAL Photos grid via its stateless overload:
+ * selection chrome swaps in, the bulk bar drives the right action, tapping in selection mode
+ * toggles instead of opening the viewer, and Copy/Delete open the picker/confirm.
+ *
+ * Uses [WindowedPhotosTimeline.fromItems] so all items are pre-loaded in windowCache[0] — no async
+ * window loading needed for the test fixture.
  */
 @RunWith(AndroidJUnit4::class)
 class PhotosSelectionTest {
@@ -53,12 +56,13 @@ class PhotosSelectionTest {
     private fun render(
         selection: SelectionState<MediaId>,
         destinations: List<Album> = emptyList(),
+        allOrderedIds: List<MediaId> = emptyList(),
         onToggle: (MediaId) -> Unit = {},
         onMediaClick: (MediaItem) -> Unit = {},
-        onSelectAll: (Collection<MediaId>) -> Unit = {},
+        onSelectAll: () -> Unit = {},
         onRunBulk: (BulkAction, String?) -> Unit = { _, _ -> },
     ) {
-        val timeline = buildPhotosTimeline(items(10), zone, today, Locale.UK)
+        val timeline = WindowedPhotosTimeline.fromItems(items(10), zone, today, Locale.UK)
         composeRule.setContent {
             TestGalleryHost {
                 PhotosScreen(
@@ -66,6 +70,7 @@ class PhotosSelectionTest {
                     columns = ColumnCount(3),
                     selection = selection,
                     destinations = destinations,
+                    allOrderedIds = allOrderedIds,
                     onColumnsChange = {},
                     onMediaClick = onMediaClick,
                     onToggle = onToggle,
@@ -99,11 +104,13 @@ class PhotosSelectionTest {
     }
 
     @Test
-    fun selectAll_reportsEveryTile() {
-        var all: Collection<MediaId>? = null
-        render(preset(), onSelectAll = { all = it })
+    fun selectAll_invokesSelectAllCallback() {
+        // Virtual select-all (D6): the callback triggers ViewModel.selectAllFiltered() which loads
+        // ids via mediaIdsMatching. The stateless screen wires onSelectAll directly to the scaffold.
+        var selectAllCalled = false
+        render(preset(), onSelectAll = { selectAllCalled = true })
         composeRule.onNodeWithTag("selection_select_all").performClick()
-        assertEquals(10, all?.size)
+        assertTrue(selectAllCalled)
     }
 
     @Test
@@ -115,8 +122,6 @@ class PhotosSelectionTest {
 
     @Test
     fun bulkCopy_opensDestinationSheet() {
-        // D4-03: bulk Copy/Move now opens the shared cover-thumbnail MoveDestinationSheet (with its
-        // inline "New album" create-and-move step), not the retired text-row DestinationPickerSheet.
         render(preset(), destinations = listOf(Album("bucket_9", "Trips", 4, MediaId("media_9"), 0L)))
         composeRule.onNodeWithTag("bulk_copy").performClick()
         composeRule.onNodeWithTag("move_destination_sheet").assertIsDisplayed()
@@ -127,12 +132,8 @@ class PhotosSelectionTest {
     fun noSelection_showsNormalHeaderNotSelectionBar() {
         var opened = false
         render(SelectionState(), onMediaClick = { opened = true })
-        // No active selection → the selection top bar is gone and the normal tab header stays. The
-        // plain "Photos" title now shares its text with the format-filter chip (APP-405), so assert
-        // the header via its stable action tag instead of the ambiguous title text (APP-446).
         composeRule.onNodeWithTag("selection_top_bar").assertDoesNotExist()
         composeRule.onNodeWithTag("photos_search_action").assertIsDisplayed()
-        // Tapping a tile with no active selection opens the viewer.
         composeRule.onNodeWithContentDescription("IMG_3.jpg").performClick()
         assertTrue(opened)
     }

@@ -12,7 +12,10 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaQuery
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.OperationResult
+import com.appblish.jgallery.core.model.SectionRun
 import com.appblish.jgallery.core.model.SortSpec
+import com.appblish.jgallery.core.model.TimelineSkeleton
+import com.appblish.jgallery.core.model.TimelineSpec
 import com.appblish.jgallery.core.ui.share.MediaShareRequest
 import kotlinx.coroutines.flow.emptyFlow
 import com.google.common.truth.Truth.assertThat
@@ -117,16 +120,13 @@ class PhotosViewModelTest {
 
             vm.refresh()
             advanceUntilIdle()
-            // In-flight: the re-enumeration is suspended on the gate, spinner still up.
             assertThat(vm.isRefreshing.value).isTrue()
             assertThat(repository.refreshCalls).isEqualTo(1)
 
-            // A second pull while one is running is a no-op (no double re-scan).
             vm.refresh()
             advanceUntilIdle()
             assertThat(repository.refreshCalls).isEqualTo(1)
 
-            // Completing the re-scan clears the spinner.
             gate.complete(Unit)
             advanceUntilIdle()
             assertThat(vm.isRefreshing.value).isFalse()
@@ -183,16 +183,12 @@ class PhotosViewModelTest {
         val none = withTimeout(5_000) {
             vm.state.first { it is PhotosUiState.Content && it.timeline.sectionStarts.isEmpty() }
         } as PhotosUiState.Content
-        assertThat(none.timeline.cells).hasSize(2)
+        assertThat(none.timeline.totalCells).isEqualTo(2)
         assertThat(withTimeout(5_000) { vm.groupBy.first { it == GroupBy.NONE } }).isEqualTo(GroupBy.NONE)
     }
 
     @Test
     fun `shareSelected emits Empty when every selected item resolved to null`() = runTest(dispatcher) {
-        // viewUri returning null models the item being deleted underneath us (NoopOperations). With a
-        // non-empty selection but nothing resolvable, the VM must report Empty (never a Ready with no
-        // uris). The non-null "Ready" path resolves real content uris and is instrumented, matching the
-        // viewer's uri tests (JVM can't mint an android Uri).
         val vm = viewModel()
         vm.toggleSelection(MediaId("1"))
         vm.toggleSelection(MediaId("2"))
@@ -221,17 +217,42 @@ class PhotosViewModelTest {
     private class FakeRepository : MediaIndexRepository {
         val items = MutableStateFlow<List<MediaItem>>(emptyList())
         var refreshCalls = 0
-        /** When set, refresh() suspends on this gate so a test can observe the in-flight window. */
         var refreshGate: CompletableDeferred<Unit>? = null
+
         override fun observeAlbums(): Flow<List<Album>> = MutableStateFlow(emptyList())
         override fun observeMedia(query: MediaQuery): Flow<List<MediaItem>> = items
+
+        override fun observeTimelineSkeleton(spec: TimelineSpec): Flow<TimelineSkeleton> =
+            items.map { list ->
+                if (list.isEmpty()) return@map TimelineSkeleton.EMPTY
+                val sections = if (spec.groupBy == GroupBy.NONE) {
+                    emptyList()
+                } else {
+                    // All fake items share the same timestamp → one section.
+                    listOf(
+                        SectionRun(
+                            sectionKey = 0L,
+                            dayKey = 0L,
+                            firstItemOrdinal = 0,
+                            count = list.size,
+                        ),
+                    )
+                }
+                TimelineSkeleton(totalItems = list.size, sections = sections)
+            }
+
+        override suspend fun loadWindow(spec: TimelineSpec, offset: Int, limit: Int): List<MediaItem> =
+            items.value.drop(offset).take(limit)
+
+        override suspend fun mediaIdsMatching(spec: TimelineSpec): List<MediaId> =
+            items.value.map { it.id }
+
         override suspend fun refresh() {
             refreshCalls++
             refreshGate?.await()
         }
     }
 
-    /** The bulk-op seam is exercised in [com.appblish.jgallery.core.ui.selection] tests; here it is inert. */
     private object NoopOperations : MediaOperationsRepository {
         override suspend fun createAlbum(name: String) = OperationResult(succeeded = 1, failed = 0)
         override suspend fun rename(id: MediaId, newDisplayName: String) = OperationResult(succeeded = 1, failed = 0)
@@ -255,7 +276,6 @@ class PhotosViewModelTest {
         override fun deleteAlbum(bucketId: String): Flow<FileOperationEvent> = emptyFlow()
     }
 
-    /** Records the single-item rename (APP-494) and returns a configurable [result]; other seams inert. */
     private class RecordingOperations(
         private val result: OperationResult = OperationResult(succeeded = 1, failed = 0),
     ) : MediaOperationsRepository by NoopOperations {
@@ -286,7 +306,6 @@ class PhotosViewModelTest {
         }
     }
 
-    /** In-memory [FavoritesStore] for the toggle/flow wiring test. */
     private class FakeFavoritesStore : FavoritesStore {
         private val ids = MutableStateFlow<Set<MediaId>>(emptySet())
         override val favoriteIds: Flow<Set<MediaId>> = ids
