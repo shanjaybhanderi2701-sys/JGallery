@@ -75,6 +75,8 @@ import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.FavoriteHeartBadge
 import com.appblish.jgallery.core.ui.component.FormatBadgeChip
 import com.appblish.jgallery.core.ui.component.EmptyTabState
+import com.appblish.jgallery.core.ui.window.GridContent
+import com.appblish.jgallery.core.ui.window.adaptiveColumns
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import com.appblish.jgallery.core.ui.component.CollapsibleContent
 import com.appblish.jgallery.core.ui.component.FormatFilterChips
@@ -344,7 +346,8 @@ fun PhotosScreen(
 
     when (state) {
         PhotosUiState.Loading -> Column(modifier.fillMaxSize().testTag("photos_screen")) {
-            header(); SkeletonGrid(columns = columns)
+            // Skeleton matches the loaded grid's adaptive density so it doesn't reflow on first frame.
+            header(); SkeletonGrid(columns = adaptiveColumns(columns, GridContent.MEDIA))
         }
         PhotosUiState.Empty -> Column(modifier.fillMaxSize().testTag("photos_screen")) {
             header()
@@ -515,7 +518,12 @@ private fun PhotosGrid(
     onDragSelect: (MediaId, List<MediaId>) -> Unit,
 ) {
     val gridState = rememberLazyGridState()
-    val tileShape = JGalleryDimens.tileRadius(columns)
+    // APP-653: `columns` is the persisted phone-portrait pref (pinch still writes it below); the grid is
+    // *rendered* at the width-derived count so Medium/Expanded show more columns. The bonus is never
+    // persisted, so rotating/folding cannot corrupt the saved pref. tile radius + per-tile density
+    // (heart/duration hiding) follow the rendered count so tiles stay visually consistent.
+    val renderColumns = adaptiveColumns(columns, GridContent.MEDIA)
+    val tileShape = JGalleryDimens.tileRadius(renderColumns)
 
     // Fix 4 — warm the next viewport ahead of the scroll so cold tiles are already decoded/cached by
     // the time they enter view (renders nothing itself).
@@ -537,7 +545,7 @@ private fun PhotosGrid(
             ),
     ) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(columns.value),
+            columns = GridCells.Fixed(renderColumns.value),
             state = gridState,
             horizontalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
             verticalArrangement = Arrangement.spacedBy(JGalleryDimens.PhotosGutter),
@@ -568,7 +576,7 @@ private fun PhotosGrid(
                         modifier = reflow,
                         item = cell.item,
                         shape = tileShape,
-                        columns = columns.value,
+                        columns = renderColumns.value,
                         selectionActive = selection.isActive,
                         selected = selection.isSelected(cell.item.id),
                         favorite = cell.item.id in favorites,

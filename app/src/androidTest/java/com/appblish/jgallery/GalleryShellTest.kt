@@ -1,6 +1,9 @@
 package com.appblish.jgallery
 
 import androidx.compose.material3.Text
+import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.WindowSizeClass
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.assertIsDisplayed
@@ -8,8 +11,11 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.unit.DpSize
+import androidx.compose.ui.unit.dp
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.appblish.jgallery.core.ui.theme.JGalleryTheme
+import com.appblish.jgallery.core.ui.window.LocalWindowSizeClass
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -28,15 +34,21 @@ class GalleryShellTest {
     @get:Rule
     val composeRule = createComposeRule()
 
+    @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     @Test
     fun twoTabShell_defaultsToPhotos_andBothTabsReachable_noRetiredTabs() {
+        // APP-651: the shell reads LocalWindowSizeClass for the orientation writer; provide a Compact
+        // (phone) size class so JGalleryApp renders as it does on a phone.
+        val compactWindowSizeClass = WindowSizeClass.calculateFromSize(DpSize(400.dp, 800.dp))
         composeRule.setContent {
             JGalleryTheme {
-                JGalleryApp { tab ->
-                    Text(
-                        text = "${tab.label} stub",
-                        modifier = Modifier.testTag("${tab.route}_screen"),
-                    )
+                CompositionLocalProvider(LocalWindowSizeClass provides compactWindowSizeClass) {
+                    JGalleryApp { tab ->
+                        Text(
+                            text = "${tab.label} stub",
+                            modifier = Modifier.testTag("${tab.route}_screen"),
+                        )
+                    }
                 }
             }
         }

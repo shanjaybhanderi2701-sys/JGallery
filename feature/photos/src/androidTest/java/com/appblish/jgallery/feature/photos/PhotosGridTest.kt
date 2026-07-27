@@ -18,7 +18,6 @@ import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
-import com.appblish.jgallery.core.ui.theme.JGalleryTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -62,7 +61,7 @@ class PhotosGridTest {
     private fun setTenThousandItemGrid(): PhotosTimeline {
         val timeline = buildPhotosTimeline(items(10_000), zone, today, Locale.UK)
         composeRule.setContent {
-            JGalleryTheme {
+            TestGalleryHost {
                 PhotosScreen(
                     state = PhotosUiState.Content(timeline),
                     columns = ColumnCount(3),
@@ -198,7 +197,7 @@ class PhotosGridTest {
     @Test
     fun emptyState_rendersQuietCopy_notAGrid() {
         composeRule.setContent {
-            JGalleryTheme {
+            TestGalleryHost {
                 PhotosScreen(
                     state = PhotosUiState.Empty,
                     columns = ColumnCount.DEFAULT,
