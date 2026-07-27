@@ -693,7 +693,10 @@ private data class PrefetchWindow(
  * - **During a scroll** — a bounded, direction-aware, nearest-first lookahead ([PrefetchPlanner.ahead])
  *   in the scroll direction. It stays modest ([PREFETCH_AHEAD_MAX]) so tiles actually entering view
  *   keep winning decode slots, and the prior batch is disposed on every new window, so decodes for
- *   tiles flung past are cancelled (a direction flip or a fresh viewport makes them stale).
+ *   tiles flung past are cancelled (a direction flip or a fresh viewport makes them stale). Above a
+ *   fast-fling velocity ([FlingDecodeGate]) the lookahead is suspended and its in-flight batch
+ *   cancelled outright, so a hard fling never floods the small, no-priority decode pool with tiles
+ *   that fly past before they finish — the visible tiles landing get the whole pool (APP-701).
  * - **Once the scroll settles** — a wider symmetric warm ([PrefetchPlanner.idleWarm]) in both
  *   directions. Aggressive is safe when idle because no visible tile competes for slots; the warm is
  *   disposed the instant scrolling resumes, so it never steals a decode from the next fling.
@@ -729,6 +732,9 @@ private fun ThumbnailPrefetch(
             // Phase 1 — bounded directional lookahead while scrolling.
             launch {
                 var lastFirstVisible = gridState.firstVisibleItemIndex
+                var lastTimeNanos = System.nanoTime()
+                var velocity = 0f
+                var prefetching = true
                 var inFlight: List<Disposable> = emptyList()
                 snapshotFlow {
                     val visible = gridState.layoutInfo.visibleItemsInfo
@@ -743,11 +749,27 @@ private fun ThumbnailPrefetch(
                     .distinctUntilChanged()
                     .collect { window ->
                         if (window.lastVisible < 0 || window.tilePx <= 0) return@collect
+                        val now = System.nanoTime()
+                        velocity = FlingDecodeGate.smoothVelocity(
+                            prevVelocity = velocity,
+                            indexDelta = window.firstVisible - lastFirstVisible,
+                            elapsedNanos = now - lastTimeNanos,
+                        )
+                        lastTimeNanos = now
                         val goingDown = window.firstVisible >= lastFirstVisible
                         lastFirstVisible = window.firstVisible
 
-                        // Cancel the prior batch; those tiles are now on-screen or flung past.
+                        // Cancel the prior batch; those tiles are now on-screen or flung past. Done
+                        // unconditionally so a fast fling also cancels any lookahead dispatched just
+                        // before it crossed the threshold (APP-701).
                         inFlight.forEach { it.dispose() }
+                        inFlight = emptyList()
+
+                        // Fast fling — suspend the lookahead entirely so the bounded, no-priority
+                        // decode pool stays reserved for the tiles actually landing; the idle warm
+                        // refills the caches the instant the fling settles (APP-701, finding #5).
+                        prefetching = FlingDecodeGate.shouldPrefetchAhead(velocity, prefetching)
+                        if (!prefetching) return@collect
 
                         // ~1.5 viewports ahead, bounded — aggressive enough to stay ahead of a steady
                         // scroll without saturating the decode pool the visible tiles need.
