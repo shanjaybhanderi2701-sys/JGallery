@@ -70,6 +70,11 @@ internal fun AlbumCoverGrid(
     // nested Video folder grid, which has no selection.
     onBeginSelect: ((bucketId: String) -> Unit)? = null,
     onDragSelect: ((bucketId: String, ordered: List<String>) -> Unit)? = null,
+    // Two-pane list/detail highlight (APP-654 §4.2): the album currently shown in the Expanded detail
+    // pane, drawn with the same accent border as a picked card but WITHOUT the multi-select scrim/check
+    // — this is a "which one is open", not a "which ones are picked" affordance. Ignored while a
+    // multi-select is active (that mode owns the selection styling). Null on phones/tablets in one-pane.
+    highlightedBucketId: String? = null,
 ) {
     val selecting = selectedBucketIds.isNotEmpty()
     val gridState = rememberLazyGridState()
@@ -110,7 +115,10 @@ internal fun AlbumCoverGrid(
                     album = album,
                     onClick = { onAlbumClick(album) },
                     selecting = selecting,
-                    selected = album.bucketId in selectedBucketIds,
+                    // In multi-select mode the border/scrim/check follow the picked set; otherwise it
+                    // marks the album open in the Expanded detail pane (border only). One never overlaps
+                    // the other — `selecting` gates the picker chrome (APP-654).
+                    selected = if (selecting) album.bucketId in selectedBucketIds else album.bucketId == highlightedBucketId,
                 )
             }
         }
