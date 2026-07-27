@@ -61,6 +61,9 @@ fun NavGraphBuilder.albumDetailScreen(
     onMediaClick: (MediaItem) -> Unit,
     onOpenTrash: () -> Unit = {},
     onAlbumCreated: (name: String) -> Unit = {},
+    // False when this destination backs the Expanded two-pane Collections detail pane (APP-654): the
+    // persistent list pane makes a back button meaningless, so it is suppressed.
+    showBack: Boolean = true,
 ) {
     composable(
         route = ALBUM_DETAIL_ROUTE,
@@ -86,6 +89,7 @@ fun NavGraphBuilder.albumDetailScreen(
             onMediaClick = onMediaClick,
             onOpenTrash = onOpenTrash,
             onAlbumCreated = onAlbumCreated,
+            showBack = showBack,
         )
     }
 }

@@ -50,6 +50,8 @@ import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.thumbs.coverRequest
 import com.appblish.jgallery.core.ui.selection.AlbumOpProgressDialog
+import com.appblish.jgallery.core.ui.window.GridContent
+import com.appblish.jgallery.core.ui.window.adaptiveColumns
 import com.appblish.jgallery.core.ui.selection.AlbumOpUiState
 import com.appblish.jgallery.core.ui.selection.AlbumOpVerb
 import com.appblish.jgallery.core.ui.selection.MoveDestinationSheet
@@ -80,6 +82,11 @@ fun AlbumsScreen(
     onOpenTrash: () -> Unit = {},
     onOpenFavorites: () -> Unit = {},
     onOpenSettings: () -> Unit = {},
+    // Two-pane (APP-654): the bucketId open in the Expanded detail pane (border-highlighted in the list),
+    // and a report of the first album so the Collections tab can auto-select it (§4.2 "never empty").
+    // Both default to the one-pane no-ops, so every existing caller is byte-identical.
+    highlightedBucketId: String? = null,
+    onFirstAlbumResolved: (Album?) -> Unit = {},
     viewModel: AlbumsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -93,6 +100,11 @@ fun AlbumsScreen(
     val context = LocalContext.current
 
     val shownAlbums = (state as? AlbumsUiState.Content)?.albums.orEmpty()
+
+    // Two-pane auto-select (APP-654 §4.2): report the first album whenever the loaded set changes so the
+    // Collections tab can seed the detail pane. The tab only acts when nothing is selected yet, so this
+    // never fights a user pick or a restored (rotate/fold) selection.
+    LaunchedEffect(shownAlbums) { onFirstAlbumResolved(shownAlbums.firstOrNull()) }
 
     // The album whose media backs the "Set as cover" picker (null = picker closed). Loading the media
     // lazily off the chosen bucket keeps the tab itself off a per-album media query until it's needed.
@@ -164,6 +176,7 @@ fun AlbumsScreen(
         coverPickerMedia = coverMedia,
         onCoverPickerOpen = { coverBucket = it.bucketId },
         onCoverPickerClose = { coverBucket = null },
+        highlightedBucketId = highlightedBucketId,
         modifier = modifier,
     )
 }
@@ -214,6 +227,8 @@ fun AlbumsScreen(
     coverPickerMedia: List<MediaItem> = emptyList(),
     onCoverPickerOpen: (Album) -> Unit = {},
     onCoverPickerClose: () -> Unit = {},
+    // Two-pane list highlight (APP-654): the album open in the Expanded detail pane. One-pane = null.
+    highlightedBucketId: String? = null,
 ) {
     var showColumnSheet by remember { mutableStateOf(false) }
     var showSortSheet by remember { mutableStateOf(false) }
@@ -325,7 +340,7 @@ fun AlbumsScreen(
 
         Box(Modifier.weight(1f).fillMaxSize()) {
             when (state) {
-                AlbumsUiState.Loading -> SkeletonGrid(columns = columns)
+                AlbumsUiState.Loading -> SkeletonGrid(columns = adaptiveColumns(columns, GridContent.ALBUM_TILES))
                 AlbumsUiState.Empty -> EmptyTabState(
                     icon = Icons.Outlined.PhotoLibrary,
                     title = "No albums yet",
@@ -356,6 +371,7 @@ fun AlbumsScreen(
                                 allAlbums.firstOrNull { it.bucketId == bucketId }?.let(onAlbumLongPress)
                             },
                             onDragSelect = onAlbumDragSelect,
+                            highlightedBucketId = highlightedBucketId,
                         )
                     }
                 }

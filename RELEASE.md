@@ -73,18 +73,44 @@ Verify the upload signature on the bundle:
 jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab
 ```
 
-## Zero-network guarantee (§9.3) holds in the bundle
+## Bounded egress — Firebase Crashlytics only (APP-614)
 
-The APP-289 egress guard runs on the `release` variant; the merged manifest declares **zero**
-network permissions (no `INTERNET`, no `ACCESS_NETWORK_STATE`):
+The board chose **Option A** (APP-613): ship Firebase Crashlytics for 1.0. The §9.3 *zero-network*
+guarantee is retired; the APP-289 egress guard is now a **bounded** guard. On the `release`
+variant it permits **only** the Firebase surface — `INTERNET` + `ACCESS_NETWORK_STATE`, and
+`com.google.firebase` / `com.google.android.gms` / `com.google.android.datatransport` deps — and
+still fails the build on any **other** network permission or network/analytics dependency:
 ```
 ./gradlew :app:verifyNoEgressManifestRelease :app:verifyNoEgressDependenciesRelease
 ```
-Confirm directly from the built AAB's base manifest:
+Confirm the bundle's egress surface is exactly the two approved permissions and nothing else:
 ```
-# uses-permission list — expect NO android.permission.INTERNET
+# expect ONLY android.permission.INTERNET + android.permission.ACCESS_NETWORK_STATE
 unzip -p app-release.aab base/manifest/AndroidManifest.xml | strings | grep -i permission
 ```
+
+> **Play gate:** the §9.3 "never uploaded" store/trust/Data-safety copy must be pulled (APP-616)
+> **before** the 1.0.0 Play upload (APP-517), so store claims stay truthful now that crash
+> telemetry is uploaded.
+
+## Release symbol upload — Crashlytics mapping (APP-614)
+
+`bundleRelease` (and `assembleRelease`) auto-runs `uploadCrashlyticsMappingFile<Variant>` because
+the `com.google.firebase.crashlytics` plugin is applied and `mappingFileUploadEnabled = true` on the
+`release` buildType (`AndroidApplicationConventionPlugin` / `app/build.gradle.kts`). This uploads the
+R8 mapping file to Firebase (project `jgallery-5b48b`) so obfuscated production stack traces
+de-obfuscate in the Crashlytics console. Debug/benchmark variants have upload **disabled**.
+
+- **Auth:** the mapping upload is keyed by the app's `mobilesdk_app_id` from
+  `app/google-services.json` — no service account is required for a Kotlin/JVM app. For CI or
+  authenticated/scripted upload, export the provisioned service account:
+  `GOOGLE_APPLICATION_CREDENTIALS=~/.config/paperclip/secrets/jgallery-crashlytics-sa.json`.
+- **NDK symbols:** **not applicable** — JGallery ships no native code (`nativeSymbolUploadEnabled =
+  false`). Flip that flag (and add the NDK toolchain) only if a native dependency is ever added.
+- Force a standalone upload if needed:
+  ```
+  ./gradlew :app:uploadCrashlyticsMappingFileRelease
+  ```
 
 ## Enroll in Play App Signing (Play Console — gated, done at publish time)
 

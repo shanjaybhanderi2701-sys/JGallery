@@ -16,6 +16,7 @@ import androidx.documentfile.provider.DocumentFile
 import androidx.exifinterface.media.ExifInterface
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaType
+import com.appblish.jgallery.core.model.PathRedactor
 import com.appblish.jgallery.core.model.RotationDirection
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.NonCancellable
@@ -97,7 +98,13 @@ internal class MediaStoreStorageOps(
             put(MediaStore.MediaColumns.IS_PENDING, 1) // invisible until commit()
         }
         val uri = resolver.insert(collection, values)
-            ?: error("MediaStore refused an entry for '$name' in $destinationBucketId")
+            // APP-628: never embed the user file name / bucket path in an exception message — it
+            // would reach Crashlytics verbatim. Keep the reason, redact the name (bucket id may be a
+            // relative album path, so redactName — redact() only strips absolute paths/URIs).
+            ?: error(
+                "MediaStore refused an entry for ${PathRedactor.redactName(name)} " +
+                    "in ${PathRedactor.redactName(destinationBucketId)}",
+            )
         MediaStoreSink(uri)
     }
 
@@ -112,7 +119,7 @@ internal class MediaStoreStorageOps(
         // never overwrites an existing name (it auto-suffixes), so a copy can't clobber a user's file.
         val dir = treeDir(treeUri) ?: error("The chosen folder is no longer available")
         val doc = dir.createFile(mimeType, name)
-            ?: error("Could not create '$name' in the chosen folder")
+            ?: error("Could not create ${PathRedactor.redactName(name)} in the chosen folder")
         DocumentFileSink(doc)
     }
 
@@ -249,7 +256,8 @@ internal class MediaStoreStorageOps(
 
     private inner class MediaStoreSink(private val uri: Uri) : Sink {
         override val output: OutputStream =
-            resolver.openOutputStream(uri) ?: error("Unable to open destination stream for $uri")
+            resolver.openOutputStream(uri)
+                ?: error("Unable to open destination stream for ${PathRedactor.redact(uri.toString())}")
 
         override suspend fun commit() = withContext(io) {
             val values = ContentValues().apply { put(MediaStore.MediaColumns.IS_PENDING, 0) }
@@ -276,7 +284,8 @@ internal class MediaStoreStorageOps(
      */
     private inner class DocumentFileSink(private val doc: DocumentFile) : Sink {
         override val output: OutputStream =
-            resolver.openOutputStream(doc.uri) ?: error("Unable to open destination stream for ${doc.uri}")
+            resolver.openOutputStream(doc.uri)
+                ?: error("Unable to open destination stream for ${PathRedactor.redact(doc.uri.toString())}")
 
         override suspend fun commit() {
             // Nothing to publish: a tree document is already visible. The bytes were flushed + closed by

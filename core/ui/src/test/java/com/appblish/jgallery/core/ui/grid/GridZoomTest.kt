@@ -51,7 +51,9 @@ class GridZoomTest {
     fun `identity zoom keeps the count unchanged so a still pinch never reflows`() {
         // The gesture reads columnsForPinch every frame now (live commit); a zoom of exactly 1f must
         // return the start count so simply resting two fingers does not spuriously change columns.
-        for (n in ColumnCount.MIN..ColumnCount.MAX) {
+        // Pinch operates on the persisted pref, which is clamped to PREF_MAX (not the raised MAX used
+        // only for the render-time adaptive bonus — APP-653).
+        for (n in ColumnCount.MIN..ColumnCount.PREF_MAX) {
             assertThat(columnsForPinch(ColumnCount(n), zoom = 1f)).isEqualTo(ColumnCount(n))
         }
     }

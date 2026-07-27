@@ -10,7 +10,6 @@ import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.SortSpec
-import com.appblish.jgallery.core.ui.theme.JGalleryTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -47,7 +46,7 @@ class PhotosTopBarTest {
     private fun render(onSortChange: (SortSpec) -> Unit = {}) {
         val timeline = buildPhotosTimeline(items(6), zone, today, Locale.UK)
         composeRule.setContent {
-            JGalleryTheme {
+            TestGalleryHost {
                 PhotosScreen(
                     state = PhotosUiState.Content(timeline),
                     columns = ColumnCount(3),

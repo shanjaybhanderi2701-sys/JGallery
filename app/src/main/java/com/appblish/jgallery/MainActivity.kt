@@ -6,6 +6,9 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.viewModels
 import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.platform.LocalView
@@ -13,6 +16,7 @@ import androidx.core.view.WindowCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.appblish.jgallery.core.model.ThemeMode
 import com.appblish.jgallery.core.ui.theme.JGalleryTheme
+import com.appblish.jgallery.core.ui.window.LocalWindowSizeClass
 import com.appblish.jgallery.feature.onboarding.OnboardingGate
 import com.appblish.jgallery.feature.onboarding.OnboardingViewModel
 import dagger.hilt.android.AndroidEntryPoint
@@ -28,6 +32,7 @@ class MainActivity : ComponentActivity() {
     // re-themes when the user changes the theme in Settings.
     private val appThemeViewModel: AppThemeViewModel by viewModels()
 
+    @OptIn(ExperimentalMaterial3WindowSizeClassApi::class)
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge()
         super.onCreate(savedInstanceState)
@@ -55,10 +60,16 @@ class MainActivity : ComponentActivity() {
                         controller.isAppearanceLightNavigationBars = !darkTheme
                     }
                 }
-                // Gate the app shell behind storage access (spec §9): already-granted launches drop
-                // straight into JGalleryApp(); first-run users get language → primer → trust overlay.
-                OnboardingGate(viewModel = onboardingViewModel) {
-                    JGalleryApp()
+                // Adaptive foundation (APP-651): compute the WindowSizeClass once from the activity's
+                // window metrics and provide it at the root so any feature composable can read
+                // LocalWindowSizeClass to branch its layout (Compact / Medium / Expanded).
+                val windowSizeClass = calculateWindowSizeClass(this)
+                CompositionLocalProvider(LocalWindowSizeClass provides windowSizeClass) {
+                    // Gate the app shell behind storage access (spec §9): already-granted launches drop
+                    // straight into JGalleryApp(); first-run users get language → primer → trust overlay.
+                    OnboardingGate(viewModel = onboardingViewModel) {
+                        JGalleryApp()
+                    }
                 }
             }
         }

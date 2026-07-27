@@ -14,7 +14,6 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.ui.selection.BulkAction
 import com.appblish.jgallery.core.ui.selection.SelectionState
-import com.appblish.jgallery.core.ui.theme.JGalleryTheme
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -61,7 +60,7 @@ class PhotosSelectionTest {
     ) {
         val timeline = buildPhotosTimeline(items(10), zone, today, Locale.UK)
         composeRule.setContent {
-            JGalleryTheme {
+            TestGalleryHost {
                 PhotosScreen(
                     state = PhotosUiState.Content(timeline),
                     columns = ColumnCount(3),

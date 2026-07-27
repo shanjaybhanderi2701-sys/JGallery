@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- APP-637 hard zero-egress (release). androidx.media3 (ExoPlayer, :core:playback) declares
+         ACCESS_NETWORK_STATE transitively in media3-common's library manifest for adaptive network
+         streaming. JGallery plays LOCAL files only — it never opens a network media source — so the
+         connectivity permission is unused. It is stripped here so the SHIPPED release build declares
+         literally zero network permissions, restoring the original APP-289 zero-egress guarantee and
+         keeping the §9.3 "works fully on your device … never uploaded" trust claim TRUE by
+         construction. Enforced by :app:verifyNoEgressManifestRelease (which fails on any survivor).
+         NOTE: this is scoped to the release source set (not src/main) precisely so it does NOT strip
+         the ACCESS_NETWORK_STATE the debug Crashlytics aid needs (app/src/debug/AndroidManifest.xml). -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" tools:node="remove" />
+
+</manifest>

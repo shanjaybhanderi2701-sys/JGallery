@@ -6,8 +6,8 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performScrollToIndex
@@ -18,7 +18,6 @@ import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
-import com.appblish.jgallery.core.ui.theme.JGalleryTheme
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -62,7 +61,7 @@ class PhotosGridTest {
     private fun setTenThousandItemGrid(): PhotosTimeline {
         val timeline = buildPhotosTimeline(items(10_000), zone, today, Locale.UK)
         composeRule.setContent {
-            JGalleryTheme {
+            TestGalleryHost {
                 PhotosScreen(
                     state = PhotosUiState.Content(timeline),
                     columns = ColumnCount(3),
@@ -78,8 +77,11 @@ class PhotosGridTest {
         setTenThousandItemGrid()
 
         composeRule.onNodeWithTag("photos_grid").assertIsDisplayed()
-        // Newest-first: the stream opens on Today, then Yesterday.
-        composeRule.onNodeWithText("Today").assertIsDisplayed()
+        // Newest-first: the stream opens on Today, then Yesterday. The section header can resolve to
+        // two nodes at the top (the pinned sticky header + the in-flow header it overlays during
+        // virtualization), so scope to the first match instead of asserting a single global node —
+        // onNodeWithText requires <=1 match and would throw "found 2 nodes" (APP-633).
+        composeRule.onAllNodesWithText("Today").onFirst().assertIsDisplayed()
     }
 
     @Test
@@ -92,7 +94,8 @@ class PhotosGridTest {
         composeRule.onNodeWithTag("photos_grid").performScrollToIndex(timeline.sectionStarts[40])
         composeRule.waitForIdle()
         composeRule.onNodeWithTag("photos_grid").performScrollToIndex(0)
-        composeRule.onNodeWithText("Today").assertIsDisplayed()
+        // Same sticky-header 2-node ambiguity as above — scope to the first "Today" match (APP-633).
+        composeRule.onAllNodesWithText("Today").onFirst().assertIsDisplayed()
     }
 
     @Test
@@ -194,7 +197,7 @@ class PhotosGridTest {
     @Test
     fun emptyState_rendersQuietCopy_notAGrid() {
         composeRule.setContent {
-            JGalleryTheme {
+            TestGalleryHost {
                 PhotosScreen(
                     state = PhotosUiState.Empty,
                     columns = ColumnCount.DEFAULT,

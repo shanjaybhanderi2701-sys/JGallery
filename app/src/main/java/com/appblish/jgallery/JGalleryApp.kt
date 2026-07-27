@@ -9,7 +9,9 @@ import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.compose.NavHost
@@ -19,9 +21,12 @@ import androidx.navigation.compose.rememberNavController
 import com.appblish.jgallery.core.ui.nav.GalleryTab
 import com.appblish.jgallery.core.ui.nav.GalleryTabBar
 import com.appblish.jgallery.core.ui.nav.GalleryTabBarItem
+import com.appblish.jgallery.core.ui.window.LocalWindowSizeClass
+import com.appblish.jgallery.core.ui.window.desiredOrientation
+import com.appblish.jgallery.core.ui.window.findActivity
 import com.appblish.jgallery.feature.albums.ADD_TO_ALBUM_ROUTE
 import com.appblish.jgallery.feature.albums.ALBUM_DETAIL_ROUTE
-import com.appblish.jgallery.feature.albums.AlbumsScreen
+import com.appblish.jgallery.feature.albums.CollectionsTab
 import com.appblish.jgallery.feature.albums.NEW_ALBUM_ROUTE
 import com.appblish.jgallery.feature.albums.VIDEO_ALBUMS_ROUTE
 import com.appblish.jgallery.feature.albums.addToAlbumScreen
@@ -72,6 +77,23 @@ fun JGalleryApp(
 ) {
     val navController = rememberNavController()
 
+    // Current top-level route: drives both the tab-bar visibility (below) and the central orientation
+    // writer. `firstOrNull()` on the destination hierarchy resolves to the route *template* (e.g.
+    // VIEWER_ROUTE) even for arg-filled destinations, so equality checks against the route constants hold.
+    val currentRoute = navController.currentBackStackEntryAsState()
+        .value?.destination?.hierarchy?.firstOrNull()?.route
+
+    // Adaptive foundation (APP-651): the single place that writes Activity.requestedOrientation.
+    // Compact (phone) list/detail screens lock to portrait; the full-screen viewer allows landscape
+    // (FULL_USER, honoring the system auto-rotate lock); Medium/Expanded never lock. Returning from
+    // the viewer to a list re-runs this and restores portrait. See desiredOrientation() for the policy.
+    val widthSizeClass = LocalWindowSizeClass.current.widthSizeClass
+    val activity = LocalContext.current.findActivity()
+    val isViewer = currentRoute == VIEWER_ROUTE
+    LaunchedEffect(activity, widthSizeClass, isViewer) {
+        activity?.requestedOrientation = desiredOrientation(widthSizeClass, isViewer)
+    }
+
     val resolvedTabContent: @Composable (GalleryTab) -> Unit = tabContent ?: { tab ->
         when (tab) {
             // Tapping a tile opens the E7 full-screen viewer, paged across the whole Photos stream.
@@ -86,7 +108,10 @@ fun JGalleryApp(
             )
             // Collections tab body = the Albums grid (spec C4). Album taps route by kind; Search is a
             // header action; the overflow's "Recycle Bin" re-homes the retired Collections utility.
-            GalleryTab.COLLECTIONS -> AlbumsScreen(
+            // Width-adaptive (APP-654): Compact/Medium = single pane (full-screen album detail on tap,
+            // via openAlbum); Expanded = two-pane list+detail rendered inline (no full-screen push), so
+            // the tab bar stays visible over it — the ALBUM_DETAIL_ROUTE bar-hide below is untouched.
+            GalleryTab.COLLECTIONS -> CollectionsTab(
                 onAlbumClick = { album, filter -> navController.openAlbum(album, filter) },
                 // Create-album (design C1-09): route into the new album's empty "Add photos" prompt so
                 // it gets a cover and appears on the Albums home once the first item is added (APP-416).
@@ -95,14 +120,15 @@ fun JGalleryApp(
                 onOpenTrash = { navController.navigateToTrash() },
                 onOpenFavorites = { navController.navigateToFavorites() },
                 onOpenSettings = { navController.navigateToSettings() },
+                // Expanded detail-pane tile → the shared full-screen viewer, scoped to the album (same
+                // as the full-screen album-detail route wires below).
+                onMediaClick = { item -> navController.navigateToViewer(item.id, item.bucketId) },
             )
         }
     }
 
     Scaffold(
         bottomBar = {
-            val currentRoute = navController.currentBackStackEntryAsState()
-                .value?.destination?.hierarchy?.firstOrNull()?.route
             // Full-screen destinations own the whole canvas (their own chrome) — the tab bar hides for
             // them and returns on pop: the viewer, Recycle Bin, Search, album detail, and the album
             // create/add-photos flow.

@@ -48,6 +48,8 @@ import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.selection.selectableGridDrag
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
 import com.appblish.jgallery.core.ui.theme.JGalleryDimens
+import com.appblish.jgallery.core.ui.window.GridContent
+import com.appblish.jgallery.core.ui.window.adaptiveColumns
 
 /**
  * Reusable album cover grid shared by the Albums tab and the Video smart album's folder-wise screen
@@ -71,6 +73,11 @@ internal fun AlbumCoverGrid(
     // nested Video folder grid, which has no selection.
     onBeginSelect: ((bucketId: String) -> Unit)? = null,
     onDragSelect: ((bucketId: String, ordered: List<String>) -> Unit)? = null,
+    // Two-pane list/detail highlight (APP-654 §4.2): the album currently shown in the Expanded detail
+    // pane, drawn with the same accent border as a picked card but WITHOUT the multi-select scrim/check
+    // — this is a "which one is open", not a "which ones are picked" affordance. Ignored while a
+    // multi-select is active (that mode owns the selection styling). Null on phones/tablets in one-pane.
+    highlightedBucketId: String? = null,
 ) {
     val selecting = selectedBucketIds.isNotEmpty()
     val gridState = rememberLazyGridState()
@@ -88,9 +95,13 @@ internal fun AlbumCoverGrid(
         Modifier
     }
 
+    // APP-653: render album tiles at the width-derived count (Compact = pref, Expanded = pref+1); pinch
+    // below still reads/writes the persisted `columns` pref, so the bonus is never saved.
+    val renderColumns = adaptiveColumns(columns, GridContent.ALBUM_TILES)
+
     Box(modifier = modifier.fillMaxSize().then(selectionModifier)) {
         LazyVerticalGrid(
-            columns = GridCells.Fixed(columns.value),
+            columns = GridCells.Fixed(renderColumns.value),
             state = gridState,
             horizontalArrangement = Arrangement.spacedBy(JGalleryDimens.AlbumsGutter),
             verticalArrangement = Arrangement.spacedBy(JGalleryDimens.AlbumsGutter),
@@ -107,7 +118,10 @@ internal fun AlbumCoverGrid(
                     album = album,
                     onClick = { onAlbumClick(album) },
                     selecting = selecting,
-                    selected = album.bucketId in selectedBucketIds,
+                    // In multi-select mode the border/scrim/check follow the picked set; otherwise it
+                    // marks the album open in the Expanded detail pane (border only). One never overlaps
+                    // the other — `selecting` gates the picker chrome (APP-654).
+                    selected = if (selecting) album.bucketId in selectedBucketIds else album.bucketId == highlightedBucketId,
                 )
             }
         }

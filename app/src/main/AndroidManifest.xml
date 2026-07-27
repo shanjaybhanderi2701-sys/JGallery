@@ -5,13 +5,12 @@
     <!-- MANAGE_EXTERNAL_STORAGE is declared by :core:storage and merged in — the app module
          itself declares no storage permissions (the boundary owns the permission model). -->
 
-    <!-- Media3/ExoPlayer's library manifest merges this in for bandwidth metering. JGallery only
-         ever plays local files, and the §9.3 "never uploaded" claim requires zero network-capable
-         permissions (APP-289 egress guard enforces it) — so strip it at merge. ExoPlayer degrades
-         gracefully (network type reads as unknown). -->
-    <uses-permission
-        android:name="android.permission.ACCESS_NETWORK_STATE"
-        tools:node="remove" />
+    <!-- NO network permission here (APP-637). Firebase Crashlytics is a DEBUG-ONLY testing aid; its
+         INTERNET/ACCESS_NETWORK_STATE + firebase_* meta-data live in app/src/debug/AndroidManifest.xml
+         so the shipped RELEASE/benchmark merged manifest carries zero network capability. This keeps
+         the §9.3 "works fully on your device … never uploaded" guarantee TRUE for the shipped build
+         (so the trust copy STAYS) — enforced by construction by the variant-aware egress guard
+         (:app:verifyNoEgressRelease). See [APP-636] (debug-only decision) / [APP-289] (zero-egress). -->
 
     <!-- Delegated capture straight into an album (APP-424): JGallery hands a MediaStore EXTRA_OUTPUT
          uri to the *system camera* so the camera app writes the bytes. JGallery therefore declares NO
@@ -34,6 +33,10 @@
         android:label="@string/app_name"
         android:supportsRtl="true"
         android:theme="@style/Theme.JGallery">
+
+        <!-- No firebase_* meta-data here (APP-637). Crashlytics config is debug-only and lives in
+             app/src/debug/AndroidManifest.xml, so the shipped release manifest declares no
+             Crashlytics collection and merges no Crashlytics ContentProvider. -->
 
         <activity
             android:name=".MainActivity"

@@ -94,8 +94,10 @@ class DataStoreViewDefaultsTest {
 
     @Test
     fun `an out-of-range stored column count is clamped on read`() = runTest {
+        // The persisted pref clamps to the phone-portrait ceiling (PREF_MAX), not the raised value-class
+        // MAX — the adaptive bonus is render-only and never written to the store (APP-653).
         backing.edit { it[intPreferencesKey("default_columns")] = 99 }
-        assertThat(defaults.defaultColumns.first()).isEqualTo(ColumnCount(ColumnCount.MAX))
+        assertThat(defaults.defaultColumns.first()).isEqualTo(ColumnCount(ColumnCount.PREF_MAX))
 
         backing.edit { it[intPreferencesKey("default_columns")] = 0 }
         assertThat(defaults.defaultColumns.first()).isEqualTo(ColumnCount(ColumnCount.MIN))
