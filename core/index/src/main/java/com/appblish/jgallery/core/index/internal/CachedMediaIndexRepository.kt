@@ -3,20 +3,25 @@ package com.appblish.jgallery.core.index.internal
 import com.appblish.jgallery.core.index.MediaIndexRepository
 import com.appblish.jgallery.core.index.di.IndexSyncScope
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.MediaId
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.SortDirection
 import com.appblish.jgallery.core.model.SortKey
 import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.model.MediaQuery
+import com.appblish.jgallery.core.model.TimelineSkeleton
+import com.appblish.jgallery.core.model.TimelineSpec
 import com.appblish.jgallery.core.storage.StorageAccess
 import com.appblish.jgallery.core.storage.di.IoDispatcher
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.onStart
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -49,6 +54,25 @@ internal class CachedMediaIndexRepository @Inject constructor(
             .map { items -> items.applyQuery(query) }
             .flowOn(io)
             .onStart { ensureSyncing() }
+
+    override fun observeTimelineSkeleton(spec: TimelineSpec): Flow<TimelineSkeleton> {
+        // Choose the skeleton shape by sort: the monotonic time sort folds an O(#days) GROUP BY; a
+        // name/size sort run-length-encodes the primitive day-key projection (APP-704 D3). Either way
+        // the SQL is the sort authority. distinctUntilChanged collapses idle re-emissions so an
+        // unrelated MediaStore change signal that produced no content change never rebuilds the UI (#4).
+        val raw = if (TimelineQueries.isTimeSort(spec.sort)) {
+            store.observeDayCounts(spec).map { TimelineSkeletonBuilder.fromDayCounts(it, spec.groupBy) }
+        } else {
+            store.observeDayKeys(spec).map { TimelineSkeletonBuilder.fromDayKeys(it, spec.groupBy) }
+        }
+        return raw.distinctUntilChanged().flowOn(io).onStart { ensureSyncing() }
+    }
+
+    override suspend fun loadWindow(spec: TimelineSpec, offset: Int, limit: Int): List<MediaItem> =
+        withContext(io) { store.loadWindow(spec, offset = offset, limit = limit) }
+
+    override suspend fun mediaIdsMatching(spec: TimelineSpec): List<MediaId> =
+        withContext(io) { store.loadIds(spec) }
 
     /** Force a full reconcile (pull-to-refresh). Incremental sync is automatic otherwise. */
     override suspend fun refresh() {

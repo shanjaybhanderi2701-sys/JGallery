@@ -29,6 +29,19 @@ enum class MediaFilter {
     companion object {
         /** The chip order rendered left-to-right; [ALL] is the default selection. */
         val ORDER: List<MediaFilter> = listOf(ALL, PHOTOS, VIDEOS, GIFS)
+
+        /**
+         * The single non-[ALL] bucket [item] falls into — [VIDEOS], [GIFS] or [PHOTOS]. The three
+         * partition the library exactly (same precedence as [formatsPresentIn]: video first, then
+         * animated GIF, else still photo), so this is the value the index denormalizes per row to push
+         * the format filter into the SQL WHERE (APP-704 D5) without re-implementing the format
+         * classifier in SQL.
+         */
+        fun bucketOf(item: MediaItem): MediaFilter = when {
+            VIDEOS.matches(item) -> VIDEOS
+            GIFS.matches(item) -> GIFS
+            else -> PHOTOS
+        }
     }
 }
 
