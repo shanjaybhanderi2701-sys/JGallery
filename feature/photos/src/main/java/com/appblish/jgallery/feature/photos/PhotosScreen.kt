@@ -75,6 +75,7 @@ import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.FavoriteHeartBadge
 import com.appblish.jgallery.core.ui.component.FormatBadgeChip
 import com.appblish.jgallery.core.ui.component.EmptyTabState
+import com.appblish.jgallery.core.ui.transition.photoSharedElement
 import com.appblish.jgallery.core.ui.window.GridContent
 import com.appblish.jgallery.core.ui.window.adaptiveColumns
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -841,6 +842,10 @@ private fun MediaTile(
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                // Shared-element "popup" open (APP-691 §1): the grid side of the photo that grows into
+                // the full-screen viewer on tap and shrinks back here on close. Keyed on the media id so
+                // it matches the viewer's image; a no-op until the app provides the transition scopes.
+                .photoSharedElement(item.id.value)
                 .tileSelectScale(scale)
                 .clip(shape)
                 .background(if (isPano) Color.Black else JGalleryColors.TilePlaceholder),

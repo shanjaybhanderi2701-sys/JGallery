@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.ContextWrapper
 import android.content.Intent
 import android.net.Uri
+import android.provider.Settings
 import android.view.View
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
@@ -53,6 +54,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -66,7 +68,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
@@ -335,6 +339,16 @@ private fun Context.launchOpenWith(uri: Uri) {
     runCatching { startActivity(Intent.createChooser(view, "Open with")) }
 }
 
+/**
+ * System animation scale (`Settings.Global.ANIMATOR_DURATION_SCALE`). `0f` means the user has turned
+ * animations off (developer options / accessibility) → the viewer honours reduced motion (motion-spec §5):
+ * dismiss keeps its 1:1 translation but drops the scale morph and springs. Defaults to `1f` if unreadable.
+ */
+private fun animatorDurationScale(context: Context): Float =
+    runCatching {
+        Settings.Global.getFloat(context.contentResolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
+    }.getOrDefault(1f)
+
 @Composable
 private fun ViewerPager(
     state: ViewerUiState.Ready,
@@ -363,6 +377,31 @@ private fun ViewerPager(
     var slideshowPaused by rememberSaveable { mutableStateOf(false) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+
+    // Swipe-down-to-dismiss (APP-691 §2, motion-spec APP-692). The state is hoisted here (arbiter §6:
+    // dismiss translates/fades the WHOLE viewer + scrim, not one page); the per-page arbiter reports the
+    // raw drag up. Recreated once the container height is known so the fraction-based threshold is exact
+    // (motion-spec §0), and once we learn whether the system has animations disabled (reduced motion, §5).
+    val density = LocalDensity.current
+    val context = LocalContext.current
+    val reducedMotion = remember { animatorDurationScale(context) == 0f }
+    var containerHeightPx by remember { mutableFloatStateOf(0f) }
+    val dismissState = remember(containerHeightPx, reducedMotion) {
+        with(density) {
+            DismissState(
+                thresholdPx = ViewerMotion.thresholdDistancePx(
+                    containerHeightPx = containerHeightPx,
+                    minPx = ViewerMotion.ThresholdDistanceMin.toPx(),
+                    maxPx = ViewerMotion.ThresholdDistanceMax.toPx(),
+                ),
+                thresholdVelocityPx = ViewerMotion.ThresholdVelocityDpPerSec.dp.toPx(),
+                containerHeightPx = containerHeightPx,
+                reducedMotion = reducedMotion,
+            )
+        }
+    }
+    // Dismiss must not fire while a slideshow runs (arbiter §7): back-press stops the slideshow first.
+    val dismissEnabled = !slideshowOn
 
     // Surface each completed op's "done / reason" summary once, then clear it (spec §7.6).
     LaunchedEffect(actionState) {
@@ -402,10 +441,36 @@ private fun ViewerPager(
         }
     }
 
-    Box(modifier = Modifier.fillMaxSize()) {
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .onSizeChanged { containerHeightPx = it.height.toFloat() },
+    ) {
+        // Black scrim behind the pager (motion-spec §2.1): fades 1.0 → 0.0 with the drag so the backdrop
+        // dims out as the photo is pulled toward its tile. Reads dismiss state inside the graphicsLayer
+        // lambda → draw-phase only, no recomposition per frame.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer { alpha = if (dismissState.active) dismissState.scrimAlpha else 1f }
+                .background(JGalleryColors.ViewerCanvas),
+        )
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier.fillMaxSize(),
+            // Drag-follow: the whole current page translates 1:1, scales & fades per the designer's `g`
+            // mapping (motion-spec §2.1). Dismiss is a 1×-only gesture, so this layer and the per-page
+            // zoom layer operate in disjoint zoom regimes and never fight (arbiter §6). Zero-cost at rest.
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer {
+                    if (dismissState.active) {
+                        translationX = dismissState.translationX
+                        translationY = dismissState.translationY
+                        scaleX = dismissState.pageScale
+                        scaleY = dismissState.pageScale
+                        alpha = dismissState.pageAlpha
+                    }
+                },
             beyondViewportPageCount = 1, // neighbours pre-decode so swipes land on pixels, not blanks
             pageSpacing = 12.dp,
             key = { index -> items.getOrNull(index)?.id?.value ?: index },
@@ -418,6 +483,17 @@ private fun ViewerPager(
                     onOpenWith = { handlers.onOpenWith(item.id) },
                     onInfo = { infoItem = item },
                     onDelete = { handlers.onDelete(item.id) },
+                    dismissEnabled = dismissEnabled,
+                    onDismissDrag = { delta ->
+                        // First movement of a claimed dismiss hides the chrome so nothing obstructs the
+                        // photo (motion-spec §2.1); the drag then follows the finger 1:1.
+                        if (!dismissState.active && chromeVisible) onChromeVisibleChange(false)
+                        dismissState.onDrag(delta)
+                    },
+                    onDismissRelease = { velocity ->
+                        scope.launch { dismissState.onRelease(velocity, onDismiss = onBack) }
+                    },
+                    onDismissCancel = { scope.launch { dismissState.cancelToSnapBack() } },
                 )
                 MediaType.VIDEO -> VideoPage(
                     item = item,
