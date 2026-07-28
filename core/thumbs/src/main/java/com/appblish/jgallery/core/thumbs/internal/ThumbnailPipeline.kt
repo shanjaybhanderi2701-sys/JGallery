@@ -38,7 +38,9 @@ internal class ThumbnailPipeline(
         thumbnailDiskKey(request, selectThumbnailBucket(requestedEdgePx))
 
     private companion object {
-        // A well-formed ≤768px JPEG is well under this; only the full-size fallback path exceeds it.
-        const val MAX_CACHEABLE_BYTES = 1024 * 1024
+        // Sized to hold the largest *bucketed* thumbnail JPEG — a busy 1536 px q85 frame (APP-702's
+        // top rung) lands around 1.5–2 MB — while still excluding the rare full-size fallback (a raw
+        // original is many MB), so one odd 12 MB HEIC still can't evict hundreds of tiles.
+        const val MAX_CACHEABLE_BYTES = 4 * 1024 * 1024
     }
 }

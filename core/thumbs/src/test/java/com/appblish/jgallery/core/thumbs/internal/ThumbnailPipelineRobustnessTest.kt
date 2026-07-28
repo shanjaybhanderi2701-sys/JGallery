@@ -81,8 +81,9 @@ class ThumbnailPipelineRobustnessTest {
 
         coldPath(pipeline, healthy, 250) { byteArrayOf(1, 2, 3) }
         // The rare full-size fallback (a large HEIC the boundary couldn't downsize) is > the cache
-        // ceiling — writeThrough drops it, so it cannot evict hundreds of tiles.
-        coldPath(pipeline, request, 250) { ByteArray(2 * 1024 * 1024) }
+        // ceiling — writeThrough drops it, so it cannot evict hundreds of tiles. Kept well above the
+        // ceiling (APP-702 raised it to hold the 1536px bucket JPEG) so it still represents an original.
+        coldPath(pipeline, request, 250) { ByteArray(6 * 1024 * 1024) }
 
         assertThat(cache.entries[thumbnailDiskKey(healthy, 256)]).isEqualTo(byteArrayOf(1, 2, 3))
         assertThat(cache.entries).doesNotContainKey(thumbnailDiskKey(request, 256))

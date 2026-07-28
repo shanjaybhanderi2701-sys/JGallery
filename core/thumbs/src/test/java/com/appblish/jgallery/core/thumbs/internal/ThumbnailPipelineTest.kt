@@ -61,7 +61,9 @@ class ThumbnailPipelineTest {
         val cache = FakeByteCache()
         val pipeline = ThumbnailPipeline(cache)
 
-        pipeline.writeThrough(request, requestedEdgePx = 250, ByteArray(2 * 1024 * 1024))
+        // Above the cache ceiling (APP-702 raised it to 4 MB to hold the 1536px bucket JPEG); a
+        // full-size original is many MB, so 6 MB still represents the fallback that must be dropped.
+        pipeline.writeThrough(request, requestedEdgePx = 250, ByteArray(6 * 1024 * 1024))
 
         assertThat(pipeline.cached(request, requestedEdgePx = 250)).isNull()
         assertThat(cache.entries).isEmpty()
