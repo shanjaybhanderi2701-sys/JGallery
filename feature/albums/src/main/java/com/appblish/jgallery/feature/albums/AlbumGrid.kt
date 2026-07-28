@@ -19,6 +19,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.outlined.RadioButtonUnchecked
 import androidx.compose.material3.Icon
@@ -35,8 +36,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import com.appblish.jgallery.core.model.Album
+import com.appblish.jgallery.core.model.AlbumKind
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.thumbs.coverRequest
+import com.appblish.jgallery.core.ui.component.FavoriteRed
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
@@ -171,6 +174,34 @@ internal fun AlbumCoverCard(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
+            }
+            // Favorites rework (APP-670, spec §4): the Favorites tile carries a heart so it reads apart
+            // from ordinary album covers. With no favorites yet it has no photo cover — draw a centered
+            // heart on the neutral placeholder as the always-visible empty-state cover; with content the
+            // heart is a small top-start glyph over the newest-favorite cover.
+            if (album.kind == AlbumKind.FAVORITES) {
+                if (cover == null) {
+                    Icon(
+                        imageVector = Icons.Filled.Favorite,
+                        contentDescription = null,
+                        tint = FavoriteRed,
+                        modifier = Modifier
+                            .align(Alignment.Center)
+                            .size(40.dp)
+                            .testTag("album_favorites_empty_cover_${album.bucketId}"),
+                    )
+                } else {
+                    Icon(
+                        imageVector = Icons.Filled.Favorite,
+                        contentDescription = null,
+                        tint = FavoriteRed,
+                        modifier = Modifier
+                            .align(Alignment.TopStart)
+                            .padding(6.dp)
+                            .size(16.dp)
+                            .testTag("album_favorites_glyph_${album.bucketId}"),
+                    )
+                }
             }
             // Item 8: under the Video filter the cover is a video frame — draw the shared play disc over
             // it (duration pill suppressed via hideDurationAtColumns = 0) so it reads unmistakably as a

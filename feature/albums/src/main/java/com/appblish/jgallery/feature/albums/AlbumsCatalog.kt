@@ -206,20 +206,23 @@ internal object AlbumsCatalog {
     }
 
     /**
-     * The Favorites smart album card (G3 · APP-543): an aggregate over the user's starred [favorites],
-     * covered by the newest starred item. Null when nothing is favorited — mirroring Recent/Video, the
-     * tile only appears once it has content (its empty state lives inside the opened grid). [isPriority]
-     * so it leads with the other library-wide smart albums.
+     * The Favorites smart album card (G3 · APP-543; reworked APP-670): an aggregate over the user's
+     * starred [favorites], covered by the newest starred item. **Always emitted** — unlike Recent/Video,
+     * the Favorites tile is a permanent first-class Albums destination (lead ruling 2026-07-26, spec §4),
+     * so it is present even at zero favorites (empty cover, count "0", "No favorites yet" on tap). The
+     * truly-empty-library case — no device folders at all — is handled upstream: [AlbumsViewModel] renders
+     * the whole-tab Empty state and never calls into the catalog, so this tile only ever appears alongside
+     * real albums. [isPriority] so it leads with the other library-wide smart albums.
      */
-    private fun favoritesAlbum(favorites: List<MediaItem>): Album? {
-        if (favorites.isEmpty()) return null
-        val newest = favorites.maxBy { it.dateTakenMillis }
+    private fun favoritesAlbum(favorites: List<MediaItem>): Album {
+        val newest = favorites.maxByOrNull { it.dateTakenMillis }
         return Album(
             bucketId = FAVORITES_BUCKET_ID,
             name = FAVORITES_NAME,
             itemCount = favorites.size,
-            cover = newest.id,
-            newestItemMillis = newest.dateTakenMillis,
+            // Empty state: no cover photo — the card draws a centered heart glyph placeholder (spec §4).
+            cover = newest?.id,
+            newestItemMillis = newest?.dateTakenMillis ?: 0L,
             kind = AlbumKind.FAVORITES,
             isPriority = true,
         )

@@ -1,5 +1,7 @@
 package com.appblish.jgallery
 
+import androidx.compose.animation.ExperimentalSharedTransitionApi
+import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
@@ -9,6 +11,7 @@ import androidx.compose.material.icons.outlined.Photo
 import androidx.compose.material.icons.outlined.PhotoLibrary
 import androidx.compose.material3.Scaffold
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -21,6 +24,8 @@ import androidx.navigation.compose.rememberNavController
 import com.appblish.jgallery.core.ui.nav.GalleryTab
 import com.appblish.jgallery.core.ui.nav.GalleryTabBar
 import com.appblish.jgallery.core.ui.nav.GalleryTabBarItem
+import com.appblish.jgallery.core.ui.transition.LocalNavAnimatedVisibilityScope
+import com.appblish.jgallery.core.ui.transition.LocalSharedTransitionScope
 import com.appblish.jgallery.core.ui.window.LocalWindowSizeClass
 import com.appblish.jgallery.core.ui.window.desiredOrientation
 import com.appblish.jgallery.core.ui.window.findActivity
@@ -71,6 +76,7 @@ import com.appblish.jgallery.feature.viewer.viewerScreen
  * Shell tests pass tagged stubs so tab routing stays verifiable without DI (the grid screens have
  * their own tests against their stateless overloads).
  */
+@OptIn(ExperimentalSharedTransitionApi::class)
 @Composable
 fun JGalleryApp(
     tabContent: (@Composable (GalleryTab) -> Unit)? = null,
@@ -160,14 +166,26 @@ fun JGalleryApp(
         val currentRoute = navController.currentBackStackEntryAsState()
             .value?.destination?.hierarchy?.firstOrNull()?.route
         val hostPadding = if (currentRoute == VIEWER_ROUTE) PaddingValues(0.dp) else innerPadding
-        NavHost(
-            navController = navController,
-            startDestination = GalleryTab.Default.route,
-            modifier = Modifier.padding(hostPadding),
-        ) {
-            GalleryTab.entries.forEach { tab ->
-                composable(tab.route) { resolvedTabContent(tab) }
-            }
+        // Shared-element "popup" viewer open (APP-691 §1): the grid and the viewer are sibling
+        // destinations in this one NavHost, so wrapping it in a SharedTransitionLayout lets a photo
+        // morph from its grid tile into full-screen and back. The scope is published as a composition
+        // local (LocalSharedTransitionScope); each destination republishes its own AnimatedContentScope
+        // (LocalNavAnimatedVisibilityScope) so tiles + the viewer image can tag themselves without
+        // threading scopes through every feature module. Destinations that don't tag anything are
+        // unaffected — they keep the default NavHost transitions.
+        SharedTransitionLayout(modifier = Modifier.padding(hostPadding)) {
+            CompositionLocalProvider(LocalSharedTransitionScope provides this) {
+                NavHost(
+                    navController = navController,
+                    startDestination = GalleryTab.Default.route,
+                ) {
+                    GalleryTab.entries.forEach { tab ->
+                        composable(tab.route) {
+                            CompositionLocalProvider(LocalNavAnimatedVisibilityScope provides this) {
+                                resolvedTabContent(tab)
+                            }
+                        }
+                    }
             // Album detail (spec §3): a bucket's media grid — the Albums surface for E11 multi-select.
             albumDetailScreen(
                 onBack = { navController.popBackStack() },
@@ -207,6 +225,8 @@ fun JGalleryApp(
             trashScreen(onBack = { navController.popBackStack() })
             // Settings (G2, APP-545): full-screen route opened from the overflow menu on both tabs.
             settingsScreen(navController = navController, onBack = { navController.popBackStack() })
+                }
+            }
         }
     }
 }

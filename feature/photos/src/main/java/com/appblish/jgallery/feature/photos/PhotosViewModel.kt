@@ -76,12 +76,24 @@ class PhotosViewModel @Inject constructor(
         favoritesStore.favoriteIds
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptySet())
 
-    /** Star / un-star a tile in place from the grid (does not open it). */
+    /** Star / un-star a single item (viewer header / single-select overflow path). */
     fun toggleFavorite(id: MediaId) {
         viewModelScope.launch { favoritesStore.toggle(id) }
     }
 
-    // The top-bar format filter (design C1-06). In-session state, All by default.
+    /**
+     * Bulk Add/Remove-to-Favorites from the selection overflow (APP-670, spec §5). Idempotent set writes
+     * over the whole selection — starring an already-favorite (or clearing a non-favorite) is a no-op — so
+     * "Add" over a mixed selection favorites the remainder and Undo is a clean inverse.
+     */
+    fun setFavorites(ids: Set<MediaId>, favorite: Boolean) {
+        viewModelScope.launch { ids.forEach { favoritesStore.setFavorite(it, favorite) } }
+    }
+
+    // The top-bar format filter (design C1-06). In-session state, All by default; re-filters the
+    // in-memory index with no rescan. A truly empty library still shows the whole-library empty state;
+    // a non-empty library with an empty *filtered* result yields a Content with an empty timeline so
+    // the screen can keep the chip row and show a filter-scoped empty state.
     private val filterState = MutableStateFlow(MediaFilter.ALL)
     val filter: StateFlow<MediaFilter> = filterState.asStateFlow()
 

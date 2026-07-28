@@ -121,6 +121,36 @@ class ZoomStateTest {
         assertThat(s.offset).isEqualTo(Offset.Zero)
     }
 
+    // --- Arbiter conflict-test invariants (APP-693 §8) ---
+
+    @Test
+    fun `T7 - after a pinch sequence back to 1x the offset is zero and dismiss re-enables`() {
+        val s = state(aspect = 0.5f)
+        // Zoom in and pan off-centre while zoomed.
+        s.transform(Offset(900f, 1200f), pan = Offset(-100f, -80f), zoom = 3f)
+        assertThat(s.isZoomed).isTrue()
+        // Pinch all the way back out (float drift lands scale at ~1.0000001).
+        s.transform(Offset(600f, 1200f), pan = Offset.Zero, zoom = 0.0001f)
+        // At exactly 1× the clamp forces the offset home, so DISMISSING/PAGING re-enable cleanly.
+        // (isWithin, not isEqualTo: coercing from the negative side can yield -0f, which Offset packs
+        // distinctly from +0f — the value is home either way.)
+        assertThat(s.scale).isEqualTo(1f)
+        assertThat(s.offset.x).isWithin(0.001f).of(0f)
+        assertThat(s.offset.y).isWithin(0.001f).of(0f)
+        assertThat(s.isZoomed).isFalse()
+        assertThat(s.shouldConsume(pointerCount = 1)).isFalse()
+    }
+
+    @Test
+    fun `T8 - clamp keeps offset within the fitted-content overflow at scale`() {
+        val s = state(aspect = 0.5f) // fitted = full 1200x2400 viewport
+        s.transform(Offset(600f, 1200f), Offset.Zero, zoom = 4f)
+        s.transform(Offset(600f, 1200f), pan = Offset(-99_999f, -99_999f), zoom = 1f)
+        // maxX = (1200*4 - 1200)/2 = 1800 ; maxY = (2400*4 - 2400)/2 = 3600.
+        assertThat(s.offset.x).isWithin(0.001f).of(-1800f)
+        assertThat(s.offset.y).isWithin(0.001f).of(-3600f)
+    }
+
     @Test
     fun `reset returns to identity`() {
         val s = state()

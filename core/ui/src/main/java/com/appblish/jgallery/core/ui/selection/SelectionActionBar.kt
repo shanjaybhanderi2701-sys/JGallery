@@ -15,10 +15,12 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.background
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.DeleteOutline
 import androidx.compose.material.icons.outlined.DriveFileMove
 import androidx.compose.material.icons.outlined.DriveFileRenameOutline
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.MoreVert
@@ -60,6 +62,12 @@ enum class SelectionAction(
     val tag: String,
 ) {
     PIN("Pin", Icons.Outlined.PushPin, single = false, destructive = false, tag = "selection_action_pin"),
+    // Favorites rework (APP-670, spec §2b/§5): multi-safe Add/Remove favorite over the whole selection —
+    // idempotent set writes, never a blind toggle. Only the media selection bars pass these; the album
+    // selection bar never does (favoriting whole albums is out of the model, spec §7.1). Which of the two
+    // shows is governed by the selection's favorite composition (spec §5), decided by the host.
+    FAVORITE("Add to Favorites", Icons.Filled.Favorite, single = false, destructive = false, tag = "selection_action_favorite"),
+    UNFAVORITE("Remove from Favorites", Icons.Outlined.FavoriteBorder, single = false, destructive = false, tag = "selection_action_unfavorite"),
     COPY("Copy", Icons.Outlined.ContentCopy, single = false, destructive = false, tag = "selection_action_copy"),
     // G2 · APP-541: multi-safe "Share" — hand the selection to the system share sheet. Lives in the ⋮
     // overflow (minimal new UI); valid for any selection ≥ 1.
@@ -75,6 +83,22 @@ enum class SelectionAction(
     // Set-cover remain single-only.
     DETAILS("Details", Icons.Outlined.Info, single = false, destructive = false, tag = "selection_action_details"),
 }
+
+/**
+ * Which favorite actions a media selection's ⋮ overflow offers, decided purely by the selection's
+ * favorite composition (Favorites rework · APP-670, spec §5). A lone toggle over a *mixed* selection is
+ * ambiguous, so the rule is explicit Add / Remove, each an idempotent `setFavorite` over the whole
+ * selection: none-favorited → Add only; all-favorited → Remove only; mixed → both. At N=1 it degenerates
+ * to the single-select "Add or Remove" of §2b, so single and multi share one path. Pure so it is
+ * JVM-unit-testable without a Compose harness.
+ */
+data class FavoriteSelectionActions(val showAdd: Boolean, val showRemove: Boolean)
+
+fun favoriteSelectionActions(selectedCount: Int, favoritedCount: Int): FavoriteSelectionActions =
+    FavoriteSelectionActions(
+        showAdd = favoritedCount < selectedCount, // at least one selected item is not yet favorited
+        showRemove = favoritedCount > 0,          // at least one selected item is already favorited
+    )
 
 /**
  * The contextual bottom action bar for a multi-select (design G1-D6 / TB-04, re-gated by G1-D7 item 12),
