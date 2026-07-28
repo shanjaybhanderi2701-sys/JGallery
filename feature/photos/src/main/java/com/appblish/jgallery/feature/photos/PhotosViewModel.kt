@@ -122,6 +122,29 @@ class PhotosViewModel @Inject constructor(
                 _allOrderedIds.value = emptyList()
             }
         }
+        // Keep already-loaded window pages coherent with incremental index changes (a new capture,
+        // a delete, a rename). observeTimelineSkeleton re-emits only on a real content change; when it
+        // does, re-fetch the offsets currently in the cache — and the ordered-id list, if a selection
+        // is live — so the visible viewport reflects the change instead of showing stale/deleted tiles
+        // until the user scrolls the first row off-screen. Guarded on a non-empty cache, so a library
+        // that has never been paged (or a no-op signal collapsed by distinctUntilChanged) costs nothing.
+        viewModelScope.launch {
+            specFlow
+                .flatMapLatest { spec -> repository.observeTimelineSkeleton(spec) }
+                .collect {
+                    val offsets = windowCache.value.keys
+                    if (offsets.isEmpty()) return@collect
+                    val spec = specFlow.value
+                    val refreshed = offsets.associateWith { offset ->
+                        repository.loadWindow(spec, offset = offset, limit = WINDOW_SIZE)
+                    }
+                    // Merge over the current cache so a page loaded during the reload isn't dropped.
+                    windowCache.value = windowCache.value + refreshed
+                    if (_allOrderedIds.value.isNotEmpty()) {
+                        _allOrderedIds.value = repository.mediaIdsMatching(spec)
+                    }
+                }
+        }
     }
 
     val state: StateFlow<PhotosUiState> = combine(

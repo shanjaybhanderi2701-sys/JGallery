@@ -152,6 +152,32 @@ class PhotosViewModelTest {
     }
 
     @Test
+    fun `incremental content change refreshes already-loaded window tiles`() = runTest(dispatcher) {
+        val repository = FakeRepository()
+        val vm = viewModel(repository = repository)
+        val job = launch { vm.state.collect {} } // WhileSubscribed: keep the pipeline live
+
+        repository.items.value = listOf(mediaItem("a"), mediaItem("b"))
+        withTimeout(5_000) { vm.state.first { it is PhotosUiState.Content } }
+
+        // Page the first window so its tile payloads are cached (cell 0 is the DAY header; tiles start at 1).
+        vm.loadWindowFor(0)
+        advanceUntilIdle()
+        assertThat((vm.state.value as PhotosUiState.Content).timeline.tileItemAt(1)?.id)
+            .isEqualTo(MediaId("a"))
+
+        // A new capture sorts to the front. The already-loaded window must refresh in place — otherwise
+        // the viewport keeps showing the stale pre-sync tile until the user scrolls the first row away.
+        repository.items.value = listOf(mediaItem("c"), mediaItem("a"), mediaItem("b"))
+        advanceUntilIdle()
+        val after = vm.state.value as PhotosUiState.Content
+        assertThat(after.timeline.itemCount).isEqualTo(3)
+        assertThat(after.timeline.tileItemAt(1)?.id).isEqualTo(MediaId("c"))
+
+        job.cancel()
+    }
+
+    @Test
     fun `column changes persist and re-emit`() = runTest(dispatcher) {
         val preferences = FakePreferences()
         val vm = viewModel(preferences = preferences)
