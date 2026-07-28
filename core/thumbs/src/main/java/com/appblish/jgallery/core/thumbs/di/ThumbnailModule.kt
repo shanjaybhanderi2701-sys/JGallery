@@ -18,6 +18,7 @@ import com.appblish.jgallery.core.thumbs.internal.FullImageKeyer
 import com.appblish.jgallery.core.thumbs.internal.RawImageDecoder
 import com.appblish.jgallery.core.thumbs.internal.ThumbnailFetcher
 import com.appblish.jgallery.core.thumbs.internal.ThumbnailKeyer
+import com.appblish.jgallery.core.thumbs.internal.WriteBackGate
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -91,7 +92,11 @@ object ThumbnailModule {
         )
         val fetchContext = Dispatchers.IO.limitedParallelism(fetchParallelism)
         val decodeContext = Dispatchers.IO.limitedParallelism(decodeParallelism)
+        // APP-712 (P0 ceiling fix): bound the write-back path with a semaphore-backed gate. At most
+        // WRITE_BACK_CAP jobs can simultaneously hold a bitmap reference; surplus write-throughs are
+        // dropped rather than queued, keeping heap pinning O(constant) no matter how far the user flings.
         val writeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(WRITE_PARALLELISM))
+        val writeBackGate = WriteBackGate(writeScope, maxInFlight = WRITE_BACK_CAP)
         return ImageLoader.Builder(context)
             .memoryCache {
                 MemoryCache.Builder()
@@ -106,7 +111,7 @@ object ThumbnailModule {
             .components {
                 add(ThumbnailKeyer())
                 add(FullImageKeyer())
-                add(ThumbnailFetcher.Factory(storage, thumbnailSource, CoilDiskThumbnailCache(diskCache), writeScope))
+                add(ThumbnailFetcher.Factory(storage, thumbnailSource, CoilDiskThumbnailCache(diskCache), writeBackGate))
                 add(FullImageFetcher.Factory(storage))
                 // Format breadth (W3-E13 §8). Each decoder content-sniffs and DECLINES sources it does
                 // not own, so ordinary JPEG/PNG/HEIF/WEBP/BMP flow untouched to the platform decoder;
@@ -127,7 +132,10 @@ object ThumbnailModule {
     private const val DISK_CACHE_BYTES = 256L * 1024 * 1024 // 256 MB on-disk thumbnail cache
     private const val CROSSFADE_MS = 120
 
-    // A couple of IO threads is plenty to drain the off-path JPEG write-through without competing
-    // with foreground decodes for the whole pool.
+    // A couple of IO threads drains the off-path JPEG write-through without competing with foreground
+    // decodes. The gate cap is deliberately wider than WRITE_PARALLELISM: queued-but-not-yet-running
+    // write-backs hold their bitmap reference, so WRITE_BACK_CAP is the true heap-pinning budget (not
+    // just the running count). 8 ≈ < 8 MB pinned (8 × ~0.9 MB worst case) — safe on all device tiers.
     private const val WRITE_PARALLELISM = 2
+    private const val WRITE_BACK_CAP = 8
 }

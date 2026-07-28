@@ -18,8 +18,6 @@ import com.appblish.jgallery.core.storage.StorageAccess
 import com.appblish.jgallery.core.storage.ThumbnailBitmapSource
 import com.appblish.jgallery.core.thumbs.FullImageRequest
 import com.appblish.jgallery.core.thumbs.ThumbnailRequest
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.launch
 import okio.Buffer
 import okio.buffer
 import okio.source
@@ -33,8 +31,9 @@ import java.io.ByteArrayOutputStream
  *  1. **Disk hit** → hand the cached JPEG bytes back as a [SourceFetchResult]; Coil decodes ONCE.
  *  2. **Miss** → decode MediaStore's own downsized thumbnail exactly ONCE via [ThumbnailBitmapSource]
  *     and return the [Bitmap] directly as an [ImageFetchResult] — Coil does NOT re-decode. The
- *     JPEG re-encode + disk write-through happens off this continuation on [writeScope] (Fix 5's
- *     bounded scope), so the fling never waits on an encode.
+ *     JPEG re-encode + disk write-through happens off this continuation on the bounded [writeBackGate]
+ *     (APP-712), so the fling never waits on an encode AND the write-through can never pin an
+ *     unbounded pile of bitmaps on the heap (the P0 thumbnail-loading ceiling).
  *  3. **Un-thumbnailable** (null bitmap) → stream the full-size original; Coil subsample-decodes once.
  *
  * That is one hot-path decode per tile, replacing the old decode → JPEG re-encode → re-decode triple.
@@ -45,7 +44,7 @@ internal class ThumbnailFetcher(
     private val pipeline: ThumbnailPipeline,
     private val thumbnailSource: ThumbnailBitmapSource,
     private val storage: StorageAccess,
-    private val writeScope: CoroutineScope,
+    private val writeBackGate: WriteBackGate,
 ) : Fetcher {
 
     override suspend fun fetch(): FetchResult {
@@ -70,11 +69,19 @@ internal class ThumbnailFetcher(
         val edgePx = selectThumbnailBucket(requestedEdgePx)
         val bitmap = thumbnailSource.loadThumbnailBitmap(request.id, edgePx)
         if (bitmap != null) {
-            // Off-path, bounded write-through: re-encode to JPEG and persist for next cold start. NOT
+            // Off-path, BOUNDED write-through: re-encode to JPEG and persist for next cold start. NOT
             // on the fetch continuation, so return latency is unaffected. The bitmap is shared with
             // Coil (shareable = true) — do NOT recycle; `compress` reads pixels, which is safe to run
             // concurrently with Coil's draw.
-            writeScope.launch {
+            //
+            // APP-712 (P0 ceiling fix): admission is gated through [writeBackGate]. The launched job
+            // captures a live reference to `bitmap`, so an unbounded launch pile pins an unbounded set
+            // of bitmaps the LRU can't evict → heap fills → decodes OOM → tiles stop loading. The gate
+            // caps in-flight write-backs to a small constant; if the cap is full the write is dropped
+            // (that thumbnail simply re-decodes from MediaStore next cold launch — the disk cache is an
+            // optimization, not correctness), so pinned bitmaps stay O(constant) no matter how far the
+            // user flings.
+            writeBackGate.submit {
                 runCatching { pipeline.writeThrough(request, requestedEdgePx, bitmap.toJpegBytes()) }
             }
             return ImageFetchResult(
@@ -103,13 +110,13 @@ internal class ThumbnailFetcher(
         private val storage: StorageAccess,
         private val thumbnailSource: ThumbnailBitmapSource,
         cache: ThumbnailByteCache,
-        private val writeScope: CoroutineScope,
+        private val writeBackGate: WriteBackGate,
     ) : Fetcher.Factory<ThumbnailRequest> {
 
         private val pipeline = ThumbnailPipeline(cache)
 
         override fun create(data: ThumbnailRequest, options: Options, imageLoader: ImageLoader): Fetcher =
-            ThumbnailFetcher(data, options, pipeline, thumbnailSource, storage, writeScope)
+            ThumbnailFetcher(data, options, pipeline, thumbnailSource, storage, writeBackGate)
     }
 }
 

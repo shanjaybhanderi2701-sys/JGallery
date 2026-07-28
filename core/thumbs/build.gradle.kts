@@ -18,6 +18,10 @@ dependencies {
     implementation(libs.coil.svg)
     implementation(libs.androidx.exifinterface)
 
+    // APP-712 regression guard: WriteBackGate JVM unit tests (pure Kotlin — no Android deps).
+    testImplementation(libs.junit)
+    testImplementation(libs.kotlinx.coroutines.test)
+
     // Format-matrix instrumented coverage (W3-E13 §8): decode succeeds or falls through gracefully.
     androidTestImplementation(libs.truth)
     androidTestImplementation(libs.kotlinx.coroutines.test)

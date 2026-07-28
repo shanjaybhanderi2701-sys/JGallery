@@ -33,6 +33,7 @@ import kotlinx.coroutines.flow.flatMapLatest
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.receiveAsFlow
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.ZoneId
@@ -208,16 +209,23 @@ class PhotosViewModel @Inject constructor(
         val spec = specFlow.value
         viewModelScope.launch {
             val items = repository.loadWindow(spec, offset = windowOffset, limit = WINDOW_SIZE)
-            val newCache = windowCache.value.toMutableMap()
-            newCache[windowOffset] = items
-            // LRU eviction: keep the MAX_CACHED_WINDOWS pages nearest to this offset.
-            if (newCache.size > MAX_CACHED_WINDOWS) {
-                newCache.keys
-                    .sortedByDescending { abs(it - windowOffset) }
-                    .drop(MAX_CACHED_WINDOWS)
-                    .forEach { newCache.remove(it) }
+            // APP-712 secondary hardening: use StateFlow.update so the read-modify-write is atomic.
+            // The old `windowCache.value = windowCache.value.toMutableMap()…` pattern had a
+            // lost-update race: another coroutine could write windowCache between the two reads, and
+            // the assignment would silently revert it. `update` retries under the hood if the value
+            // changed concurrently, eliminating the blank-window flicker under fast scroll.
+            windowCache.update { current ->
+                val next = current.toMutableMap()
+                next[windowOffset] = items
+                // LRU eviction: keep the MAX_CACHED_WINDOWS pages nearest to this offset.
+                if (next.size > MAX_CACHED_WINDOWS) {
+                    next.keys
+                        .sortedByDescending { abs(it - windowOffset) }
+                        .drop(MAX_CACHED_WINDOWS)
+                        .forEach { next.remove(it) }
+                }
+                next
             }
-            windowCache.value = newCache
         }
     }
 
