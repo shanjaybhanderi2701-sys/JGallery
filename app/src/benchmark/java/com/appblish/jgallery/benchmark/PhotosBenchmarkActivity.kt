@@ -34,9 +34,8 @@ import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.ui.theme.JGalleryTheme
 import com.appblish.jgallery.feature.photos.PhotosScreen
-import com.appblish.jgallery.feature.photos.PhotosTimeline
 import com.appblish.jgallery.feature.photos.PhotosUiState
-import com.appblish.jgallery.feature.photos.buildPhotosTimeline
+import com.appblish.jgallery.feature.photos.WindowedPhotosTimeline
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Deferred
@@ -190,7 +189,7 @@ class PhotosBenchmarkActivity : ComponentActivity() {
         var columns by remember { mutableStateOf(ColumnCount.DEFAULT) }
         // Await the process-wide, seed-once timeline. First launch seeds; recreations resolve
         // instantly from the cached Deferred.
-        val timeline by produceState<PhotosTimeline?>(initialValue = null, corpusSize) {
+        val timeline by produceState<WindowedPhotosTimeline?>(initialValue = null, corpusSize) {
             value = BenchmarkCorpusHolder.timelineAsync(appContext, corpusSize).await()
         }
 
@@ -348,10 +347,10 @@ class PhotosBenchmarkActivity : ComponentActivity() {
 private object BenchmarkCorpusHolder {
 
     @Volatile
-    private var deferred: Deferred<PhotosTimeline?>? = null
+    private var deferred: Deferred<WindowedPhotosTimeline?>? = null
     private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
-    fun timelineAsync(context: Context, corpusSize: Int): Deferred<PhotosTimeline?> {
+    fun timelineAsync(context: Context, corpusSize: Int): Deferred<WindowedPhotosTimeline?> {
         deferred?.let { return it }
         return synchronized(this) {
             deferred ?: scope.async {
@@ -367,7 +366,14 @@ private object BenchmarkCorpusHolder {
                     null
                 } else {
                     val zone = ZoneId.systemDefault()
-                    buildPhotosTimeline(items = items, zone = zone, today = LocalDate.now(zone))
+                    // APP-700: PhotosUiState.Content now requires a WindowedPhotosTimeline. The
+                    // layout-only lane has no :core:index skeleton, so build one from the in-memory
+                    // corpus via the fromItems factory (all items land in window page 0).
+                    WindowedPhotosTimeline.fromItems(
+                        items = items,
+                        zone = zone,
+                        today = LocalDate.now(zone),
+                    )
                 }
             }.also { deferred = it }
         }

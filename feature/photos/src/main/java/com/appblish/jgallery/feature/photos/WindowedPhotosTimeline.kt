@@ -234,7 +234,11 @@ class WindowedPhotosTimeline(
 
     // ── Companion / fromItems ────────────────────────────────────────────────────────────────────
 
-    internal companion object {
+    // Public (was internal) so the `benchmark`-variant PhotosBenchmarkActivity layout-only lane in
+    // :app can build a windowed timeline from an in-memory corpus after APP-700 changed
+    // PhotosUiState.Content to require a WindowedPhotosTimeline (member visibility unchanged: the
+    // internal/private helpers below stay module-scoped; only fromItems + WINDOW_SIZE widen).
+    companion object {
         /** Number of items per loaded window page — exposed so [PhotosViewModel] and [PhotosScreen] agree. */
         const val WINDOW_SIZE = 120
 
