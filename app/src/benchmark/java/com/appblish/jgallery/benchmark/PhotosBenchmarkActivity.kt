@@ -159,6 +159,12 @@ class PhotosBenchmarkActivity : ComponentActivity() {
                         BenchDecodeCounters.TAG,
                         "JGALLERY_BENCH_DECODE_COUNTS ${BenchDecodeCounters.snapshot()}",
                     )
+                    // APP-709: the requested-edge bucket histogram — proves phones stay on 384–768 and
+                    // never draw the 1024/1536 rungs (and flags any oversized/unbounded over-decode).
+                    android.util.Log.i(
+                        BenchDecodeCounters.TAG,
+                        "JGALLERY_BENCH_EDGE_HIST ${BenchDecodeCounters.edgeHistogram()}",
+                    )
                 }
             }
             // The default overload injects the REAL PhotosViewModel via hiltViewModel(); every

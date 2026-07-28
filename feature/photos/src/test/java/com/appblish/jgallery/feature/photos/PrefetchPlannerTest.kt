@@ -99,4 +99,49 @@ class PrefetchPlannerTest {
         assertTrue(PrefetchPlanner.idleWarm(0, 9, 0, 100).isEmpty())
         assertTrue(PrefetchPlanner.idleWarm(0, 9, 3, 0).isEmpty())
     }
+
+    // --- coarseRing(): outer band, disjoint from idleWarm, interleaved, clamped (APP-709) ---
+
+    @Test
+    fun `coarseRing covers only the band beyond the inner radius, interleaved nearest-first`() {
+        val plan = PrefetchPlanner.coarseRing(
+            firstVisible = 40, lastVisible = 49, innerRadius = 2, outerRadius = 4, itemCount = 100,
+        )
+        // distances 3,4 from each edge: below 52, above 37, below 53, above 36
+        assertEquals(listOf(52, 37, 53, 36), plan)
+    }
+
+    @Test
+    fun `coarseRing is disjoint from idleWarm for the same viewport and inner radius`() {
+        val first = 40
+        val last = 49
+        val inner = 3
+        val warm = PrefetchPlanner.idleWarm(first, last, radius = inner, itemCount = 100).toSet()
+        val coarse = PrefetchPlanner.coarseRing(first, last, innerRadius = inner, outerRadius = 8, itemCount = 100)
+        // The two bands never overlap, so a coarse entry can never race a crisp warm on the same key.
+        assertTrue(coarse.none { it in warm })
+        // ...and the coarse band also excludes the visible range.
+        assertTrue(coarse.none { it in first..last })
+    }
+
+    @Test
+    fun `coarseRing clamps both ends independently`() {
+        val plan = PrefetchPlanner.coarseRing(
+            firstVisible = 2, lastVisible = 97, innerRadius = 1, outerRadius = 4, itemCount = 100,
+        )
+        // below: 99 (98 excluded as d=1<=inner; 100,101 out of range); above: 0 (1 excluded, -1,-2 out)
+        assertEquals(listOf(99, 0), plan)
+    }
+
+    @Test
+    fun `coarseRing is empty when the outer radius does not exceed the inner`() {
+        assertTrue(PrefetchPlanner.coarseRing(40, 49, innerRadius = 4, outerRadius = 4, itemCount = 100).isEmpty())
+        assertTrue(PrefetchPlanner.coarseRing(40, 49, innerRadius = 5, outerRadius = 3, itemCount = 100).isEmpty())
+    }
+
+    @Test
+    fun `coarseRing is empty for degenerate inputs`() {
+        assertTrue(PrefetchPlanner.coarseRing(0, -1, 1, 4, 100).isEmpty()) // nothing visible
+        assertTrue(PrefetchPlanner.coarseRing(0, 9, 1, 4, 0).isEmpty())    // empty list
+    }
 }

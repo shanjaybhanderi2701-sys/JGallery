@@ -67,7 +67,9 @@ import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.SortSpec
 import com.appblish.jgallery.core.model.formatBadge
 import com.appblish.jgallery.core.model.isPanorama
+import com.appblish.jgallery.core.thumbs.ThumbnailSizes
 import com.appblish.jgallery.core.thumbs.coverRequest
+import com.appblish.jgallery.core.thumbs.memoryCacheKey
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.format.MediaDecodeBox
 import com.appblish.jgallery.core.ui.format.MediaDecodeTilePlaceholder
@@ -643,7 +645,15 @@ private data class PrefetchWindow(
  *   that fly past before they finish — the visible tiles landing get the whole pool (APP-701).
  * - **Once the scroll settles** — a wider symmetric warm ([PrefetchPlanner.idleWarm]) in both
  *   directions. Aggressive is safe when idle because no visible tile competes for slots; the warm is
- *   disposed the instant scrolling resumes, so it never steals a decode from the next fling.
+ *   disposed the instant scrolling resumes, so it never steals a decode from the next fling. This is
+ *   also the fling-settle warm-restart (APP-709): it fires the instant `isScrollInProgress` goes
+ *   false, so tiles refill immediately rather than a batch late — the fling gate suspended *lookahead*
+ *   during the fling, but the visible tiles themselves always decoded via their own `AsyncImage`.
+ * - **Coarse low-res ring** ([PrefetchPlanner.coarseRing], APP-709) — beyond the crisp warm, a wider
+ *   band warmed at the cheap [ThumbnailSizes.coarsePreviewEdgePx]. Its entries share the size-agnostic
+ *   memory key of the crisp tile, so a fling that settles into that band paints an INSTANT low-res
+ *   tile (via the tile's `placeholderMemoryCacheKey`) and upgrades to crisp when the display-size
+ *   decode lands — "fast AND crisp" without a second decode on the hot path.
  *
  * Requests carry the visible tile pixel size so they hit the exact bucketed cache keys the grid asks
  * for. Renders nothing — enqueued requests only populate Coil's caches; they need no draw target. The
@@ -663,13 +673,13 @@ private fun ThumbnailPrefetch(
     val currentTimeline by rememberUpdatedState(timeline)
 
     LaunchedEffect(gridState, imageLoader) {
-        fun enqueueTiles(indices: List<Int>, tilePx: Int): List<Disposable> {
+        fun enqueueTiles(indices: List<Int>, edgePx: Int): List<Disposable> {
             val tl = currentTimeline
             return indices.mapNotNull { index ->
                 val item = tl.tileItemAt(index) ?: return@mapNotNull null
                 val request = ImageRequest.Builder(context)
                     .data(item.thumbnailRequest())
-                    .size(tilePx, tilePx)
+                    .size(edgePx, edgePx)
                     .build()
                 imageLoader.enqueue(request)
             }
@@ -744,14 +754,32 @@ private fun ThumbnailPrefetch(
                         val last = visible.lastOrNull()?.index ?: return@collect
                         val tilePx = visible.maxOfOrNull { minOf(it.size.width, it.size.height) } ?: 0
                         if (tilePx <= 0) return@collect
+                        val itemCount = currentTimeline.totalCells
+                        // Crisp warm — the near viewport, at the real display size (unchanged).
                         val radius = (visible.size * 2).coerceIn(1, IDLE_WARM_MAX)
-                        val indices = PrefetchPlanner.idleWarm(
+                        val crisp = PrefetchPlanner.idleWarm(
                             firstVisible = first,
                             lastVisible = last,
                             radius = radius,
-                            itemCount = currentTimeline.totalCells,
+                            itemCount = itemCount,
                         )
-                        warming = enqueueTiles(indices, tilePx)
+                        // Coarse warm (APP-709) — a wider band BEYOND the crisp ring at the cheap
+                        // low-res edge, so a subsequent fling settling into it paints an instant
+                        // low-res tile and upgrades to crisp on show. Cheap decodes, disjoint from the
+                        // crisp band, and — like the crisp warm — disposed the instant scrolling
+                        // resumes, so neither steals a decode slot from the next fling's visible tiles.
+                        val outerRadius = (radius + visible.size * COARSE_RING_VIEWPORTS)
+                            .coerceAtMost(COARSE_RING_MAX)
+                        val coarse = PrefetchPlanner.coarseRing(
+                            firstVisible = first,
+                            lastVisible = last,
+                            innerRadius = radius,
+                            outerRadius = outerRadius,
+                            itemCount = itemCount,
+                        )
+                        // Crisp first (near viewport = higher priority), then the coarse outer ring.
+                        warming = enqueueTiles(crisp, tilePx) +
+                            enqueueTiles(coarse, ThumbnailSizes.coarsePreviewEdgePx)
                     }
             }
         }
@@ -760,6 +788,11 @@ private fun ThumbnailPrefetch(
 
 private const val PREFETCH_AHEAD_MAX = 60
 private const val IDLE_WARM_MAX = 80
+
+// APP-709 coarse low-res warm ring, measured in *viewports* of extra reach past the crisp warm ring
+// and hard-capped so the cheap-but-not-free 128px decodes stay bounded on a huge library.
+private const val COARSE_RING_VIEWPORTS = 3
+private const val COARSE_RING_MAX = 240
 
 @Composable
 private fun MediaTile(
@@ -790,8 +823,9 @@ private fun MediaTile(
                 .clip(shape)
                 .background(if (isPano) Color.Black else JGalleryColors.TilePlaceholder),
         ) {
+            val thumbnailRequest = item.thumbnailRequest()
             MediaDecodeBox(
-                model = item.thumbnailRequest(),
+                model = thumbnailRequest,
                 displayName = item.displayName,
                 mimeType = item.mimeType,
                 sizeBytes = item.sizeBytes,
@@ -799,6 +833,10 @@ private fun MediaTile(
                 contentScale = if (isPano) ContentScale.FillWidth else ContentScale.Crop,
                 modifier = Modifier.fillMaxSize(),
                 crossfade = false,
+                // APP-709 progressive two-pass: if a warm coarse entry exists under this (size-agnostic)
+                // key — seeded by the idle coarse-ring warm — paint it instantly while the crisp decode
+                // lands. Only reads the memory cache, so the hot fling path pays no extra decode.
+                placeholderMemoryCacheKey = thumbnailRequest.memoryCacheKey(),
                 loadingColor = if (isPano) Color.Black else JGalleryColors.TilePlaceholder,
                 placeholder = { MediaDecodeTilePlaceholder(it) },
             )

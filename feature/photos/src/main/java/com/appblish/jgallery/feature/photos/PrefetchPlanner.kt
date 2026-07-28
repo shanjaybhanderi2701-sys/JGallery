@@ -69,4 +69,34 @@ internal object PrefetchPlanner {
         }
         return result
     }
+
+    /**
+     * The OUTER ring for the APP-709 low-res coarse warm. While [idleWarm] warms the near viewport at
+     * full crisp size, this warms a wider band BEYOND it at the cheap coarse-preview edge, so a
+     * fling that lands there paints an instant low-res tile and upgrades to crisp on show. Distances
+     * `(innerRadius, outerRadius]` from each viewport edge, interleaved below/above nearest-first,
+     * clamped into `0 until itemCount`.
+     *
+     * It is disjoint from [idleWarm] (it starts past [innerRadius], and [idleWarm] should be called
+     * with `radius == innerRadius`), so the coarse and crisp warms never target the same tile — no
+     * contention in the size-agnostic LRU where a coarse entry could otherwise race a crisp one.
+     */
+    fun coarseRing(
+        firstVisible: Int,
+        lastVisible: Int,
+        innerRadius: Int,
+        outerRadius: Int,
+        itemCount: Int,
+    ): List<Int> {
+        if (outerRadius <= innerRadius || itemCount <= 0 || lastVisible < 0) return emptyList()
+        val start = maxOf(innerRadius, 0) + 1
+        val result = ArrayList<Int>((outerRadius - innerRadius) * 2)
+        for (d in start..outerRadius) {
+            val below = lastVisible + d
+            if (below < itemCount) result.add(below)
+            val above = firstVisible - d
+            if (above >= 0) result.add(above)
+        }
+        return result
+    }
 }

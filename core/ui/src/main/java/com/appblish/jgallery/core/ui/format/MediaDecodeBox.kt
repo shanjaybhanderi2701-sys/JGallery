@@ -51,6 +51,12 @@ import com.appblish.jgallery.core.ui.theme.JGalleryColors
  *   viewer). The grid passes `false` (APP-391 R1 fix 3): a per-tile crossfade forces an extra
  *   alpha-animated draw pass per tile during a fling, and a popped-in tile reads as *faster*. The
  *   loader default is left on so the viewer's fade is untouched.
+ * @param placeholderMemoryCacheKey an optional Coil memory-cache key to paint as an instant
+ *   placeholder while the real [model] decodes (APP-709 progressive two-pass). When a warm low-res
+ *   entry exists under this key, the tile shows it immediately and upgrades to the crisp decode when
+ *   it lands — instant paint without waiting on the full-size decode, and no extra decode on the hot
+ *   path (the key is only *read*). `null` (the default, and the viewer) keeps the current behaviour.
+ *   Kept as a plain key string so this module never learns about `:core:thumbs` request types.
  * @param loadingColor the flat fill drawn *under* the decode while the thumbnail is still loading
  *   (Coil's Loading state paints nothing). The hook owns this so a plain neutral surface is
  *   guaranteed at every call site — never a transparent/checkered gap that shows through to whatever
@@ -69,6 +75,7 @@ fun MediaDecodeBox(
     contentScale: ContentScale = ContentScale.Crop,
     onDecodeState: ((MediaDecodeState) -> Unit)? = null,
     crossfade: Boolean = true,
+    placeholderMemoryCacheKey: String? = null,
     loadingColor: Color = JGalleryColors.TilePlaceholder,
     placeholder: @Composable (MediaDecodeState) -> Unit,
 ) {
@@ -91,17 +98,23 @@ fun MediaDecodeBox(
         LaunchedEffect(state) { onDecodeState(state) }
     }
 
-    // Opt this call site out of the loader-level crossfade by wrapping the model in a request that
-    // sets `crossfade(false)`; the default keeps whatever the loader configured. The Coil fetcher +
-    // keyer still resolve off the request's `data` (the ThumbnailRequest), so cache keys are
-    // identical — only the fade differs. Left unwrapped when `crossfade` is true to avoid allocating
-    // a request per tile needlessly.
+    // Wrap the model in a per-call request when this site needs to override the loader defaults:
+    // opt out of the loader-level crossfade (`crossfade == false`, the grid — APP-391 R1 fix 3) and/or
+    // attach an instant low-res placeholder from the memory cache (APP-709 two-pass). The Coil fetcher
+    // + keyer still resolve off the request's `data` (the ThumbnailRequest), so the real cache keys
+    // are identical — only the fade and the placeholder differ. Left unwrapped when neither override
+    // applies (the viewer) to avoid allocating a request per tile needlessly.
     val platformContext = LocalPlatformContext.current
-    val resolvedModel: Any? = if (crossfade || model == null) {
+    val needsWrap = model != null && (!crossfade || placeholderMemoryCacheKey != null)
+    val resolvedModel: Any? = if (!needsWrap) {
         model
     } else {
-        remember(model, platformContext) {
-            ImageRequest.Builder(platformContext).data(model).crossfade(false).build()
+        remember(model, platformContext, crossfade, placeholderMemoryCacheKey) {
+            ImageRequest.Builder(platformContext)
+                .data(model)
+                .crossfade(crossfade)
+                .apply { placeholderMemoryCacheKey?.let { placeholderMemoryCacheKey(it) } }
+                .build()
         }
     }
 

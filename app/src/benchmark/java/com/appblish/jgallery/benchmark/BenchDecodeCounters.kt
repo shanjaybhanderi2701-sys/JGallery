@@ -8,6 +8,10 @@ import coil3.SingletonImageLoader
 import coil3.decode.DataSource
 import coil3.request.ImageRequest
 import coil3.request.SuccessResult
+import coil3.size.Dimension
+import coil3.size.Size
+import com.appblish.jgallery.core.thumbs.RequestedEdgeHistogram
+import com.appblish.jgallery.core.thumbs.ThumbnailRequest
 import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
@@ -47,6 +51,16 @@ object BenchDecodeCounters {
     private val successTotal = AtomicLong(0)
     private val memoryCacheHit = AtomicLong(0)
 
+    /**
+     * The APP-709 `requestedEdgePx` histogram: which thumbnail buckets the grid actually asks Coil for.
+     * Fed from the same [EventListener] that already wraps the real loader, via [EventListener.onSizeChanged]
+     * (the resolved request size), so it observes the true production request geometry with zero
+     * production code touched. Because bucket selection is per-tile grid geometry (cell px × column
+     * count), the distribution is **corpus-size-independent** — a 1k/5k run proves the same "phones
+     * request 384–768, never 1024/1536" claim a 50k run would.
+     */
+    private val requestedEdges = RequestedEdgeHistogram()
+
     /** Successful loads served straight from the in-memory LRU — no decode happened. */
     fun cacheHits(): Long = memoryCacheHit.get()
 
@@ -56,11 +70,19 @@ object BenchDecodeCounters {
     fun reset() {
         successTotal.set(0)
         memoryCacheHit.set(0)
+        requestedEdges.reset()
     }
 
     /** Compact, grep-able snapshot line body (paired with a `JGALLERY_BENCH_DECODE_COUNTS` tag). */
     fun snapshot(): String =
         "decodeCount=${decodes()} cacheHit=${cacheHits()} success=${successTotal.get()}"
+
+    /**
+     * The APP-709 requested-edge histogram line body (paired with a `JGALLERY_BENCH_EDGE_HIST` tag),
+     * e.g. `total=48210 384=31022 512=12904 768=4284 oversized=0 unbounded=0`. A non-zero `1024`/`1536`
+     * rung on a phone, or any `oversized`/`unbounded`, is the real over-decode to chase (per the issue).
+     */
+    fun edgeHistogram(): String = requestedEdges.snapshot().format()
 
     /**
      * Wrap the real Hilt [ImageLoader] with a counting listener and install it as the process
@@ -89,6 +111,21 @@ object BenchDecodeCounters {
                 memoryCacheHit.incrementAndGet()
             }
         }
+
+        // Fires once per request after Coil resolves the target size — the exact `requestedEdgePx` the
+        // grid asks for. Grid tiles only (ThumbnailRequest); the viewer's unbounded FullImageRequest is
+        // not a thumbnail bucket and would only pollute the histogram as noise.
+        override fun resolveSizeEnd(request: ImageRequest, size: Size) {
+            if (request.data !is ThumbnailRequest) return
+            val edge = size.maxEdgePxOrZero()
+            if (edge > 0) requestedEdges.record(edge) else requestedEdges.recordUnbounded()
+        }
+    }
+
+    private fun Size.maxEdgePxOrZero(): Int {
+        val w = (width as? Dimension.Pixels)?.px ?: 0
+        val h = (height as? Dimension.Pixels)?.px ?: 0
+        return maxOf(w, h)
     }
 }
 
