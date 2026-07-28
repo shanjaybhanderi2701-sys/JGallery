@@ -114,6 +114,18 @@ class PhotosViewModel @Inject constructor(
      */
     private val windowCache = MutableStateFlow<Map<Int, List<MediaItem>>>(emptyMap())
 
+    /**
+     * Ordered ids for drag range-select. Empty until [beginSelection] is called, at which point the
+     * full filtered+sorted id list is loaded in the background via [mediaIdsMatching]. The screen
+     * collects this and passes it to the grid's drag handler.
+     *
+     * Declared before [init] because the init-block collector below writes [_allOrderedIds] and the
+     * eager [specFlow] can emit synchronously during construction (Dispatchers.Main.immediate); a
+     * later declaration would leave this field null at that point → NPE on launch (APP-700 regression).
+     */
+    private val _allOrderedIds = MutableStateFlow<List<MediaId>>(emptyList())
+    val allOrderedIds: StateFlow<List<MediaId>> = _allOrderedIds.asStateFlow()
+
     init {
         // Clear window cache and ordered-ids whenever the query changes.
         viewModelScope.launch {
@@ -196,14 +208,6 @@ class PhotosViewModel @Inject constructor(
             windowCache.value = newCache
         }
     }
-
-    /**
-     * Ordered ids for drag range-select. Empty until [beginSelection] is called, at which point the
-     * full filtered+sorted id list is loaded in the background via [mediaIdsMatching]. The screen
-     * collects this and passes it to the grid's drag handler.
-     */
-    private val _allOrderedIds = MutableStateFlow<List<MediaId>>(emptyList())
-    val allOrderedIds: StateFlow<List<MediaId>> = _allOrderedIds.asStateFlow()
 
     /**
      * Virtual select-all (D6): loads all matching ids via a single SQL projection
