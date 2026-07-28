@@ -1,5 +1,6 @@
 package com.appblish.jgallery.core.thumbs.di
 
+import android.app.ActivityManager
 import android.content.Context
 import coil3.ImageLoader
 import coil3.disk.DiskCache
@@ -11,6 +12,7 @@ import coil3.video.VideoFrameDecoder
 import com.appblish.jgallery.core.storage.StorageAccess
 import com.appblish.jgallery.core.storage.ThumbnailBitmapSource
 import com.appblish.jgallery.core.thumbs.internal.CoilDiskThumbnailCache
+import com.appblish.jgallery.core.thumbs.internal.DecodePoolSizing
 import com.appblish.jgallery.core.thumbs.internal.FullImageFetcher
 import com.appblish.jgallery.core.thumbs.internal.FullImageKeyer
 import com.appblish.jgallery.core.thumbs.internal.RawImageDecoder
@@ -63,10 +65,18 @@ object ThumbnailModule {
         thumbnailSource: ThumbnailBitmapSource,
     ): ImageLoader {
         // Fix 5 — bounded decode concurrency: a fling must not flood IO with parallel decodes. Cap
-        // Coil's fetch/decode parallelism to ~cores so decodes queue instead of thrashing. A separate,
-        // smaller bounded scope backs the Fix-1c off-path JPEG write-through so encodes can't pile up
-        // either. Both draw from Dispatchers.IO's shared thread pool (no new threads).
-        val decodeParallelism = Runtime.getRuntime().availableProcessors().coerceIn(2, 4)
+        // Coil's fetch/decode parallelism so decodes queue instead of thrashing. The cap is
+        // device-tier aware (APP-701): small-heap / low-RAM devices get the minimum so concurrent
+        // decodes don't spike heap and trigger GC thrash mid-fling, while a big-heap, many-core
+        // device unlocks more slots to cut decode latency. A separate, smaller bounded scope backs
+        // the Fix-1c off-path JPEG write-through so encodes can't pile up either. Both draw from
+        // Dispatchers.IO's shared thread pool (no new threads).
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val decodeParallelism = DecodePoolSizing.parallelism(
+            cores = Runtime.getRuntime().availableProcessors(),
+            isLowRam = activityManager?.isLowRamDevice ?: false,
+            memoryClassMb = activityManager?.memoryClass ?: DecodePoolSizing.LOW_HEAP_MB,
+        )
         val decodeContext = Dispatchers.IO.limitedParallelism(decodeParallelism)
         val writeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(WRITE_PARALLELISM))
         return ImageLoader.Builder(context)
