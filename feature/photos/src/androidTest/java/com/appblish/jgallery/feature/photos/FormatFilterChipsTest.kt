@@ -33,7 +33,7 @@ class FormatFilterChipsTest {
     private val zone = ZoneOffset.UTC
     private val today = LocalDate.of(2026, 7, 9)
 
-    private fun timeline(count: Int): PhotosTimeline {
+    private fun timeline(count: Int): WindowedPhotosTimeline {
         val items = (0 until count).map { i ->
             MediaItem(
                 id = MediaId("m_$i"),
@@ -50,7 +50,7 @@ class FormatFilterChipsTest {
                 mimeType = if (i % 3 == 0) "video/mp4" else "image/jpeg",
             )
         }
-        return buildPhotosTimeline(items, zone, today, Locale.UK)
+        return WindowedPhotosTimeline.fromItems(items, zone, today, Locale.UK)
     }
 
     @Test
@@ -79,7 +79,7 @@ class FormatFilterChipsTest {
             TestGalleryHost {
                 PhotosScreen(
                     // Non-empty library but an empty (filtered) timeline → scoped empty state.
-                    state = PhotosUiState.Content(buildPhotosTimeline(emptyList(), zone, today, Locale.UK), MediaFilter.VIDEOS),
+                    state = PhotosUiState.Content(WindowedPhotosTimeline.fromItems(emptyList(), zone, today, Locale.UK), MediaFilter.VIDEOS),
                     columns = ColumnCount(3),
                     onColumnsChange = {},
                     filter = MediaFilter.VIDEOS,

@@ -48,7 +48,11 @@ internal object IndexProvidesModule {
     @Provides
     @Singleton
     fun provideDatabase(@ApplicationContext context: Context): MediaIndexDatabase =
-        Room.databaseBuilder(context, MediaIndexDatabase::class.java, MediaIndexDatabase.NAME).build()
+        Room.databaseBuilder(context, MediaIndexDatabase::class.java, MediaIndexDatabase.NAME)
+            // The index is a rebuildable cache (MediaStore is authoritative), so a schema bump drops
+            // and re-syncs rather than shipping a hand-written migration (APP-700 / APP-704 D8).
+            .fallbackToDestructiveMigration()
+            .build()
 
     @Provides
     fun provideMediaDao(database: MediaIndexDatabase): MediaDao = database.mediaDao()

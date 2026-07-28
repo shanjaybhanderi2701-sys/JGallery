@@ -44,7 +44,7 @@ class PhotosTopBarTest {
     }
 
     private fun render(onSortChange: (SortSpec) -> Unit = {}) {
-        val timeline = buildPhotosTimeline(items(6), zone, today, Locale.UK)
+        val timeline = WindowedPhotosTimeline.fromItems(items(6), zone, today, Locale.UK)
         composeRule.setContent {
             TestGalleryHost {
                 PhotosScreen(

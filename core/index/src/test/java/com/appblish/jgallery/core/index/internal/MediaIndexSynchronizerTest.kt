@@ -148,6 +148,14 @@ private class FakeStore : MediaIndexStore {
 
     override fun observeMedia(): Flow<List<MediaItem>> = media
     override fun observeAlbums(): Flow<List<Album>> = MutableStateFlow(emptyList())
+    // Windowed-timeline path unused by the synchronizer tests (covered by TimelineSkeletonBuilderTest).
+    override fun observeDayCounts(spec: com.appblish.jgallery.core.model.TimelineSpec) =
+        MutableStateFlow(emptyList<DayCountRow>())
+    override fun observeDayKeys(spec: com.appblish.jgallery.core.model.TimelineSpec) =
+        MutableStateFlow(emptyList<Long>())
+    override suspend fun loadWindow(spec: com.appblish.jgallery.core.model.TimelineSpec, offset: Int, limit: Int) =
+        emptyList<MediaItem>()
+    override suspend fun loadIds(spec: com.appblish.jgallery.core.model.TimelineSpec) = emptyList<MediaId>()
 
     override suspend fun persistedSignatures(): List<IndexSignature> =
         rows.values.map { IndexSignature(it.id, it.dateModifiedMillis, it.sizeBytes, it.displayName, it.bucketId) }
