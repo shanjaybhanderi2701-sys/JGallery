@@ -12,9 +12,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.unit.Velocity
 import androidx.compose.ui.unit.dp
 import coil3.compose.AsyncImage
 import coil3.compose.AsyncImagePainter
@@ -27,6 +29,7 @@ import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.format.MediaDecodeState
 import com.appblish.jgallery.core.ui.format.MediaFormatSupport
 import com.appblish.jgallery.core.ui.format.ViewerUnsupportedCard
+import com.appblish.jgallery.core.ui.transition.photoSharedElement
 
 /**
  * One photo page: the E4 thumbnail renders instantly underneath (it is what the grid just showed —
@@ -47,6 +50,13 @@ internal fun ImagePage(
     onOpenWith: () -> Unit,
     onInfo: () -> Unit,
     onDelete: () -> Unit,
+    // Swipe-down dismiss (APP-692 §2 / APP-693 §6) — the state is hoisted in ViewerPager; the per-page
+    // arbiter is the pure producer of the raw drag + release. Off-screen pages never receive touches, so
+    // handing the same callbacks to every page is safe: only the on-screen page ever fires them.
+    dismissEnabled: Boolean = true,
+    onDismissDrag: (Offset) -> Unit = {},
+    onDismissRelease: (Velocity) -> Unit = {},
+    onDismissCancel: () -> Unit = {},
 ) {
     val extension = remember(item.displayName) { MediaFormatSupport.extensionOf(item.displayName) }
     val preState = remember(item.id) {
@@ -76,7 +86,15 @@ internal fun ImagePage(
                 onInfo = onInfo,
             )
         } else {
-            RenderablePhoto(item = item, onToggleChrome = onToggleChrome, onDecodeError = { decodeFailed = true })
+            RenderablePhoto(
+                item = item,
+                onToggleChrome = onToggleChrome,
+                onDecodeError = { decodeFailed = true },
+                dismissEnabled = dismissEnabled,
+                onDismissDrag = onDismissDrag,
+                onDismissRelease = onDismissRelease,
+                onDismissCancel = onDismissCancel,
+            )
         }
     }
 }
@@ -86,6 +104,10 @@ private fun RenderablePhoto(
     item: MediaItem,
     onToggleChrome: () -> Unit,
     onDecodeError: () -> Unit,
+    dismissEnabled: Boolean,
+    onDismissDrag: (Offset) -> Unit,
+    onDismissRelease: (Velocity) -> Unit,
+    onDismissCancel: () -> Unit,
 ) {
     val zoomState = remember(item.id) { ZoomState() }
     zoomState.contentAspectRatio = item.aspectRatioOrZero()
@@ -109,7 +131,19 @@ private fun RenderablePhoto(
     Box(
         modifier = Modifier
             .fillMaxSize()
-            .viewerZoomGestures(zoomState, scope, onTap = onToggleChrome),
+            // Shared-element "popup" open (APP-691 §1): the viewer side of the photo that grows from /
+            // shrinks back to its grid tile. Keyed on the media id so it matches the tapped thumbnail; a
+            // no-op when the transition scopes are absent (e.g. opened from a grid that hasn't opted in).
+            .photoSharedElement(item.id.value)
+            .viewerZoomGestures(
+                state = zoomState,
+                scope = scope,
+                onTap = onToggleChrome,
+                dismissEnabled = dismissEnabled,
+                onDismissDrag = onDismissDrag,
+                onDismissRelease = onDismissRelease,
+                onDismissCancel = onDismissCancel,
+            ),
     ) {
         AsyncImage(
             model = placeholderRequest,

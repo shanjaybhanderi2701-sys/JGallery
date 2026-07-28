@@ -94,6 +94,7 @@ class VideoFormatMatrixTest {
                     onCopyToNewAlbum = { _, _ -> },
                     onMoveToNewAlbum = { _, _ -> },
                     onRename = { _, _ -> },
+                    onRotate = { _, _ -> },
                     onDelete = {},
                     onShare = { _, _ -> },
                     onSetAs = {},

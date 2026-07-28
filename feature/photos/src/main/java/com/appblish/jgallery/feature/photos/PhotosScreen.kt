@@ -75,6 +75,7 @@ import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.FavoriteHeartBadge
 import com.appblish.jgallery.core.ui.component.FormatBadgeChip
 import com.appblish.jgallery.core.ui.component.EmptyTabState
+import com.appblish.jgallery.core.ui.transition.photoSharedElement
 import com.appblish.jgallery.core.ui.window.GridContent
 import com.appblish.jgallery.core.ui.window.adaptiveColumns
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -197,7 +198,7 @@ fun PhotosScreen(
         onOpenSettings = onOpenSettings,
         onCreateAlbum = viewModel::createAlbum,
         favorites = favorites,
-        onToggleFavorite = viewModel::toggleFavorite,
+        onSetFavorites = viewModel::setFavorites,
         onToggle = viewModel::toggleSelection,
         onBeginSelect = viewModel::beginSelection,
         onDragSelect = viewModel::dragSelectTo,
@@ -247,7 +248,9 @@ fun PhotosScreen(
     onOpenSettings: () -> Unit = {},
     onCreateAlbum: (String) -> Unit = {},
     favorites: Set<MediaId> = emptySet(),
-    onToggleFavorite: (MediaId) -> Unit = {},
+    // Favorites rework (APP-670): the grid no longer toggles per tile; bulk Add/Remove flows through the
+    // selection overflow (§5). The badge is a read-only indicator bound to [favorites].
+    onSetFavorites: (Set<MediaId>, Boolean) -> Unit = { _, _ -> },
     onToggle: (MediaId) -> Unit = {},
     onBeginSelect: (MediaId) -> Unit = {},
     onDragSelect: (MediaId, List<MediaId>) -> Unit = { _, _ -> },
@@ -365,6 +368,10 @@ fun PhotosScreen(
                 onRename = { showRenameDialog = true },
                 onShare = onShare,
                 onExport = onExport,
+                // Favorites Add/Remove (APP-670, spec §5): the composition rule + snackbar/undo live in
+                // the scaffold; the badge on each tile reflects [favorites] reactively.
+                favoriteIds = favorites,
+                onSetFavorites = onSetFavorites,
                 modifier = modifier.testTag("photos_screen"),
             ) {
                 Column(Modifier.fillMaxSize().nestedScroll(filterBarCollapse.connection)) {
@@ -390,7 +397,6 @@ fun PhotosScreen(
                                 favorites = favorites,
                                 onColumnsChange = onColumnsChange,
                                 onMediaClick = onMediaClick,
-                                onToggleFavorite = onToggleFavorite,
                                 onToggle = onToggle,
                                 onBeginSelect = onBeginSelect,
                                 onDragSelect = onDragSelect,
@@ -473,7 +479,6 @@ private fun PhotosGrid(
     favorites: Set<MediaId>,
     onColumnsChange: (ColumnCount) -> Unit,
     onMediaClick: (MediaItem) -> Unit,
-    onToggleFavorite: (MediaId) -> Unit,
     onToggle: (MediaId) -> Unit,
     onBeginSelect: (MediaId) -> Unit,
     onDragSelect: (MediaId, List<MediaId>) -> Unit,
@@ -542,7 +547,6 @@ private fun PhotosGrid(
                         selectionActive = selection.isActive,
                         selected = selection.isSelected(cell.item.id),
                         favorite = cell.item.id in favorites,
-                        onToggleFavorite = { onToggleFavorite(cell.item.id) },
                         onClick = {
                             if (selection.isActive) onToggle(cell.item.id) else onMediaClick(cell.item)
                         },
@@ -771,7 +775,6 @@ private fun MediaTile(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     favorite: Boolean = false,
-    onToggleFavorite: (() -> Unit)? = null,
 ) {
     val scale = rememberTileSelectScale(selected)
     val isPano = item.isPanorama
@@ -781,11 +784,22 @@ private fun MediaTile(
             .aspectRatio(1f)
             .background(MaterialTheme.colorScheme.primaryContainer, shape)
             .clickable(onClick = onClick)
-            .semantics { contentDescription = item.displayName },
+            // The clickable tile is the semantic element: it announces (and is addressable by) the
+            // file name regardless of decode state. The inner preview drops its own description when
+            // it falls back to a placeholder (APP-364), so anchoring the name here keeps the tile
+            // stable for a11y and for interaction tests (APP-446). The favorite indicator is decorative,
+            // so its state is merged into the tile's own label instead (APP-670, spec §6).
+            .semantics {
+                contentDescription = if (favorite) "${item.displayName}, Favorited" else item.displayName
+            },
     ) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
+                // Shared-element "popup" open (APP-691 §1): the grid side of the photo that grows into
+                // the full-screen viewer on tap and shrinks back here on close. Keyed on the media id so
+                // it matches the viewer's image; a no-op until the app provides the transition scopes.
+                .photoSharedElement(item.id.value)
                 .tileSelectScale(scale)
                 .clip(shape)
                 .background(if (isPano) Color.Black else JGalleryColors.TilePlaceholder),
@@ -815,13 +829,10 @@ private fun MediaTile(
             }
         }
         SelectionCheckBadge(selected = selected, active = selectionActive)
-        if (onToggleFavorite != null) {
-            FavoriteHeartBadge(
-                favorite = favorite,
-                visible = !selectionActive,
-                columns = columns,
-                onClick = onToggleFavorite,
-            )
+        // Favorited indicator (APP-670, spec §3): a passive corner badge — no control. Suppressed while
+        // selection is active so the corner reads cleanly against the selection scrim/tick.
+        if (!selectionActive) {
+            FavoriteHeartBadge(favorite = favorite)
         }
     }
 }
