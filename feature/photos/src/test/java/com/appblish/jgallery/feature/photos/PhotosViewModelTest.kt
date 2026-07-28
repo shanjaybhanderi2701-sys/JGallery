@@ -28,6 +28,7 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
@@ -69,6 +70,38 @@ class PhotosViewModelTest {
         advanceUntilIdle()
         assertThat(vm.favorites.value).isEmpty()
         job.cancel()
+    }
+
+    @Test
+    fun `constructs without NPE when the eager specFlow emits synchronously during init (APP-708)`() {
+        // Regression for APP-708: the init-block collector writes _allOrderedIds, and the eager
+        // specFlow (SharingStarted.Eagerly) can emit synchronously during construction on
+        // Dispatchers.Main.immediate. When _allOrderedIds was declared *after* the init block, its
+        // backing field was still null at that moment -> NPE (getClass on null). On device this is an
+        // UNCAUGHT exception in the viewModelScope coroutine -> the app force-stops on launch.
+        //
+        // UnconfinedTestDispatcher mimics Main.immediate: the init coroutine runs eagerly inside
+        // <init>. The NPE is thrown in a launched coroutine (a SupervisorJob child with no handler in
+        // context), so it does NOT propagate out of the constructor — it is routed to the thread's
+        // uncaught-exception handler, exactly as it reaches the app's crash handler on device. We
+        // install a capturing handler and assert nothing landed there.
+        val immediateMain = UnconfinedTestDispatcher()
+        val caught = java.util.concurrent.atomic.AtomicReference<Throwable?>(null)
+        val previousHandler = Thread.getDefaultUncaughtExceptionHandler()
+        Dispatchers.setMain(immediateMain)
+        Thread.setDefaultUncaughtExceptionHandler { _, e -> caught.set(e) }
+        try {
+            val vm = PhotosViewModel(
+                FakeRepository(), NoopOperations, FakePreferences(), FakeFavoritesStore(), immediateMain,
+            )
+            // The ordered-id flow is initialized and starts empty...
+            assertThat(vm.allOrderedIds.value).isEmpty()
+        } finally {
+            Thread.setDefaultUncaughtExceptionHandler(previousHandler)
+            Dispatchers.setMain(dispatcher)
+        }
+        // ...and, crucially, no coroutine crashed during construction.
+        assertThat(caught.get()).isNull()
     }
 
     @Test
