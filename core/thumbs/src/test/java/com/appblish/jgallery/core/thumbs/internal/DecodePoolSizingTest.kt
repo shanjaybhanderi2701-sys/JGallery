@@ -56,4 +56,43 @@ class DecodePoolSizingTest {
             .isEqualTo(DecodePoolSizing.MIN_PARALLELISM)
         assertThat(DecodePoolSizing.MIN_PARALLELISM).isEqualTo(2)
     }
+
+    // ---- Fetcher pool (APP-709) --------------------------------------------------------------
+
+    @Test
+    fun `fetch pool is tiered by heap`() {
+        // Low-RAM / small heap → the modest fetch tier.
+        assertThat(DecodePoolSizing.fetchParallelism(isLowRam = true, memoryClassMb = 512))
+            .isEqualTo(DecodePoolSizing.FETCH_LOW_TIER)
+        assertThat(DecodePoolSizing.fetchParallelism(isLowRam = false, memoryClassMb = 64))
+            .isEqualTo(DecodePoolSizing.FETCH_LOW_TIER)
+        // Boundary: exactly LOW_HEAP_MB still counts as small heap.
+        assertThat(DecodePoolSizing.fetchParallelism(isLowRam = false, memoryClassMb = DecodePoolSizing.LOW_HEAP_MB))
+            .isEqualTo(DecodePoolSizing.FETCH_LOW_TIER)
+        // Mid heap.
+        assertThat(DecodePoolSizing.fetchParallelism(isLowRam = false, memoryClassMb = 128))
+            .isEqualTo(DecodePoolSizing.FETCH_MID_TIER)
+        assertThat(DecodePoolSizing.fetchParallelism(isLowRam = false, memoryClassMb = DecodePoolSizing.HIGH_HEAP_MB - 1))
+            .isEqualTo(DecodePoolSizing.FETCH_MID_TIER)
+        // Big heap unlocks the widest fetch pool.
+        assertThat(DecodePoolSizing.fetchParallelism(isLowRam = false, memoryClassMb = DecodePoolSizing.HIGH_HEAP_MB))
+            .isEqualTo(DecodePoolSizing.FETCH_HIGH_TIER)
+    }
+
+    @Test
+    fun `fetch pool is wider than the decode pool at every tier (cold IO-bound fill)`() {
+        // The whole point of the split: cold visible tiles (IO-bound loadThumbnail) get more slots
+        // than the heap-heavy decoder at the same device tier.
+        assertThat(DecodePoolSizing.FETCH_LOW_TIER).isGreaterThan(DecodePoolSizing.LOW_TIER)
+        assertThat(DecodePoolSizing.FETCH_MID_TIER).isGreaterThan(DecodePoolSizing.MID_TIER)
+        assertThat(DecodePoolSizing.FETCH_HIGH_TIER).isGreaterThan(DecodePoolSizing.HIGH_TIER)
+    }
+
+    @Test
+    fun `fetch pool is NOT capped to cores (IO-bound slots park on the thumbnail service)`() {
+        // Unlike the decode pool, an IO-bound fetch benefits from more slots than cores.
+        assertThat(DecodePoolSizing.fetchParallelism(isLowRam = false, memoryClassMb = 512))
+            .isEqualTo(DecodePoolSizing.FETCH_HIGH_TIER)
+        assertThat(DecodePoolSizing.FETCH_HIGH_TIER).isGreaterThan(4)
+    }
 }

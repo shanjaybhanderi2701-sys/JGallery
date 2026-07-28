@@ -72,11 +72,24 @@ object ThumbnailModule {
         // the Fix-1c off-path JPEG write-through so encodes can't pile up either. Both draw from
         // Dispatchers.IO's shared thread pool (no new threads).
         val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val isLowRam = activityManager?.isLowRamDevice ?: false
+        val memoryClassMb = activityManager?.memoryClass ?: DecodePoolSizing.LOW_HEAP_MB
         val decodeParallelism = DecodePoolSizing.parallelism(
             cores = Runtime.getRuntime().availableProcessors(),
-            isLowRam = activityManager?.isLowRamDevice ?: false,
-            memoryClassMb = activityManager?.memoryClass ?: DecodePoolSizing.LOW_HEAP_MB,
+            isLowRam = isLowRam,
+            memoryClassMb = memoryClassMb,
         )
+        // APP-709: split the pools. The FETCHER runs the IO-bound cold-thumbnail path
+        // (`loadThumbnail`) — a small, downsized bitmap that blocks on MediaStore, not CPU/heap — so
+        // it gets a WIDER, memory-tiered pool to fill just-landed visible tiles fast at 50k. The
+        // DECODER keeps the narrow bound: its heap-heavy full-res subsample-decodes are the actual
+        // fling-jank risk (APP-700/701 guardrail). The fling gate still suspends *lookahead* prefetch
+        // above the velocity threshold, so a wider fetcher never re-floods a hard fling.
+        val fetchParallelism = DecodePoolSizing.fetchParallelism(
+            isLowRam = isLowRam,
+            memoryClassMb = memoryClassMb,
+        )
+        val fetchContext = Dispatchers.IO.limitedParallelism(fetchParallelism)
         val decodeContext = Dispatchers.IO.limitedParallelism(decodeParallelism)
         val writeScope = CoroutineScope(SupervisorJob() + Dispatchers.IO.limitedParallelism(WRITE_PARALLELISM))
         return ImageLoader.Builder(context)
@@ -87,7 +100,7 @@ object ThumbnailModule {
                     .build()
             }
             .diskCache(diskCache)
-            .fetcherCoroutineContext(decodeContext)
+            .fetcherCoroutineContext(fetchContext)
             .decoderCoroutineContext(decodeContext)
             // Memory + disk cache policies default to ENABLED in Coil 3.
             .components {
