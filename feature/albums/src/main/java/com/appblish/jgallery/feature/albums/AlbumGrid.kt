@@ -43,6 +43,7 @@ import com.appblish.jgallery.core.ui.component.FavoriteRed
 import com.appblish.jgallery.core.ui.component.VideoOverlay
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
+import com.appblish.jgallery.core.ui.grid.GridThumbnailPrefetch
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.selection.selectableGridDrag
@@ -125,6 +126,17 @@ internal fun AlbumCoverGrid(
                 )
             }
         }
+
+        // APP-722 P2: the same shared windowed prefetch every media grid uses — album covers warm
+        // ahead of the scroll and during idle, so a large Collections/Video folder list flings with the
+        // covers already loading rather than popping in one viewport at a time. Covers all resolve
+        // through the single gated thumbnail fetcher (APP-712 WriteBackGate), so this only reuses that
+        // one bounded pipeline. No coarse ring (covers don't paint a progressive placeholder).
+        GridThumbnailPrefetch(
+            gridState = gridState,
+            itemCount = albums.size,
+            modelAt = { index -> albums.getOrNull(index)?.coverRequest() },
+        )
 
         // APP-466: flat-grid fast-scroller so a large Collections/Video folder list is grabbable too
         // (auto-hidden until the list is more than ~4 viewports deep).

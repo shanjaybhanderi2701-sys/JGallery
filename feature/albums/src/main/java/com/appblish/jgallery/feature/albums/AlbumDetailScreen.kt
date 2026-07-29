@@ -56,7 +56,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.compose.AsyncImage
+import com.appblish.jgallery.core.thumbs.ThumbnailSizes
+import com.appblish.jgallery.core.thumbs.memoryCacheKey
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.CaptureKind
 import com.appblish.jgallery.core.model.ColumnCount
@@ -75,8 +76,11 @@ import com.appblish.jgallery.core.ui.component.NameInputDialog
 import com.appblish.jgallery.core.ui.component.SortBySheet
 import com.appblish.jgallery.core.ui.component.FavoriteHeartBadge
 import com.appblish.jgallery.core.ui.component.VideoOverlay
+import com.appblish.jgallery.core.ui.format.MediaDecodeBox
+import com.appblish.jgallery.core.ui.format.MediaDecodeTilePlaceholder
 import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
+import com.appblish.jgallery.core.ui.grid.GridThumbnailPrefetch
 import com.appblish.jgallery.core.ui.window.GridContent
 import com.appblish.jgallery.core.ui.window.adaptiveColumns
 import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
@@ -637,14 +641,26 @@ private fun AlbumDetailGrid(
                                 },
                         ) {
                             val favorited = item.id in favorites
-                            AsyncImage(
-                                model = item.thumbnailRequest(),
+                            // APP-722 P2: the same crisp+fast tile the Photos grid uses — the shared
+                            // decode/degrade hook with the APP-709 progressive two-pass placeholder, so a
+                            // fling that settles into the idle coarse-warm band paints an instant low-res
+                            // tile and upgrades to crisp when the display-size decode lands. Identical
+                            // gated fetcher path (APP-712 WriteBackGate); only fade/placeholder differ.
+                            val thumbnailRequest = item.thumbnailRequest()
+                            MediaDecodeBox(
+                                model = thumbnailRequest,
+                                displayName = item.displayName,
+                                mimeType = item.mimeType,
+                                sizeBytes = item.sizeBytes,
                                 // The favorite indicator is decorative, so its state is merged into the
                                 // tile's own label instead (APP-670, spec §6).
                                 contentDescription = if (favorited) "${item.displayName}, Favorited" else item.displayName,
                                 contentScale = ContentScale.Crop,
-                                modifier = Modifier.fillMaxSize().tileSelectScale(scale).clip(tileShape)
-                                    .background(JGalleryColors.TilePlaceholder),
+                                modifier = Modifier.fillMaxSize().tileSelectScale(scale).clip(tileShape),
+                                crossfade = false,
+                                placeholderMemoryCacheKey = thumbnailRequest.memoryCacheKey(),
+                                loadingColor = JGalleryColors.TilePlaceholder,
+                                placeholder = { MediaDecodeTilePlaceholder(it) },
                             )
                             // Item 8 (design C1-08): shared video play-icon overlay so videos are
                             // distinguishable in the album grid too — same disc/scrim/duration pill.
@@ -670,6 +686,18 @@ private fun AlbumDetailGrid(
         // Sticky section header (APP-499): the current group's label pinned at the top, identical to the
         // Photos tab. Draws nothing for GroupBy.NONE (no sections).
         StickyMediaHeader(gridState = gridState, sections = sections, testTag = "album_detail_sticky_header")
+
+        // APP-722 P2: the same shared windowed prefetch + coarse-warm ring the Photos grid uses, so a
+        // large album (5k+ items) flings with thumbnails decoding continuously ahead of the viewport
+        // and settles onto instant low-res tiles that upgrade to crisp — not one viewport of pop-in at a
+        // time. Headers resolve to null and are skipped. Every request goes through the single gated
+        // fetcher (APP-712 WriteBackGate), so this reuses that one bounded write-back admission point.
+        GridThumbnailPrefetch(
+            gridState = gridState,
+            itemCount = cells.size,
+            coarseEdgePx = ThumbnailSizes.coarsePreviewEdgePx,
+            modelAt = { index -> (cells.getOrNull(index) as? MediaCell.Tile)?.item?.thumbnailRequest() },
+        )
 
         // APP-466: flat-grid fast-scroller (position bubble) so a large album is grabbable — the last
         // of the shared grid set the in-album grid was missing.

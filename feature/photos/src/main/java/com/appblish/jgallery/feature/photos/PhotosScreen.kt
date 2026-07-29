@@ -53,9 +53,6 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import coil3.SingletonImageLoader
-import coil3.request.Disposable
-import coil3.request.ImageRequest
 import com.appblish.jgallery.core.model.Album
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.FileNames
@@ -73,6 +70,7 @@ import com.appblish.jgallery.core.thumbs.memoryCacheKey
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.format.MediaDecodeBox
 import com.appblish.jgallery.core.ui.format.MediaDecodeTilePlaceholder
+import com.appblish.jgallery.core.ui.grid.GridThumbnailPrefetch
 import com.appblish.jgallery.core.ui.component.ColumnCountSheet
 import com.appblish.jgallery.core.ui.component.FavoriteHeartBadge
 import com.appblish.jgallery.core.ui.component.FormatBadgeChip
@@ -628,175 +626,26 @@ private fun BoxScope.StickyGroupHeader(
 
 private data class PinnedHeader(val label: String, val pushPx: Int)
 
-private data class PrefetchWindow(
-    val firstVisible: Int,
-    val lastVisible: Int,
-    val visibleCount: Int,
-    val tilePx: Int,
-)
-
 /**
- * Cold-cache first-load prefetch (APP-456). Two phases, driven off [LazyGridState]:
- * - During a scroll — bounded directional lookahead ([PrefetchPlanner.ahead]).
- * - Once settled — wider symmetric background warm ([PrefetchPlanner.idleWarm]).
- *
- * - **During a scroll** — a bounded, direction-aware, nearest-first lookahead ([PrefetchPlanner.ahead])
- *   in the scroll direction. It stays modest ([PREFETCH_AHEAD_MAX]) so tiles actually entering view
- *   keep winning decode slots, and the prior batch is disposed on every new window, so decodes for
- *   tiles flung past are cancelled (a direction flip or a fresh viewport makes them stale). Above a
- *   fast-fling velocity ([FlingDecodeGate]) the lookahead is suspended and its in-flight batch
- *   cancelled outright, so a hard fling never floods the small, no-priority decode pool with tiles
- *   that fly past before they finish — the visible tiles landing get the whole pool (APP-701).
- * - **Once the scroll settles** — a wider symmetric warm ([PrefetchPlanner.idleWarm]) in both
- *   directions. Aggressive is safe when idle because no visible tile competes for slots; the warm is
- *   disposed the instant scrolling resumes, so it never steals a decode from the next fling. This is
- *   also the fling-settle warm-restart (APP-709): it fires the instant `isScrollInProgress` goes
- *   false, so tiles refill immediately rather than a batch late — the fling gate suspended *lookahead*
- *   during the fling, but the visible tiles themselves always decoded via their own `AsyncImage`.
- * - **Coarse low-res ring** ([PrefetchPlanner.coarseRing], APP-709) — beyond the crisp warm, a wider
- *   band warmed at the cheap [ThumbnailSizes.coarsePreviewEdgePx]. Its entries share the size-agnostic
- *   memory key of the crisp tile, so a fling that settles into that band paints an INSTANT low-res
- *   tile (via the tile's `placeholderMemoryCacheKey`) and upgrades to crisp when the display-size
- *   decode lands — "fast AND crisp" without a second decode on the hot path.
- *
- * Requests carry the visible tile pixel size so they hit the exact bucketed cache keys the grid asks
- * for. Renders nothing — enqueued requests only populate Coil's caches; they need no draw target. The
- * disk cache itself persists across launches (Coil `DiskCache` in `cacheDir`, 256 MB LRU), so this
- * cold pass is paid once per library, not once per launch.
- *
- * Windowed timeline (APP-700): prefetches only tiles present in [timeline]'s window cache; tiles
- * whose window isn't loaded yet yield null from [tileItemAt] and are skipped.
+ * Photos' adapter onto the shared windowed-grid prefetch (APP-722 P2). The two-pass crisp+coarse warm,
+ * the fling gate and the bounded directional lookahead all live in [GridThumbnailPrefetch] now — Photos
+ * consumes the same one pipeline every other grid does, no private copy. The windowed timeline resolves
+ * a grid-adapter index to the tile item via its window cache ([WindowedPhotosTimeline.tileItemAt]);
+ * indices whose window isn't loaded yet (or section headers) yield null and are skipped. The coarse
+ * ring is enabled here (progressive two-pass) via [ThumbnailSizes.coarsePreviewEdgePx].
  */
 @Composable
 private fun ThumbnailPrefetch(
     gridState: LazyGridState,
     timeline: WindowedPhotosTimeline,
 ) {
-    val context = LocalContext.current
-    val imageLoader = remember(context) { SingletonImageLoader.get(context) }
-    val currentTimeline by rememberUpdatedState(timeline)
-
-    LaunchedEffect(gridState, imageLoader) {
-        fun enqueueTiles(indices: List<Int>, edgePx: Int): List<Disposable> {
-            val tl = currentTimeline
-            return indices.mapNotNull { index ->
-                val item = tl.tileItemAt(index) ?: return@mapNotNull null
-                val request = ImageRequest.Builder(context)
-                    .data(item.thumbnailRequest())
-                    .size(edgePx, edgePx)
-                    .build()
-                imageLoader.enqueue(request)
-            }
-        }
-
-        coroutineScope {
-            launch {
-                var lastFirstVisible = gridState.firstVisibleItemIndex
-                var lastTimeNanos = System.nanoTime()
-                var velocity = 0f
-                var prefetching = true
-                var inFlight: List<Disposable> = emptyList()
-                snapshotFlow {
-                    val visible = gridState.layoutInfo.visibleItemsInfo
-                    PrefetchWindow(
-                        firstVisible = visible.firstOrNull()?.index ?: 0,
-                        lastVisible = visible.lastOrNull()?.index ?: -1,
-                        visibleCount = visible.size,
-                        tilePx = visible.maxOfOrNull { minOf(it.size.width, it.size.height) } ?: 0,
-                    )
-                }
-                    .distinctUntilChanged()
-                    .collect { window ->
-                        if (window.lastVisible < 0 || window.tilePx <= 0) return@collect
-                        val now = System.nanoTime()
-                        velocity = FlingDecodeGate.smoothVelocity(
-                            prevVelocity = velocity,
-                            indexDelta = window.firstVisible - lastFirstVisible,
-                            elapsedNanos = now - lastTimeNanos,
-                        )
-                        lastTimeNanos = now
-                        val goingDown = window.firstVisible >= lastFirstVisible
-                        lastFirstVisible = window.firstVisible
-
-                        // Cancel the prior batch; those tiles are now on-screen or flung past. Done
-                        // unconditionally so a fast fling also cancels any lookahead dispatched just
-                        // before it crossed the threshold (APP-701).
-                        inFlight.forEach { it.dispose() }
-                        inFlight = emptyList()
-
-                        // Fast fling — suspend the lookahead entirely so the bounded, no-priority
-                        // decode pool stays reserved for the tiles actually landing; the idle warm
-                        // refills the caches the instant the fling settles (APP-701, finding #5).
-                        prefetching = FlingDecodeGate.shouldPrefetchAhead(velocity, prefetching)
-                        if (!prefetching) return@collect
-
-                        // ~1.5 viewports ahead, bounded — aggressive enough to stay ahead of a steady
-                        // scroll without saturating the decode pool the visible tiles need.
-                        val aheadCount = (window.visibleCount * 3 / 2)
-                            .coerceIn(1, PREFETCH_AHEAD_MAX)
-                        val indices = PrefetchPlanner.ahead(
-                            firstVisible = window.firstVisible,
-                            lastVisible = window.lastVisible,
-                            goingDown = goingDown,
-                            aheadCount = aheadCount,
-                            itemCount = currentTimeline.totalCells,
-                        )
-                        inFlight = enqueueTiles(indices, window.tilePx)
-                    }
-            }
-
-            launch {
-                var warming: List<Disposable> = emptyList()
-                snapshotFlow { gridState.isScrollInProgress }
-                    .distinctUntilChanged()
-                    .collect { scrolling ->
-                        warming.forEach { it.dispose() }
-                        warming = emptyList()
-                        if (scrolling) return@collect
-                        val visible = gridState.layoutInfo.visibleItemsInfo
-                        val first = visible.firstOrNull()?.index ?: return@collect
-                        val last = visible.lastOrNull()?.index ?: return@collect
-                        val tilePx = visible.maxOfOrNull { minOf(it.size.width, it.size.height) } ?: 0
-                        if (tilePx <= 0) return@collect
-                        val itemCount = currentTimeline.totalCells
-                        // Crisp warm — the near viewport, at the real display size (unchanged).
-                        val radius = (visible.size * 2).coerceIn(1, IDLE_WARM_MAX)
-                        val crisp = PrefetchPlanner.idleWarm(
-                            firstVisible = first,
-                            lastVisible = last,
-                            radius = radius,
-                            itemCount = itemCount,
-                        )
-                        // Coarse warm (APP-709) — a wider band BEYOND the crisp ring at the cheap
-                        // low-res edge, so a subsequent fling settling into it paints an instant
-                        // low-res tile and upgrades to crisp on show. Cheap decodes, disjoint from the
-                        // crisp band, and — like the crisp warm — disposed the instant scrolling
-                        // resumes, so neither steals a decode slot from the next fling's visible tiles.
-                        val outerRadius = (radius + visible.size * COARSE_RING_VIEWPORTS)
-                            .coerceAtMost(COARSE_RING_MAX)
-                        val coarse = PrefetchPlanner.coarseRing(
-                            firstVisible = first,
-                            lastVisible = last,
-                            innerRadius = radius,
-                            outerRadius = outerRadius,
-                            itemCount = itemCount,
-                        )
-                        // Crisp first (near viewport = higher priority), then the coarse outer ring.
-                        warming = enqueueTiles(crisp, tilePx) +
-                            enqueueTiles(coarse, ThumbnailSizes.coarsePreviewEdgePx)
-                    }
-            }
-        }
-    }
+    GridThumbnailPrefetch(
+        gridState = gridState,
+        itemCount = timeline.totalCells,
+        coarseEdgePx = ThumbnailSizes.coarsePreviewEdgePx,
+        modelAt = { index -> timeline.tileItemAt(index)?.thumbnailRequest() },
+    )
 }
-
-private const val PREFETCH_AHEAD_MAX = 60
-private const val IDLE_WARM_MAX = 80
-
-// APP-709 coarse low-res warm ring, measured in *viewports* of extra reach past the crisp warm ring
-// and hard-capped so the cheap-but-not-free 128px decodes stay bounded on a huge library.
-private const val COARSE_RING_VIEWPORTS = 3
-private const val COARSE_RING_MAX = 240
 
 @Composable
 private fun MediaTile(

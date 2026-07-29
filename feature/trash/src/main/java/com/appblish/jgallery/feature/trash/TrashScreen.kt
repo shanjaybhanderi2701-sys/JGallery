@@ -64,6 +64,7 @@ import com.appblish.jgallery.core.model.TrashPolicy
 import com.appblish.jgallery.core.ui.grid.GalleryPullToRefresh
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
+import com.appblish.jgallery.core.ui.grid.GridThumbnailPrefetch
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.grid.rememberGridZoomState
@@ -433,6 +434,18 @@ private fun TrashGrid(
                 )
             }
         }
+
+        // APP-722 P2: the shared windowed prefetch on the bin too, so a full recycle bin flings with
+        // thumbnails warming ahead of the viewport like every other grid. Trash tiles paint plain
+        // (muted) previews with no progressive placeholder, so no coarse ring. All through the single
+        // gated fetcher (APP-712 WriteBackGate).
+        GridThumbnailPrefetch(
+            gridState = zoom.gridState,
+            itemCount = entries.size,
+            modelAt = { index ->
+                entries.getOrNull(index)?.let { ThumbnailRequest(it.id, it.trashedAtMillis) }
+            },
+        )
 
         GridFastScroller(gridState = zoom.gridState, itemCount = entries.size)
         ScrollToTopFab(gridState = zoom.gridState, enabled = !selectionMode)

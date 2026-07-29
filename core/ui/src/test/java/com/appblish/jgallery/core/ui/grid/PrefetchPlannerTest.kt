@@ -1,4 +1,4 @@
-package com.appblish.jgallery.feature.photos
+package com.appblish.jgallery.core.ui.grid
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue

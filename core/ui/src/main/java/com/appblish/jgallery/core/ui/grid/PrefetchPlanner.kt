@@ -1,4 +1,4 @@
-package com.appblish.jgallery.feature.photos
+package com.appblish.jgallery.core.ui.grid
 
 /**
  * Pure grid-index math behind the cold-cache first-load prefetch (APP-456, from JD device finding 2).
@@ -13,6 +13,9 @@ package com.appblish.jgallery.feature.photos
  * - [idleWarm] runs once the scroll SETTLES: a wider symmetric window in both directions. Aggressive is
  *   safe here because no visible tile is competing for slots; the caller cancels it the instant
  *   scrolling resumes.
+ *
+ * Moved verbatim from `feature/photos` into `:core:ui` (APP-722 P2) so every grid's shared prefetch
+ * ([GridThumbnailPrefetch]) plans its windows exactly the way the Photos timeline always has.
  */
 internal object PrefetchPlanner {
 

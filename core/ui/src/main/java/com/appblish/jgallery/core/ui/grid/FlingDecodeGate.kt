@@ -1,4 +1,4 @@
-package com.appblish.jgallery.feature.photos
+package com.appblish.jgallery.core.ui.grid
 
 import kotlin.math.abs
 
@@ -17,6 +17,10 @@ import kotlin.math.abs
  * Kept free of Compose/Coil/Android types so the threshold, hysteresis and smoothing are
  * JVM-unit-testable; device tuning of the constants is confirmed against the APP-699 decode-count
  * harness on real hardware.
+ *
+ * Moved verbatim from `feature/photos` into `:core:ui` (APP-722 P2) so every grid's shared prefetch
+ * ([GridThumbnailPrefetch]) gates its lookahead the same way Photos always has — one implementation,
+ * no fork.
  */
 internal object FlingDecodeGate {
 

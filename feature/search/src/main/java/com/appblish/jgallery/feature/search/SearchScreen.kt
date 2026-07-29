@@ -69,6 +69,8 @@ import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.model.MediaType
 import com.appblish.jgallery.core.model.formatBadge
 import com.appblish.jgallery.core.model.isPanorama
+import com.appblish.jgallery.core.thumbs.ThumbnailSizes
+import com.appblish.jgallery.core.thumbs.memoryCacheKey
 import com.appblish.jgallery.core.thumbs.thumbnailRequest
 import com.appblish.jgallery.core.ui.component.FormatBadgeChip
 import com.appblish.jgallery.core.ui.component.FormatFilterChips
@@ -79,6 +81,7 @@ import com.appblish.jgallery.core.ui.format.MediaDecodeBox
 import com.appblish.jgallery.core.ui.format.MediaDecodeTilePlaceholder
 import com.appblish.jgallery.core.ui.grid.GridFastScroller
 import com.appblish.jgallery.core.ui.grid.GridReflowPlacementSpec
+import com.appblish.jgallery.core.ui.grid.GridThumbnailPrefetch
 import com.appblish.jgallery.core.ui.grid.ScrollToTopFab
 import com.appblish.jgallery.core.ui.grid.gridPinchColumns
 import com.appblish.jgallery.core.ui.theme.JGalleryColors
@@ -648,6 +651,17 @@ private fun SearchResultsGrid(
             }
         }
 
+        // APP-722 P2: the same shared windowed prefetch + coarse-warm ring every media grid uses, so a
+        // broad result set flings with thumbnails decoding ahead of the viewport and settles onto
+        // instant low-res tiles that upgrade to crisp. Flat list, no headers. All through the single
+        // gated fetcher (APP-712 WriteBackGate).
+        GridThumbnailPrefetch(
+            gridState = gridState,
+            itemCount = results.size,
+            coarseEdgePx = ThumbnailSizes.coarsePreviewEdgePx,
+            modelAt = { index -> results.getOrNull(index)?.thumbnailRequest() },
+        )
+
         GridFastScroller(gridState = gridState, itemCount = results.size)
         ScrollToTopFab(gridState = gridState)
     }
@@ -675,8 +689,9 @@ private fun SearchTile(
             .clickable(onClick = onClick)
             .semantics { contentDescription = item.displayName },
     ) {
+        val thumbnailRequest = item.thumbnailRequest()
         MediaDecodeBox(
-            model = item.thumbnailRequest(),
+            model = thumbnailRequest,
             displayName = item.displayName,
             mimeType = item.mimeType,
             sizeBytes = item.sizeBytes,
@@ -684,6 +699,9 @@ private fun SearchTile(
             contentScale = if (isPano) ContentScale.FillWidth else ContentScale.Crop,
             modifier = Modifier.fillMaxSize(),
             crossfade = false,
+            // APP-722 P2 progressive two-pass (APP-709): paint the warm coarse entry instantly while
+            // the crisp decode lands. Only reads the memory cache — no extra decode on the hot path.
+            placeholderMemoryCacheKey = thumbnailRequest.memoryCacheKey(),
             loadingColor = if (isPano) Color.Black else JGalleryColors.TilePlaceholder,
             placeholder = { MediaDecodeTilePlaceholder(it) },
         )
