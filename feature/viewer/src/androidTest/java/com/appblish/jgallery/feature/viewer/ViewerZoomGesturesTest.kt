@@ -60,14 +60,14 @@ class ViewerZoomGesturesTest {
 
         assertTrue("chrome starts visible on viewer entry", chromeVisible)
 
-        tapCanvas()
+        awaitTap(before = chromeVisible) { chromeVisible }
         assertFalse("first tap hides the chrome (goes immersive)", chromeVisible)
 
         // The stale-closure bug made this stay false forever — this is the crux of APP-667.
-        tapCanvas()
+        awaitTap(before = chromeVisible) { chromeVisible }
         assertTrue("second tap must restore the chrome (toggle is bidirectional)", chromeVisible)
 
-        tapCanvas()
+        awaitTap(before = chromeVisible) { chromeVisible }
         assertFalse("toggle repeats indefinitely — third tap hides again", chromeVisible)
     }
 
@@ -119,8 +119,18 @@ class ViewerZoomGesturesTest {
         assertTrue("an upward drag must NOT be claimed as a dismiss (down-only)", upDrags.isEmpty())
     }
 
-    private fun tapCanvas() {
+    /**
+     * Taps the canvas and waits for the toggle to actually register. [detectTapGestures] here carries an
+     * `onDoubleTap`, so it defers the single-tap `onTap` until the double-tap window (~doubleTapTimeout,
+     * *real* time) closes. On a connected-device instrumented run `waitForIdle()` returns before that real
+     * delay elapses, so a bare `click()` + `waitForIdle()` asserts too early and reads a stale value (the
+     * failure is environmental, not a product regression — it reproduces on the pre-change arbiter too).
+     * We poll real time until the hoisted state flips; if it never does (a genuine APP-667 regression) the
+     * poll simply lapses and the following assertion reports it with its descriptive message.
+     */
+    private fun awaitTap(before: Boolean, current: () -> Boolean) {
         composeRule.onNodeWithTag(TAP_TARGET).performTouchInput { click() }
+        runCatching { composeRule.waitUntil(timeoutMillis = 2_000) { current() != before } }
         composeRule.waitForIdle()
     }
 
