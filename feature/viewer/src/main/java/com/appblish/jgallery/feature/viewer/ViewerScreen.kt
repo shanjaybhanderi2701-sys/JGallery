@@ -403,6 +403,22 @@ private fun ViewerPager(
     // Dismiss must not fire while a slideshow runs (arbiter §7): back-press stops the slideshow first.
     val dismissEnabled = !slideshowOn
 
+    // Shared-element close (motion-spec APP-711 §3): the toolbar back AND hardware back both route through
+    // one idempotent closeViewer(). Chrome fades out first (§3.1, 100 ms) then the nav pop runs, letting the
+    // grid↔viewer `sharedBounds` morph (PhotoSharedTransition, 240 ms EmphasizedAccel) animate the photo home
+    // to its source tile — no hard cut. The `closing` latch makes a second back-press while the close is in
+    // flight a no-op (§3.1 re-entrancy). A committed swipe-dismiss also sets it (below) so the two can't race.
+    var closing by remember { mutableStateOf(false) }
+    val closeViewer: () -> Unit = closeViewer@{
+        if (closing) return@closeViewer
+        closing = true
+        onChromeVisibleChange(false)
+        scope.launch {
+            delay(ViewerMotion.ChromeFadeOutMs.toLong())
+            onBack()
+        }
+    }
+
     // Surface each completed op's "done / reason" summary once, then clear it (spec §7.6).
     LaunchedEffect(actionState) {
         val finished = actionState as? ViewerActionUiState.Finished ?: return@LaunchedEffect
@@ -417,6 +433,11 @@ private fun ViewerPager(
         slideshowPaused = false
         onChromeVisibleChange(true)
     }
+
+    // Hardware back closes the viewer through the shared-element morph (motion-spec §3.2) instead of a hard
+    // pop. Enabled only when no slideshow runs — the slideshow BackHandler above keeps priority (back stops
+    // the slideshow, it does not close the viewer), and the two `enabled` flags are mutually exclusive.
+    BackHandler(enabled = !slideshowOn) { closeViewer() }
 
     // Auto-advance driver (APP-544, video-dwell fix APP-548, configured interval APP-594). Runs only
     // while the slideshow is on and not paused. It dwells [slideshowIntervalMs] per image, then advances
@@ -491,7 +512,17 @@ private fun ViewerPager(
                         dismissState.onDrag(delta)
                     },
                     onDismissRelease = { velocity ->
-                        scope.launch { dismissState.onRelease(velocity, onDismiss = onBack) }
+                        // A committed swipe runs DismissState's in-place fade (§2.3) then pops; guard the pop
+                        // with the same `closing` latch closeViewer() uses so a back-press mid-fade can't
+                        // double-pop. Chrome is already hidden by onDismissDrag, so no extra chrome fade here.
+                        scope.launch {
+                            dismissState.onRelease(velocity, onDismiss = {
+                                if (!closing) {
+                                    closing = true
+                                    onBack()
+                                }
+                            })
+                        }
                     },
                     onDismissCancel = { scope.launch { dismissState.cancelToSnapBack() } },
                 )
@@ -520,7 +551,8 @@ private fun ViewerPager(
                 favorite = currentItem?.id in favorites,
                 onToggleFavorite = { currentItem?.let { onToggleFavorite(it.id) } },
                 onRotate = { dir -> currentItem?.let { handlers.onRotate(it.id, dir) } },
-                onBack = onBack,
+                // Toolbar back rides the shared-element close, same path as hardware back (motion-spec §3.2).
+                onBack = closeViewer,
             )
         }
         AnimatedVisibility(

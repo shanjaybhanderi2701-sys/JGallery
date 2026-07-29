@@ -9,19 +9,20 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.util.lerp
 
 /**
- * Single source of truth for the premium-viewer motion contract (APP-692 `motion-spec`, §0). Both the
- * dismiss motion layer ([DismissState]) **and** the gesture arbiter ([viewerZoomGestures]) read these
- * numbers so thresholds/velocities never drift between "what a dismiss looks like" and "when a drag
- * commits to dismiss" (arbiter design APP-693 §6, seam agreement 1).
+ * Single source of truth for the premium-viewer motion contract (APP-711 `motion-spec`, which re-tunes
+ * the numbers first defined in APP-692 — see the §7 delta table). Both the dismiss motion layer
+ * ([DismissState]) **and** the gesture arbiter ([viewerZoomGestures]) read these numbers so
+ * thresholds/velocities never drift between "what a dismiss looks like" and "when a drag commits to
+ * dismiss" (arbiter design APP-693 §6, seam agreement 1; APP-711 §1/§4).
  *
  * The pure math ([dismissProgress]/[geometryProgress] and the visual mappings) takes **pixels** so it is
  * JVM-unit-testable with no Compose runtime; the dp/duration constants are converted at the call site.
  */
 internal object ViewerMotion {
 
-    // --- Open / close shared-element transform (motion-spec §1.2) ---
+    // --- Open / close shared-element transform (motion-spec APP-711 §1) ---
     const val OpenDurationMs = 300
-    const val CloseDurationMs = 250
+    const val CloseDurationMs = 240 // APP-711 §1/§7: tightened from 250 — a faster close reads as responsive
 
     /** Enter: content rushes in, settles softly. `CubicBezier(0.05, 0.7, 0.1, 1.0)`. */
     val EmphasizedDecel = CubicBezierEasing(0.05f, 0.7f, 0.1f, 1.0f)
@@ -32,40 +33,55 @@ internal object ViewerMotion {
     /** FastOutLinearIn — the dim leads the morph slightly so the incoming frame never flashes the grid. */
     val ScrimEasing = CubicBezierEasing(0.4f, 0.0f, 1.0f, 1.0f)
 
-    // --- Swipe-down dismiss (motion-spec §0) ---
-    /** Fraction of the viewer container height that maps to the dismiss threshold distance. */
-    const val ThresholdFraction = 0.15f
-    val ThresholdDistanceMin = 96.dp
-    val ThresholdDistanceMax = 200.dp
+    // --- Swipe-down dismiss — Samsung One UI match (motion-spec APP-711 §1/§7) ---
+    /** Fraction of the viewer container height that maps to the dismiss threshold distance (§7: 0.15→0.12). */
+    const val ThresholdFraction = 0.12f
+    val ThresholdDistanceMin = 80.dp // §7: 96→80 — ~100 dp threshold on a phone, dismisses on a shorter drag
+    val ThresholdDistanceMax = 160.dp // §7: 200→160
 
-    /** Downward fling (dp/s) that commits a dismiss regardless of distance. */
-    const val ThresholdVelocityDpPerSec = 1200f
+    /** Downward fling (dp/s) that commits a dismiss regardless of distance (§7: 1200→1000 — a flick dismisses). */
+    const val ThresholdVelocityDpPerSec = 1000f
 
-    /** Container-height fraction that maps to full scale/fade travel (`g` reference). */
+    /** Container-height fraction that maps to full scale/fade travel (`g` reference; unchanged). */
     const val GeometryRefFraction = 0.5f
 
-    /** Intent window before the drag axis locks (arbiter §2 axis lock; motion-spec §0). */
+    /**
+     * Claim dismiss iff `|dy| > VerticalLockRatio * |dx|` **and** `dy > 0` (down-only) — the arbiter's
+     * axis-lock test (motion-spec §1/§4 rule 2). 1.0 = a drag that is even marginally more vertical than
+     * horizontal, and downward, is a dismiss; anything horizontal-dominant or upward stays with the pager.
+     */
+    const val VerticalLockRatio = 1.0f
+
+    /** Intent window before the drag axis locks (arbiter §2 axis lock; motion-spec §1/§4). */
     val DirectionLockSlop = 12.dp
 
     /** Dismiss exit (past threshold): the reverse of the open, seeded from the drag (motion-spec §2.3). */
     const val DismissExitDurationMs = 220
 
-    // Chrome fade choreography (motion-spec §1.4 / §2.1) — kept here so callers share the numbers.
+    /**
+     * In-place fade-out fallback when the source grid-cell rect isn't available to morph back to
+     * (motion-spec §2.3/§3.1 fallback): the photo shrinks to [MinDismissScale] and photo+scrim fade to 0
+     * where they sit, then the viewer pops — continuous, never a hard cut.
+     */
+    const val DismissInPlaceFadeMs = 200
+
+    // Chrome fade choreography (motion-spec §1.4 / §2.1 / §3.1) — kept here so callers share the numbers.
     const val ChromeFadeOutMs = 100
 
-    // Scale/alpha travel endpoints (motion-spec §2.1).
-    const val MinDismissScale = 0.5f
-    const val MinPhotoAlpha = 0.7f
+    // Scale/alpha travel endpoints (motion-spec §1/§2.1).
+    const val MinDismissScale = 0.60f // §7: 0.5→0.60 — Samsung keeps the image larger while dragging (≈0.90 at threshold)
+    const val MinPhotoAlpha = 0.70f
 
     /**
-     * Snap-back spring (release before threshold): a *whisper* of overshoot, settles in ≈300 ms. The
+     * Snap-back spring (release before threshold): a *whisper* of overshoot, settles in ≈260 ms. The
      * single most premium-feel moment — must read elastic, not like a linear `tween` retract
-     * (motion-spec §2.4). dampingRatio 0.8 stays within the specced 0.75–0.85 band.
+     * (motion-spec §1/§2.4; §7: 0.80/380→0.82/420 for a snappier return). dampingRatio 0.82 stays within
+     * the specced 0.78–0.86 band.
      */
-    val SnapBackSpring = spring(dampingRatio = 0.8f, stiffness = 380f, visibilityThreshold = Offset.VisibilityThreshold)
+    val SnapBackSpring = spring(dampingRatio = 0.82f, stiffness = 420f, visibilityThreshold = Offset.VisibilityThreshold)
 
     /** Scalar snap-back spring for the auxiliary progress animatables (same feel as [SnapBackSpring]). */
-    val SnapBackSpringFloat = spring<Float>(dampingRatio = 0.8f, stiffness = 380f)
+    val SnapBackSpringFloat = spring<Float>(dampingRatio = 0.82f, stiffness = 420f)
 
     /** Zoom double-tap / focal spring feel is owned by [ZoomState]; kept there (`StiffnessMediumLow`). */
     @Suppress("unused")
@@ -73,7 +89,7 @@ internal object ViewerMotion {
 
     // --- Pure, testable math (pixels in, unit-less progress / factors out) ---
 
-    /** `thresholdDistance = clamp(0.15 × containerHeight, 96dp, 200dp)`, all in px. */
+    /** `thresholdDistance = clamp(0.12 × containerHeight, 80dp, 160dp)`, all in px (motion-spec §1/§7). */
     fun thresholdDistancePx(containerHeightPx: Float, minPx: Float, maxPx: Float): Float =
         (ThresholdFraction * containerHeightPx).coerceIn(minPx, maxPx)
 
@@ -92,7 +108,7 @@ internal object ViewerMotion {
         if (containerHeightPx <= 0f) 0f
         else (dragY / (GeometryRefFraction * containerHeightPx)).coerceIn(0f, 1f)
 
-    /** Page scale from `g`: `lerp(1.0, 0.5, g)` (motion-spec §2.1). */
+    /** Page scale from `g`: `lerp(1.0, 0.60, g)` (motion-spec §1/§2.1). */
     fun pageScale(g: Float): Float = lerp(1f, MinDismissScale, g)
 
     /** Photo alpha from `g`: `lerp(1.0, 0.7, g)` — stays crisp, only a hint of fade (motion-spec §2.1). */

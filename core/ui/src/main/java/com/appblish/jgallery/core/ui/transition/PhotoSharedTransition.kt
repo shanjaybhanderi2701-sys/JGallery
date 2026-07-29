@@ -36,14 +36,16 @@ private val EmphasizedAccel = CubicBezierEasing(0.3f, 0.0f, 0.8f, 0.15f)
 
 /**
  * Bounds morph: **open** (target larger than source) runs 300 ms emphasized-decelerate — content rushes
- * in and settles softly; **close** runs 250 ms emphasized-accelerate — faster than open reads as
- * responsive (motion-spec §1.2). Direction is inferred from which rect is bigger.
+ * in and settles softly; **close** runs 240 ms emphasized-accelerate — faster than open reads as
+ * responsive (motion-spec APP-711 §1/§7, tightened from 250). Direction is inferred from which rect is
+ * bigger. This is the shared-element close both the swipe-dismiss and the Back button route through
+ * (APP-711 §3), so its close duration must stay byte-identical to `ViewerMotion.CloseDurationMs`.
  */
 @OptIn(ExperimentalSharedTransitionApi::class)
 private val PhotoBoundsTransform = BoundsTransform { initial, target ->
     val opening = target.width * target.height >= initial.width * initial.height
     tween(
-        durationMillis = if (opening) 300 else 250,
+        durationMillis = if (opening) 300 else 240,
         easing = if (opening) EmphasizedDecel else EmphasizedAccel,
     )
 }

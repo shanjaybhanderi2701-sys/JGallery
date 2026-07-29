@@ -9,11 +9,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.click
+import androidx.compose.ui.test.down
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.moveBy
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.up
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -65,6 +69,54 @@ class ViewerZoomGesturesTest {
 
         tapCanvas()
         assertFalse("toggle repeats indefinitely — third tap hides again", chromeVisible)
+    }
+
+    /**
+     * Regression gate for the arbiter's **down-only** dismiss claim (motion-spec APP-711 §4 rule 2, §5
+     * diagonal-drag guard): a downward-dominant drag past the 12 dp direction-lock slop is claimed as a
+     * dismiss (reports drag up), but an upward drag of the same magnitude is NOT — it stays inert with the
+     * pager. Guards against a vertical-up drag being wrongly swallowed as a dismiss.
+     */
+    @Test
+    fun verticalDrag_claimsDismissDownwardOnly() {
+        val downDrags = mutableListOf<Offset>()
+        val upDrags = mutableListOf<Offset>()
+        var record = downDrags
+        composeRule.setContent {
+            val state = remember { ZoomState() }
+            val scope = rememberCoroutineScope()
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .testTag(TAP_TARGET)
+                    .viewerZoomGestures(
+                        state = state,
+                        scope = scope,
+                        onTap = {},
+                        dismissEnabled = true,
+                        onDismissDrag = { record.add(it) },
+                    ),
+            )
+        }
+
+        // Downward past the 12 dp slop → claimed as a dismiss, drag reported.
+        composeRule.onNodeWithTag(TAP_TARGET).performTouchInput {
+            down(center)
+            moveBy(Offset(0f, 300f))
+            up()
+        }
+        composeRule.waitForIdle()
+        assertTrue("a downward-dominant drag must be claimed as a dismiss", downDrags.isNotEmpty())
+
+        // Upward of the same magnitude → NOT a dismiss (down-only), nothing reported.
+        record = upDrags
+        composeRule.onNodeWithTag(TAP_TARGET).performTouchInput {
+            down(center)
+            moveBy(Offset(0f, -300f))
+            up()
+        }
+        composeRule.waitForIdle()
+        assertTrue("an upward drag must NOT be claimed as a dismiss (down-only)", upDrags.isEmpty())
     }
 
     private fun tapCanvas() {
