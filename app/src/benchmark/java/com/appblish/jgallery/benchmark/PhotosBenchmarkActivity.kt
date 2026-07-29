@@ -97,6 +97,9 @@ class PhotosBenchmarkActivity : ComponentActivity() {
         // layout-only lane keeps the untouched production loader.
         if (realPipeline && optedIn && !cleanupMode) {
             BenchDecodeCounters.install(appContext)
+            // APP-712 (P0 ceiling proof): zero the write-back gauge so the logged inFlight/peak/
+            // dropped counts describe THIS run only, not a residue from a prior process.
+            com.appblish.jgallery.core.thumbs.WriteBackGauge.reset()
         }
 
         setContent {
@@ -164,6 +167,22 @@ class PhotosBenchmarkActivity : ComponentActivity() {
                     android.util.Log.i(
                         BenchDecodeCounters.TAG,
                         "JGALLERY_BENCH_EDGE_HIST ${BenchDecodeCounters.edgeHistogram()}",
+                    )
+                    // APP-712 (P0 ceiling proof): the write-back queue depth + peak alongside the heap.
+                    // BEFORE the fix these climb monotonically with scroll distance (pinned bitmaps) and
+                    // the decode count flat-lines once heap headroom runs out; AFTER the fix the peak is
+                    // pinned at the gate cap and the used heap stays bounded while decodeCount keeps
+                    // climbing past 400/1000/5000. `dropped` is expected to grow on a fast fling and is
+                    // harmless (those thumbnails re-decode from MediaStore on the next cold launch).
+                    val runtime = Runtime.getRuntime()
+                    val usedHeapMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
+                    val maxHeapMb = runtime.maxMemory() / (1024 * 1024)
+                    val nativeHeapMb = android.os.Debug.getNativeHeapAllocatedSize() / (1024 * 1024)
+                    android.util.Log.i(
+                        BenchDecodeCounters.TAG,
+                        "JGALLERY_BENCH_WRITEBACK " +
+                            "${com.appblish.jgallery.core.thumbs.WriteBackGauge.snapshot()} " +
+                            "usedHeapMb=$usedHeapMb maxHeapMb=$maxHeapMb nativeHeapMb=$nativeHeapMb",
                     )
                 }
             }
