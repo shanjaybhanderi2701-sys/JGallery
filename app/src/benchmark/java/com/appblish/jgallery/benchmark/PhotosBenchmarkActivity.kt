@@ -7,6 +7,9 @@ import android.util.Log
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.material3.windowsizeclass.ExperimentalMaterial3WindowSizeClassApi
+import androidx.compose.material3.windowsizeclass.calculateWindowSizeClass
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -33,6 +36,9 @@ import kotlinx.coroutines.withContext
 import com.appblish.jgallery.core.model.ColumnCount
 import com.appblish.jgallery.core.model.MediaItem
 import com.appblish.jgallery.core.ui.theme.JGalleryTheme
+import com.appblish.jgallery.core.ui.window.LocalWindowSizeClass
+import com.appblish.jgallery.feature.albums.AlbumDetailScreen
+import com.appblish.jgallery.feature.albums.AlbumDetailUiState
 import com.appblish.jgallery.feature.photos.PhotosScreen
 import com.appblish.jgallery.feature.photos.PhotosUiState
 import com.appblish.jgallery.feature.photos.WindowedPhotosTimeline
@@ -80,7 +86,10 @@ import java.time.ZoneId
  * annotation lives in the benchmark source set only and never reaches a shipped APK.
  */
 @AndroidEntryPoint
-@OptIn(ExperimentalComposeUiApi::class) // testTagsAsResourceId — the supported UiAutomator seam
+@OptIn(ExperimentalComposeUiApi::class, ExperimentalMaterial3WindowSizeClassApi::class)
+// testTagsAsResourceId — the supported UiAutomator seam; calculateWindowSizeClass — provide
+// LocalWindowSizeClass at the bench root exactly as MainActivity does (the real PhotosScreen reads it
+// via adaptiveColumns, so rendering it outside a provider crashes — bench-harness parity, not product).
 class PhotosBenchmarkActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -90,6 +99,10 @@ class PhotosBenchmarkActivity : ComponentActivity() {
         val optedIn = intent.getBooleanExtra(EXTRA_OPT_IN, false)
         val cleanupMode = intent.getBooleanExtra(EXTRA_CLEANUP, false)
         val realPipeline = intent.getBooleanExtra(EXTRA_REAL_PIPELINE, false)
+        // APP-722 P2: which grid the real-pipeline proof renders. Photos is the default; `album_detail`
+        // renders the REAL inside-album grid (AlbumDetailScreen) so the decode-log proof covers the
+        // shared GridThumbnailPrefetch on the Albums surface too, not only Photos.
+        val grid = intent.getStringExtra(EXTRA_GRID) ?: GRID_PHOTOS
         val appContext = applicationContext
 
         // Install the counting image loader BEFORE setContent (before the grid's first image request)
@@ -104,6 +117,13 @@ class PhotosBenchmarkActivity : ComponentActivity() {
 
         setContent {
             JGalleryTheme {
+                // Adaptive foundation (APP-651): the real PhotosScreen/AlbumGrid read LocalWindowSizeClass
+                // via adaptiveColumns. MainActivity provides it at the app root; the bench renders these
+                // screens OUTSIDE MainActivity, so it must provide the same seam or composition crashes
+                // (IllegalStateException "LocalWindowSizeClass not provided"). Bench-harness parity only.
+                CompositionLocalProvider(
+                    LocalWindowSizeClass provides calculateWindowSizeClass(this),
+                ) {
                 when {
                     // (1) One-shot cleanup path (`--ez bench_cleanup true`): the macrobenchmark's
                     // post-run teardown and the operator's "purge the leaked assets" button both land
@@ -111,8 +131,13 @@ class PhotosBenchmarkActivity : ComponentActivity() {
                     cleanupMode -> CleanupScreen(appContext)
 
                     // (2a) Real-pipeline opt-in (`--ez bench_real_pipeline true --ez bench_opt_in
-                    // true`): seed the corpus then render the REAL Hilt `PhotosScreen`, exercising the
-                    // Room → repository → ViewModel → timeline path (APP-699).
+                    // true`): seed the corpus then render the REAL grid, exercising the shared
+                    // windowed prefetch + thumbnail pipeline (APP-699 / APP-722 P2). `--es bench_grid
+                    // album_detail` swaps Photos for the REAL inside-album grid so the decode-log proof
+                    // covers the Albums surface on the identical GridThumbnailPrefetch too.
+                    realPipeline && optedIn && grid == GRID_ALBUM_DETAIL ->
+                        RealPipelineAlbumDetailGrid(appContext, corpusSize)
+
                     realPipeline && optedIn -> RealPipelineGrid(appContext, corpusSize)
 
                     // (2b) Explicit opt-in (`--ez bench_opt_in true`, passed only by the macrobenchmark
@@ -123,6 +148,7 @@ class PhotosBenchmarkActivity : ComponentActivity() {
                     // library, APP-458). Show a guard screen that explains how to run it and offers a
                     // one-tap cleanup for any assets already leaked onto this device.
                     else -> GuardScreen(appContext)
+                }
                 }
             }
         }
@@ -155,37 +181,7 @@ class PhotosBenchmarkActivity : ComponentActivity() {
 
         if (seeded) {
             // Periodic counter readout for the logcat proof (APP-699 decodeCount / cacheHit).
-            LaunchedEffect(Unit) {
-                while (isActive) {
-                    delay(COUNTER_LOG_INTERVAL_MS)
-                    android.util.Log.i(
-                        BenchDecodeCounters.TAG,
-                        "JGALLERY_BENCH_DECODE_COUNTS ${BenchDecodeCounters.snapshot()}",
-                    )
-                    // APP-709: the requested-edge bucket histogram — proves phones stay on 384–768 and
-                    // never draw the 1024/1536 rungs (and flags any oversized/unbounded over-decode).
-                    android.util.Log.i(
-                        BenchDecodeCounters.TAG,
-                        "JGALLERY_BENCH_EDGE_HIST ${BenchDecodeCounters.edgeHistogram()}",
-                    )
-                    // APP-712 (P0 ceiling proof): the write-back queue depth + peak alongside the heap.
-                    // BEFORE the fix these climb monotonically with scroll distance (pinned bitmaps) and
-                    // the decode count flat-lines once heap headroom runs out; AFTER the fix the peak is
-                    // pinned at the gate cap and the used heap stays bounded while decodeCount keeps
-                    // climbing past 400/1000/5000. `dropped` is expected to grow on a fast fling and is
-                    // harmless (those thumbnails re-decode from MediaStore on the next cold launch).
-                    val runtime = Runtime.getRuntime()
-                    val usedHeapMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
-                    val maxHeapMb = runtime.maxMemory() / (1024 * 1024)
-                    val nativeHeapMb = android.os.Debug.getNativeHeapAllocatedSize() / (1024 * 1024)
-                    android.util.Log.i(
-                        BenchDecodeCounters.TAG,
-                        "JGALLERY_BENCH_WRITEBACK " +
-                            "${com.appblish.jgallery.core.thumbs.WriteBackGauge.snapshot()} " +
-                            "usedHeapMb=$usedHeapMb maxHeapMb=$maxHeapMb nativeHeapMb=$nativeHeapMb",
-                    )
-                }
-            }
+            BenchCounterReadout()
             // The default overload injects the REAL PhotosViewModel via hiltViewModel(); every
             // callback stays at its no-op default (we only scroll). testTagsAsResourceId exposes
             // `photos_grid` to UiAutomator.
@@ -205,6 +201,94 @@ class PhotosBenchmarkActivity : ComponentActivity() {
                         testTag = "bench_seeding"
                     },
             )
+        }
+    }
+
+    /**
+     * Real-pipeline benchmark surface for the **inside-album** grid (APP-722 P2). Seeds the same
+     * corpus, then renders the REAL [AlbumDetailScreen] fed the seeded items — so the decode-log proof
+     * exercises the shared `GridThumbnailPrefetch` + `MediaDecodeBox` path on the Albums surface, not
+     * just Photos. Same `photos_grid`-scale traversal, same bounded `WriteBackGate` (the pipeline is
+     * literally the one Photos consumes), so a passing readout here proves the extraction reached every
+     * grid, which is the whole point of P2.
+     */
+    @Composable
+    private fun RealPipelineAlbumDetailGrid(appContext: Context, corpusSize: Int) {
+        // Seed first (await) so the query below sees the whole corpus, exactly like RealPipelineGrid.
+        val items by produceState<List<MediaItem>?>(initialValue = null, corpusSize) {
+            value = withContext(Dispatchers.IO) {
+                BenchmarkCorpusSeeder.seed(appContext, corpusSize, optedIn = true)
+            }
+        }
+
+        val loaded = items
+        if (loaded != null && loaded.isNotEmpty()) {
+            // Identical periodic counter readout to the Photos path — same tags, so the proof script is
+            // grid-agnostic.
+            BenchCounterReadout()
+            // Stateless AlbumDetailScreen overload fed the seeded corpus as one large album (10k+ tiles).
+            // Its grid consumes the shared GridThumbnailPrefetch (APP-722), so scrolling drives the same
+            // decode → single gated fetcher → WriteBackGate(cap=8) path Photos does.
+            AlbumDetailScreen(
+                title = "Benchmark album",
+                sourceBucketId = null,
+                state = AlbumDetailUiState.Content(loaded),
+                onBack = {},
+                onMediaClick = {},
+                modifier = Modifier
+                    .fillMaxSize()
+                    // Expose Compose testTags as View resource-ids for UiAutomator (album_detail_grid).
+                    .semantics { testTagsAsResourceId = true },
+            )
+        } else {
+            // Pre-seed placeholder — deliberately NOT the grid tag, so the driver keeps waiting through
+            // the seed rather than measuring an empty screen.
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .semantics {
+                        testTagsAsResourceId = true
+                        testTag = "bench_seeding"
+                    },
+            )
+        }
+    }
+
+    /**
+     * The periodic decode / cache-hit / write-back / edge-histogram readout that backs the on-device
+     * logcat proof (APP-699 / APP-709 / APP-712). Shared by every real-pipeline grid so the proof is
+     * grid-agnostic: the same `JGALLERY_BENCH_*` tags are emitted whether the surface is Photos or the
+     * inside-album grid.
+     *
+     * The write-back gauge is the P0 ceiling proof: BEFORE the fix the queue depth/peak climb
+     * monotonically with scroll distance (pinned bitmaps) and decodeCount flat-lines once heap headroom
+     * runs out; AFTER the fix the peak is pinned at the gate cap (<=8) and used heap stays bounded while
+     * decodeCount keeps climbing past 400/1000/5000. `dropped` growing on a fast fling is harmless.
+     */
+    @Composable
+    private fun BenchCounterReadout() {
+        LaunchedEffect(Unit) {
+            while (isActive) {
+                delay(COUNTER_LOG_INTERVAL_MS)
+                android.util.Log.i(
+                    BenchDecodeCounters.TAG,
+                    "JGALLERY_BENCH_DECODE_COUNTS ${BenchDecodeCounters.snapshot()}",
+                )
+                android.util.Log.i(
+                    BenchDecodeCounters.TAG,
+                    "JGALLERY_BENCH_EDGE_HIST ${BenchDecodeCounters.edgeHistogram()}",
+                )
+                val runtime = Runtime.getRuntime()
+                val usedHeapMb = (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024)
+                val maxHeapMb = runtime.maxMemory() / (1024 * 1024)
+                val nativeHeapMb = android.os.Debug.getNativeHeapAllocatedSize() / (1024 * 1024)
+                android.util.Log.i(
+                    BenchDecodeCounters.TAG,
+                    "JGALLERY_BENCH_WRITEBACK " +
+                        "${com.appblish.jgallery.core.thumbs.WriteBackGauge.snapshot()} " +
+                        "usedHeapMb=$usedHeapMb maxHeapMb=$maxHeapMb nativeHeapMb=$nativeHeapMb",
+                )
+            }
         }
     }
 
@@ -349,6 +433,15 @@ class PhotosBenchmarkActivity : ComponentActivity() {
          * than the layout-only hand-built timeline. Defaults to `false` (the layout-only lane).
          */
         const val EXTRA_REAL_PIPELINE = "bench_real_pipeline"
+
+        /**
+         * Selects which grid the real-pipeline proof renders (`--es bench_grid photos|album_detail`).
+         * APP-722 P2: `album_detail` renders the inside-album grid on the same shared pipeline so the
+         * decode-log proof covers the Albums surface too. Defaults to Photos.
+         */
+        const val EXTRA_GRID = "bench_grid"
+        const val GRID_PHOTOS = "photos"
+        const val GRID_ALBUM_DETAIL = "album_detail"
 
         const val BENCH_ACTIVITY = "com.appblish.jgallery.benchmark.PhotosBenchmarkActivity"
 
