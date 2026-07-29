@@ -13,8 +13,8 @@ import org.junit.Test
  */
 class DismissStateTest {
 
-    private val thresholdPx = 330f
-    private val thresholdVelocityPx = 3300f // 1200dp/s × 2.75 density
+    private val thresholdPx = 264f // clamp(0.12 × 2200, 80dp, 160dp) at 2.75 density (motion-spec §1/§7)
+    private val thresholdVelocityPx = 2750f // 1000dp/s × 2.75 density (§7: was 1200dp/s)
     private val containerHeightPx = 2200f
 
     private fun state(reducedMotion: Boolean = false) =
@@ -35,7 +35,9 @@ class DismissStateTest {
 
     @Test
     fun `release past the distance threshold commits the dismiss`() {
-        val s = state()
+        // reducedMotion so the commit skips its in-place fade (no frame clock in a plain runBlocking) and
+        // fires onDismiss immediately — the threshold decision under test is independent of the fade (§2.3/§6).
+        val s = state(reducedMotion = true)
         s.onDrag(Offset(0f, thresholdPx + 1f))
         var dismissed = false
         runBlocking { s.onRelease(Velocity(0f, 0f)) { dismissed = true } }
@@ -44,8 +46,8 @@ class DismissStateTest {
 
     @Test
     fun `a downward fling past the velocity threshold commits even below the distance`() {
-        val s = state()
-        s.onDrag(Offset(0f, 40f)) // well short of the 330px distance
+        val s = state(reducedMotion = true)
+        s.onDrag(Offset(0f, 40f)) // well short of the 264px distance
         var dismissed = false
         runBlocking { s.onRelease(Velocity(0f, thresholdVelocityPx + 1f)) { dismissed = true } }
         assertThat(dismissed).isTrue()
@@ -83,8 +85,8 @@ class DismissStateTest {
     @Test
     fun `progress signals derive from vertical drag only`() {
         val s = state()
-        s.onDrag(Offset(500f, 165f)) // big horizontal drift, half-threshold vertical
+        s.onDrag(Offset(500f, 132f)) // big horizontal drift, half-threshold (264/2) vertical
         assertThat(s.dismissProgress).isWithin(0.001f).of(0.5f) // p ignores x
-        assertThat(s.geometryProgress).isWithin(0.001f).of(165f / 1100f)
+        assertThat(s.geometryProgress).isWithin(0.001f).of(132f / 1100f)
     }
 }

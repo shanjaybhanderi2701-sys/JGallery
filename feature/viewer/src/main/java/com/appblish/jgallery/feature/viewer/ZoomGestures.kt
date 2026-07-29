@@ -88,7 +88,11 @@ internal fun Modifier.viewerZoomGestures(
             )
         }
         .pointerInput(state) {
-            val touchSlop = viewConfiguration.touchSlop
+            // The axis locks once the drag passes DirectionLockSlop (12 dp), the shared intent window
+            // from the motion contract (motion-spec APP-711 §1/§4) — a single source of truth with the
+            // dismiss layer, not the platform touchSlop, so the "is this a page-swipe or a dismiss?"
+            // decision can't drift from the numbers the designer specced.
+            val directionLockSlopPx = ViewerMotion.DirectionLockSlop.toPx()
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 // Sample zoom ONCE, at down (latch rule 1). Multi-touch always transforms.
@@ -130,14 +134,20 @@ internal fun Modifier.viewerZoomGestures(
                                 totalDrag += change.positionChange()
                                 velocityTracker.addPosition(change.uptimeMillis, change.position)
                             }
-                            if (totalDrag.getDistance() > touchSlop) {
-                                // Axis locks once, from the accumulated drag (arbiter §2 rule 2).
-                                mode = if (abs(totalDrag.x) >= abs(totalDrag.y)) {
-                                    DragMode.PAGING // horizontal-dominant → pager owns it; never consume
-                                } else if (currentDismissEnabled) {
-                                    DragMode.DISMISSING // vertical-dominant → claim for dismiss
+                            if (totalDrag.getDistance() > directionLockSlopPx) {
+                                // Axis locks once, from the accumulated drag (arbiter §2 rule 2;
+                                // motion-spec §4). Dismiss is claimed ONLY for a vertical-DOWN-dominant
+                                // drag (|dy| > VerticalLockRatio·|dx| AND dy > 0): a Samsung dismiss is
+                                // down-only, so an upward-dominant vertical drag stays inert with the
+                                // pager (which ignores vertical) instead of being wrongly claimed.
+                                val verticalDominant =
+                                    abs(totalDrag.y) > ViewerMotion.VerticalLockRatio * abs(totalDrag.x)
+                                mode = if (verticalDominant && totalDrag.y > 0f && currentDismissEnabled) {
+                                    DragMode.DISMISSING // vertical-down-dominant → claim for dismiss
                                 } else {
-                                    DragMode.PAGING // dismiss suppressed (slideshow): stay inert, don't consume
+                                    // Horizontal-dominant, upward, or dismiss-suppressed (slideshow):
+                                    // never consume — the pager owns horizontal, vertical stays inert.
+                                    DragMode.PAGING
                                 }
                                 // On entering DISMISSING, replay the accumulated drag so the follow is 1:1
                                 // from the finger's true position, and consume this event to freeze the pager.
